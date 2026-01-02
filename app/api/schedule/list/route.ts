@@ -1,103 +1,88 @@
 import { NextResponse } from "next/server";
-import { createDatabase, queryDatabase, retrieveDatabase } from "@/lib/notion";
-import {
-  buildDatabasePropertiesFromMeta,
-  formatScheduleDateLabel,
-  listScheduleDatabases,
-  scheduleTitleForDate,
-} from "@/lib/schedule-loader";
+import { supabaseRequest } from "@/lib/supabase";
 
-const SCHEDULE_DB_ID = process.env.NOTION_SCHEDULE_DATABASE_ID!;
+type ScheduleRow = {
+  id: string;
+  schedule_date: string;
+  state: string;
+};
 
-async function loadSelectedScheduleDate(settingsDatabaseId?: string) {
-  if (!settingsDatabaseId) return null;
-  const settingsMeta = await retrieveDatabase(settingsDatabaseId);
-  const titleKey = Object.entries(settingsMeta?.properties || {}).find(
-    ([, value]) => (value as any)?.type === "title"
-  )?.[0];
-
-  if (!titleKey) return null;
-
-  const settingsQuery = await queryDatabase(settingsDatabaseId, {
-    page_size: 1,
-    filter: {
-      property: titleKey,
-      title: { equals: "Settings" },
-    },
-    sorts: [
-      {
-        property: "Selected Schedule",
-        direction: "descending",
-      },
-    ],
-  });
-
-  const settingsRow = settingsQuery.results?.[0];
-  const selectedDate = settingsRow?.properties?.["Selected Schedule"]?.date?.start;
-  return selectedDate ? formatScheduleDateLabel(selectedDate) : null;
+function toLabel(date: string) {
+  const [year, month, day] = date.split("-");
+  if (!year || !month || !day) return date;
+  return `${month}/${day}/${year}`;
 }
 
-export async function GET(req: Request) {
-  if (!SCHEDULE_DB_ID) {
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toIso(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+async function ensureScheduleRange(days: number) {
+  const today = new Date();
+  const entries = Array.from({ length: days + 1 }, (_, idx) => ({
+    schedule_date: toIso(addDays(today, idx)),
+    state: "staging",
+  }));
+
+  await supabaseRequest("schedules", {
+    method: "POST",
+    prefer: "resolution=merge-duplicates",
+    query: {
+      on_conflict: "schedule_date,state",
+    },
+    body: entries,
+  });
+}
+
+export async function GET() {
+  try {
+    await ensureScheduleRange(30);
+    const rows = await supabaseRequest<ScheduleRow[]>("schedules", {
+      query: {
+        select: "id,schedule_date,state",
+        order: "schedule_date.asc",
+      },
+    });
+
+    const grouped = new Map<
+      string,
+      { dateLabel: string; liveId?: string; stagingId?: string }
+    >();
+
+    rows.forEach((row) => {
+      const label = toLabel(row.schedule_date);
+      const entry = grouped.get(row.schedule_date) || {
+        dateLabel: label,
+      };
+      if (row.state === "live") {
+        entry.liveId = row.id;
+      } else {
+        entry.stagingId = row.id;
+      }
+      grouped.set(row.schedule_date, entry);
+    });
+
+    const schedules = Array.from(grouped.values());
+    const selectedDate = schedules.length
+      ? schedules[schedules.length - 1].dateLabel
+      : toLabel(new Date().toISOString().slice(0, 10));
+
+    return NextResponse.json({
+      schedules,
+      selectedDate,
+      mode: "page",
+    });
+  } catch (err) {
+    console.error("Failed to load schedule list", err);
     return NextResponse.json(
-      { error: "NOTION_SCHEDULE_DATABASE_ID is not set" },
+      { error: "Unable to load schedules" },
       { status: 500 }
     );
   }
-
-  const { searchParams } = new URL(req.url);
-  const ensureStaging = searchParams.get("ensureStaging") === "1";
-
-  const registry = await listScheduleDatabases();
-  if (registry.mode === "database") {
-    return NextResponse.json({ mode: registry.mode, schedules: [] });
-  }
-
-  const schedulesByDate = new Map<
-    string,
-    { dateLabel: string; liveId?: string; stagingId?: string }
-  >();
-
-  registry.schedules.forEach((entry) => {
-    if (!schedulesByDate.has(entry.dateLabel)) {
-      schedulesByDate.set(entry.dateLabel, {
-        dateLabel: entry.dateLabel,
-        liveId: entry.isStaging ? undefined : entry.id,
-        stagingId: entry.isStaging ? entry.id : undefined,
-      });
-    } else {
-      const existing = schedulesByDate.get(entry.dateLabel)!;
-      if (entry.isStaging) {
-        existing.stagingId = entry.id;
-      } else {
-        existing.liveId = entry.id;
-      }
-    }
-  });
-
-  if (ensureStaging) {
-    const creations = Array.from(schedulesByDate.values()).filter(
-      (entry) => entry.liveId && !entry.stagingId
-    );
-
-    for (const entry of creations) {
-      const liveMeta = await retrieveDatabase(entry.liveId!);
-      const properties = buildDatabasePropertiesFromMeta(liveMeta);
-      const title = scheduleTitleForDate(entry.dateLabel, true);
-      const created = await createDatabase(SCHEDULE_DB_ID, title, properties);
-      entry.stagingId = created.id;
-    }
-  }
-
-  const schedules = Array.from(schedulesByDate.values()).sort((a, b) =>
-    a.dateLabel.localeCompare(b.dateLabel)
-  );
-
-  const selectedDate = await loadSelectedScheduleDate(registry.settingsDatabaseId);
-
-  return NextResponse.json({
-    mode: registry.mode,
-    schedules,
-    selectedDate,
-  });
 }

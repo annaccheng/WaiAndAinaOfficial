@@ -1,119 +1,37 @@
 import { NextResponse } from "next/server";
-import {
-  archivePage,
-  createPageInDatabase,
-  queryAllDatabasePages,
-  retrieveDatabase,
-} from "@/lib/notion";
-import { resolveScheduleDatabase } from "@/lib/schedule-loader";
+import { supabaseRequest } from "@/lib/supabase";
 
-const USERS_DB_ID = process.env.NOTION_USERS_DATABASE_ID!;
+type UserRow = {
+  display_name: string;
+  active: boolean;
+  user_role?: { name?: string | null };
+};
 
-function getPlainText(prop: any): string {
-  if (!prop) return "";
-  switch (prop.type) {
-    case "title":
-      return (prop.title || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "rich_text":
-      return (prop.rich_text || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "select":
-      return prop.select?.name || "";
-    default:
-      return "";
-  }
-}
+export async function GET() {
+  try {
+    const users = await supabaseRequest<UserRow[]>("users", {
+      query: {
+        select: "display_name,active,user_role:user_roles(name)",
+        order: "display_name.asc",
+      },
+    });
+    const volunteers =
+      users
+        ?.filter(
+          (user) =>
+            user.active &&
+            (user.user_role?.name || "")
+              .toLowerCase()
+              .includes("volunteer")
+        )
+        .map((user) => user.display_name) || [];
 
-function getTitlePropertyKey(meta: any): string {
-  const props = meta?.properties || {};
-  for (const [key, value] of Object.entries(props)) {
-    if ((value as any)?.type === "title") return key;
-  }
-  return "Person";
-}
-
-export async function POST(req: Request) {
-  if (!USERS_DB_ID) {
+    return NextResponse.json({ volunteers });
+  } catch (err) {
+    console.error("Failed to load volunteers", err);
     return NextResponse.json(
-      { error: "NOTION_USERS_DATABASE_ID is not set" },
+      { error: "Unable to load volunteers" },
       { status: 500 }
     );
   }
-
-  const body = await req.json().catch(() => null);
-  const { dateLabel, staging } = body || {};
-
-  const scheduleContext = await resolveScheduleDatabase({
-    dateLabel,
-    staging: Boolean(staging),
-  });
-
-  const scheduleMeta =
-    scheduleContext.databaseMeta ||
-    (await retrieveDatabase(scheduleContext.databaseId));
-  const scheduleTitleKey = getTitlePropertyKey(scheduleMeta);
-
-  const schedulePages = await queryAllDatabasePages(
-    scheduleContext.databaseId
-  );
-  const scheduleRows = schedulePages.results || [];
-
-  const existingRows: { id: string; name: string }[] = scheduleRows.map(
-    (page: any) => ({
-    id: page.id,
-    name: getPlainText(page.properties?.[scheduleTitleKey]),
-  })
-  );
-
-  const users = await queryAllDatabasePages(USERS_DB_ID);
-  const volunteerNames: string[] = (users.results || [])
-    .map((page: any): { name: string; role: string } => {
-      const props = page.properties || {};
-      return {
-        name: getPlainText(props["Name"]),
-        role: getPlainText(props["User Type"]),
-      };
-    })
-    .filter((entry: { name: string; role: string }) => entry.name)
-    .filter(
-      (entry: { name: string; role: string }) =>
-        entry.role.toLowerCase() === "volunteer"
-    )
-    .map((entry: { name: string; role: string }) => entry.name);
-
-  const volunteerSet = new Set(
-    volunteerNames.map((name: string) => name.toLowerCase())
-  );
-
-  const missing = volunteerNames.filter(
-    (name) =>
-      !existingRows.some((row) => row.name.toLowerCase() === name.toLowerCase())
-  );
-
-  const toArchive = existingRows.filter(
-    (row) => row.name && !volunteerSet.has(row.name.toLowerCase())
-  );
-
-  for (const name of missing) {
-    await createPageInDatabase(scheduleContext.databaseId, {
-      [scheduleTitleKey]: {
-        title: [{ type: "text", text: { content: name } }],
-      },
-    });
-  }
-
-  for (const row of toArchive) {
-    await archivePage(row.id, true);
-  }
-
-  return NextResponse.json({
-    success: true,
-    added: missing.length,
-    removed: toArchive.length,
-  });
 }

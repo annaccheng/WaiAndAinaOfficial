@@ -1,117 +1,33 @@
 import { NextResponse } from "next/server";
-import { Client } from "@notionhq/client";
-import { queryDatabase, retrieveDatabase } from "@/lib/notion";
-
-const USERS_DB_ID = process.env.NOTION_USERS_DATABASE_ID!;
-const NOTION_TOKEN = process.env.NOTION_TOKEN!;
-
-// Notion property names in your Users DB
-const NAME_PROPERTY_KEY = "Name";    // title
-const PASSWORD_PROPERTY_KEY = "Password"; // rich_text
-const PHONE_PROPERTY_KEY = "Phone";    // phone_number
-const CAPABILITIES_PROPERTY_KEY = "Capabilities"; // multi_select
-
-const notion = new Client({ auth: NOTION_TOKEN });
-
-function getPlainText(prop: any): string {
-  if (!prop) return "";
-  switch (prop.type) {
-    case "title":
-      return (prop.title || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "rich_text":
-      return (prop.rich_text || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "select":
-      return prop.select?.name || "";
-    case "multi_select":
-      return (prop.multi_select || [])
-        .map((s: any) => s.name || "")
-        .join(", ")
-        .trim();
-    case "phone_number":
-      return prop.phone_number || "";
-    default:
-      return "";
-  }
-}
-
-function parseMultiSelect(prop: any): string[] {
-  if (!prop) return [];
-  if (prop.type === "multi_select") {
-    return (prop.multi_select || [])
-      .map((s: any) => s.name || "")
-      .filter(Boolean);
-  }
-  if (Array.isArray(prop.multi_select)) {
-    return prop.multi_select.map((s: any) => s.name || "").filter(Boolean);
-  }
-  return [];
-}
+import { supabaseRequest } from "@/lib/supabase";
 
 export async function GET(req: Request) {
-  if (!USERS_DB_ID || !NOTION_TOKEN) {
-    return NextResponse.json(
-      { error: "Notion configuration missing" },
-      { status: 500 }
-    );
-  }
-
   const { searchParams } = new URL(req.url);
   const name = (searchParams.get("name") || "").trim();
+  if (!name) {
+    return NextResponse.json({ user: null });
+  }
 
   try {
-    const dbMeta = await retrieveDatabase(USERS_DB_ID);
-    const capabilityOptions =
-      dbMeta?.properties?.[CAPABILITIES_PROPERTY_KEY]?.multi_select?.options?.map(
-        (opt: any) => opt?.name || ""
-      )?.filter(Boolean) || [];
+    const data = await supabaseRequest<any[]>("users", {
+      query: { select: "id,display_name", display_name: `ilike.${name}`, limit: 1 },
+    });
 
-    let capabilities: string[] = [];
-    if (name) {
-      const result = await queryDatabase(USERS_DB_ID, {
-        page_size: 1,
-        filter: {
-          property: NAME_PROPERTY_KEY,
-          title: { equals: name },
-        },
-      });
-      const page = result.results?.[0];
-      if (page) {
-        capabilities = parseMultiSelect(
-          page.properties?.[CAPABILITIES_PROPERTY_KEY]
-        );
-      }
-    }
-
-    return NextResponse.json({ capabilityOptions, capabilities });
+    return NextResponse.json({
+      user: data?.[0] ? { id: data[0].id, name: data[0].display_name } : null,
+    });
   } catch (err) {
-    console.error("Failed to load capabilities", err);
-    return NextResponse.json(
-      { error: "Unable to load capabilities" },
-      { status: 500 }
-    );
+    console.error("Failed to load user settings:", err);
+    return NextResponse.json({ error: "Unable to load user" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
-  if (!USERS_DB_ID || !NOTION_TOKEN) {
-    return NextResponse.json(
-      { error: "Notion configuration missing" },
-      { status: 500 }
-    );
-  }
-
   let body: {
     name?: string;
     currentPassword?: string;
     newPassword?: string | null;
-    phone?: string | null;
-    capabilities?: string[] | null;
+    newName?: string | null;
   };
 
   try {
@@ -123,7 +39,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { name, currentPassword, newPassword, phone, capabilities } = body;
+  const { name, currentPassword, newPassword, newName } = body;
 
   if (!name || !currentPassword) {
     return NextResponse.json(
@@ -133,72 +49,39 @@ export async function POST(req: Request) {
   }
 
   try {
-    const data = await queryDatabase(USERS_DB_ID);
-    const pages = data.results || [];
-
-    const targetName = name.trim().toLowerCase();
+    const targetName = name.trim();
     const targetPass = currentPassword.trim();
 
-    let matchedPage: any = null;
+    const data = await supabaseRequest<any[]>("users", {
+      query: { select: "id,passcode", display_name: `ilike.${targetName}`, limit: 1 },
+    });
 
-    for (const page of pages) {
-      const props = page.properties || {};
-      const pageName = getPlainText(props[NAME_PROPERTY_KEY]);
-      const pagePass = getPlainText(props[PASSWORD_PROPERTY_KEY]);
-
-      if (
-        pageName.trim().toLowerCase() === targetName &&
-        pagePass === targetPass
-      ) {
-        matchedPage = page;
-        break;
-      }
-    }
-
-    if (!matchedPage) {
+    const user = data?.[0];
+    if (!user || user.passcode !== targetPass) {
       return NextResponse.json(
         { error: "Current passcode incorrect" },
         { status: 401 }
       );
     }
 
-    const pageId = matchedPage.id as string;
+    const updates: Record<string, unknown> = {};
 
-    // Build properties update
-    const properties: Record<string, any> = {};
-
-    if (newPassword && newPassword.trim().length > 0) {
-      properties[PASSWORD_PROPERTY_KEY] = {
-        rich_text: [
-          {
-            type: "text",
-            text: { content: newPassword.trim() },
-          },
-        ],
-      };
+    if (newPassword && newPassword.trim()) {
+      updates.passcode = newPassword.trim();
     }
 
-    if (typeof phone === "string") {
-      properties[PHONE_PROPERTY_KEY] = {
-        phone_number: phone.trim() || null,
-      };
+    if (newName && newName.trim()) {
+      updates.display_name = newName.trim();
     }
 
-    if (Array.isArray(capabilities)) {
-      const cleaned = capabilities.map((c) => c.trim()).filter(Boolean);
-      properties[CAPABILITIES_PROPERTY_KEY] = {
-        multi_select: cleaned.map((nameValue) => ({ name: nameValue })),
-      };
-    }
-
-    if (Object.keys(properties).length === 0) {
-      // Nothing to update
+    if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: true });
     }
 
-    await notion.pages.update({
-      page_id: pageId,
-      properties,
+    await supabaseRequest("users", {
+      method: "PATCH",
+      query: { id: `eq.${user.id}` },
+      body: updates,
     });
 
     return NextResponse.json({ ok: true });

@@ -1,97 +1,51 @@
 import { NextResponse } from "next/server";
-import { createDatabase, retrieveDatabase } from "@/lib/notion";
-import {
-  buildDatabasePropertiesFromMeta,
-  formatScheduleDateLabel,
-  listScheduleDatabases,
-  scheduleTitleForDate,
-} from "@/lib/schedule-loader";
+import { supabaseRequest } from "@/lib/supabase";
 
-const SCHEDULE_DB_ID = process.env.NOTION_SCHEDULE_DATABASE_ID!;
+type ScheduleRow = { id: string };
 
-function pickTemplateDatabaseId(schedules: {
-  dateLabel: string;
-  liveId?: string;
-  stagingId?: string;
-}[]) {
-  const live = schedules.find((entry) => entry.liveId);
-  return live?.liveId || schedules.find((entry) => entry.stagingId)?.stagingId;
+function toIsoDate(label?: string | null) {
+  if (!label) return null;
+  if (label.includes("-")) return label;
+  const [month, day, year] = label.split("/");
+  if (!month || !day || !year) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
 export async function POST(req: Request) {
-  if (!SCHEDULE_DB_ID) {
+  const body = await req.json().catch(() => null);
+  const { dateLabel } = body || {};
+  const isoDate = toIsoDate(dateLabel);
+
+  if (!isoDate) {
     return NextResponse.json(
-      { error: "NOTION_SCHEDULE_DATABASE_ID is not set" },
+      { error: "Missing schedule date." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const existing = await supabaseRequest<ScheduleRow[]>("schedules", {
+      query: {
+        select: "id",
+        schedule_date: `eq.${isoDate}`,
+        state: "eq.staging",
+        limit: 1,
+      },
+    });
+
+    if (existing.length) {
+      return NextResponse.json({ ok: true, id: existing[0].id });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Schedule will be created when tasks are added.",
+    });
+  } catch (err) {
+    console.error("Failed to check schedule", err);
+    return NextResponse.json(
+      { error: "Unable to create schedule." },
       { status: 500 }
     );
   }
-
-  const body = await req.json().catch(() => null);
-  const { dateLabel } = body || {};
-
-  if (!dateLabel) {
-    return NextResponse.json({ error: "Missing dateLabel" }, { status: 400 });
-  }
-
-  const normalizedDate = formatScheduleDateLabel(dateLabel);
-
-  const registry = await listScheduleDatabases();
-  if (registry.mode === "database") {
-    return NextResponse.json(
-      { error: "Schedule root is not a page" },
-      { status: 400 }
-    );
-  }
-
-  const schedulesByDate = new Map<
-    string,
-    { dateLabel: string; liveId?: string; stagingId?: string }
-  >();
-
-  registry.schedules.forEach((entry) => {
-    if (!schedulesByDate.has(entry.dateLabel)) {
-      schedulesByDate.set(entry.dateLabel, {
-        dateLabel: entry.dateLabel,
-        liveId: entry.isStaging ? undefined : entry.id,
-        stagingId: entry.isStaging ? entry.id : undefined,
-      });
-    } else {
-      const existing = schedulesByDate.get(entry.dateLabel)!;
-      if (entry.isStaging) {
-        existing.stagingId = entry.id;
-      } else {
-        existing.liveId = entry.id;
-      }
-    }
-  });
-
-  const target = schedulesByDate.get(normalizedDate) || { dateLabel: normalizedDate };
-  const templateId = pickTemplateDatabaseId(Array.from(schedulesByDate.values()));
-  if (!templateId) {
-    return NextResponse.json(
-      { error: "No template schedule database found to copy schema." },
-      { status: 400 }
-    );
-  }
-
-  const templateMeta = await retrieveDatabase(templateId);
-  const properties = buildDatabasePropertiesFromMeta(templateMeta);
-
-  if (!target.liveId) {
-    const title = scheduleTitleForDate(normalizedDate, false);
-    const created = await createDatabase(SCHEDULE_DB_ID, title, properties);
-    target.liveId = created.id;
-  }
-
-  if (!target.stagingId) {
-    const title = scheduleTitleForDate(normalizedDate, true);
-    const created = await createDatabase(SCHEDULE_DB_ID, title, properties);
-    target.stagingId = created.id;
-  }
-
-  return NextResponse.json({
-    success: true,
-    liveId: target.liveId,
-    stagingId: target.stagingId,
-  });
 }

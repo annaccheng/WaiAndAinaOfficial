@@ -1,47 +1,8 @@
 import { NextResponse } from "next/server";
-import { queryDatabase } from "@/lib/notion";
+import { supabaseRequest } from "@/lib/supabase";
 
-const USERS_DB_ID = process.env.NOTION_USERS_DATABASE_ID!;
-
-// These must match your Notion property names in the Users database
-const NAME_PROPERTY_KEY = "Name"; // or "Name" if that is what you used
-const PASSWORD_PROPERTY_KEY = "Password";
-const USER_TYPE_PROPERTY_KEY = "User Type";
-
-function getPlainText(prop: any): string {
-  if (!prop) return "";
-
-  switch (prop.type) {
-    case "title":
-      return (prop.title || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "rich_text":
-      return (prop.rich_text || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "select":
-      return prop.select?.name || "";
-    case "multi_select":
-      return (prop.multi_select || [])
-        .map((s: any) => s.name || "")
-        .join(", ")
-        .trim();
-    default:
-      return "";
-  }
-}
 
 export async function POST(req: Request) {
-  if (!USERS_DB_ID) {
-    return NextResponse.json(
-      { error: "NOTION_USERS_DATABASE_ID is not set" },
-      { status: 500 }
-    );
-  }
-
   let body: { name?: string; password?: string };
   try {
     body = await req.json();
@@ -52,55 +13,55 @@ export async function POST(req: Request) {
     );
   }
 
-  const { name, password } = body;
+  const { name, password, number } = body as {
+    name?: string;
+    number?: string;
+    password?: string;
+  };
 
-  if (!name || !password) {
+  if ((!name && !number) || !password) {
     return NextResponse.json(
-      { error: "Missing name or password" },
+      { error: "Missing name or number, or password" },
       { status: 400 }
     );
   }
 
   try {
-    const data = await queryDatabase(USERS_DB_ID);
-
-    const pages = data.results || [];
-    const normalizedName = name.trim().toLowerCase();
     const normalizedPass = password.trim();
+    const normalizedName = name?.trim() ?? "";
+    const normalizedNumber = number?.trim() ?? "";
 
-    let matchFound = false;
-    let matchedUserType: string | null = null;
-    let matchedUserTypeColor: string | null = null;
+    const queryFilter = normalizedName
+      ? { display_name: `ilike.${normalizedName}` }
+      : { phone_number: `eq.${normalizedNumber}` };
 
-    for (const page of pages) {
-      const props = page.properties || {};
-      const pageName = getPlainText(props[NAME_PROPERTY_KEY]).toLowerCase();
-      const pagePass = getPlainText(props[PASSWORD_PROPERTY_KEY]);
+    const data = await supabaseRequest<any[]>("users", {
+      query: {
+        select: "id,display_name,passcode,phone_number,active,user_role:user_roles(name)",
+        limit: 1,
+        ...queryFilter,
+      },
+    });
 
-      if (
-        pageName === normalizedName &&
-        pagePass === normalizedPass
-      ) {
-        const rawType = props[USER_TYPE_PROPERTY_KEY];
-        matchedUserType = rawType ? getPlainText(rawType) : null;
-        matchedUserTypeColor = rawType?.select?.color || null;
-        matchFound = true;
-        break;
-      }
-    }
-
-    if (!matchFound) {
+    const user = data?.[0];
+    if (!user || !user.active || user.passcode !== normalizedPass) {
       return NextResponse.json(
         { error: "Invalid credentials" },
         { status: 401 }
       );
     }
 
+    await supabaseRequest("users", {
+      method: "PATCH",
+      query: { id: `eq.${user.id}` },
+      body: { last_online: new Date().toISOString() },
+    });
+
     return NextResponse.json({
       ok: true,
-      name,
-      userType: matchedUserType,
-      userTypeColor: matchedUserTypeColor,
+      name: user.display_name,
+      userType: user.user_role?.name ?? null,
+      userTypeColor: null,
     });
   } catch (err) {
     console.error("Login check failed:", err);

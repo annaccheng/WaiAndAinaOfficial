@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { loadSession } from "@/lib/session";
+import { useEffect, useState } from "react";
+import { loadSession, saveSession } from "@/lib/session";
 
 export default function HubSettingsPage() {
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
@@ -10,9 +10,7 @@ export default function HubSettingsPage() {
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
-  const [phone, setPhone] = useState("");
-  const [capabilityOptions, setCapabilityOptions] = useState<string[]>([]);
-  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>([]);
+  const [newName, setNewName] = useState("");
 
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -21,11 +19,8 @@ export default function HubSettingsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [capabilityError, setCapabilityError] = useState<string | null>(null);
-  const [capabilityLoading, setCapabilityLoading] = useState(false);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
-  const lastFetchedName = useRef<string | null>(null);
 
   // Load current user from session
   useEffect(() => {
@@ -35,44 +30,8 @@ export default function HubSettingsPage() {
     }
   }, []);
 
-  async function loadCapabilities(nameValue: string) {
-    setCapabilityLoading(true);
-    setCapabilityError(null);
-    try {
-      const res = await fetch(
-        `/api/user-settings?name=${encodeURIComponent(nameValue)}`
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setCapabilityOptions(json.capabilityOptions || []);
-      if (Array.isArray(json.capabilities)) {
-        setSelectedCapabilities(json.capabilities);
-      }
-      lastFetchedName.current = nameValue;
-    } catch (err) {
-      console.error("Failed to load capabilities", err);
-      setCapabilityError("Unable to load capabilities right now.");
-    } finally {
-      setCapabilityLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!currentUserName) return;
-    if (lastFetchedName.current === currentUserName) return;
-    loadCapabilities(currentUserName);
-  }, [currentUserName]);
-
   const passwordsMismatch =
     newPass.length > 0 && confirmPass.length > 0 && newPass !== confirmPass;
-
-  function toggleCapability(capability: string) {
-    setSelectedCapabilities((prev) =>
-      prev.includes(capability)
-        ? prev.filter((c) => c !== capability)
-        : [...prev, capability]
-    );
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -103,8 +62,7 @@ export default function HubSettingsPage() {
           name: currentUserName,
           currentPassword: currentPass,
           newPassword: newPass || null, // null → do not change
-          phone: phone || null,
-          capabilities: selectedCapabilities,
+          newName: newName || null,
         }),
       });
 
@@ -124,6 +82,14 @@ export default function HubSettingsPage() {
       setCurrentPass("");
       setNewPass("");
       setConfirmPass("");
+      if (newName.trim().length > 0) {
+        setCurrentUserName(newName.trim());
+        const existing = loadSession();
+        if (existing) {
+          saveSession({ ...existing, name: newName.trim() });
+        }
+        setNewName("");
+      }
     } catch (err) {
       console.error("Settings update failed:", err);
       setFormError("Something went wrong. Please try again.");
@@ -167,7 +133,7 @@ export default function HubSettingsPage() {
         Settings
       </h1>
       <p className="text-sm text-[#7a7f54]">
-        Update your passcode and add a phone number for future features.
+        Update your display name and passcode for your account.
       </p>
 
       <div className="mt-4 rounded-lg bg-[#d3d6b0] px-6 py-6 text-[#4f5730] text-sm shadow-sm border border-[#c8cba0]/70">
@@ -268,76 +234,25 @@ export default function HubSettingsPage() {
             )}
           </div>
 
-          {/* Phone number */}
+          {/* New display name */}
           <div className="space-y-1.5">
             <label
-              htmlFor="phone"
+              htmlFor="newName"
               className="block text-sm font-medium text-[#4f5730]"
             >
-              Phone number
+              New display name
             </label>
             <input
-              id="phone"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              id="newName"
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
               className="w-full rounded-md border border-[#c8cba0] bg-[#f1edd8] px-3 py-2 text-sm text-[#3b4224] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c] focus:border-[#8fae4c]"
-              placeholder="Optional – for future features"
+              placeholder="Optional — leave blank to keep current"
             />
             <p className="text-[11px] text-[#8e875d]">
-              Not used yet, but we will store it with your profile.
+              Update your display name for the login list.
             </p>
-          </div>
-
-          <div className="space-y-2 rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">
-                  Capabilities
-                </p>
-                <p className="text-[12px] text-[#6f754f]">
-                  Update the skills and areas you can cover. This overwrites your profile in Notion.
-                </p>
-              </div>
-              {capabilityLoading && (
-                <span className="text-[11px] text-[#7a7f54]">Loading…</span>
-              )}
-            </div>
-            {capabilityError && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
-                {capabilityError}
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {capabilityOptions.length === 0 && !capabilityLoading ? (
-                <span className="text-[11px] text-[#7a7f54] italic">
-                  No capabilities available yet.
-                </span>
-              ) : (
-                capabilityOptions.map((cap) => {
-                  const active = selectedCapabilities.includes(cap);
-                  return (
-                    <button
-                      key={cap}
-                      type="button"
-                      onClick={() => toggleCapability(cap)}
-                      className={`rounded-full border px-3 py-1 text-[12px] font-semibold shadow-sm transition ${
-                        active
-                          ? "border-[#8fae4c] bg-[#a0b764] text-white"
-                          : "border-[#d0c9a4] bg-white text-[#4f5730] hover:bg-[#f1edd8]"
-                      }`}
-                    >
-                      {cap}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            {selectedCapabilities.length > 0 && (
-              <p className="text-[11px] text-[#6b6f4c]">
-                Selected: {selectedCapabilities.join(", ")}
-              </p>
-            )}
           </div>
 
           <div className="space-y-2 rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3">

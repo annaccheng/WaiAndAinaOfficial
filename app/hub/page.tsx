@@ -659,7 +659,7 @@ export default function HubSchedulePage() {
     })();
   }, []);
 
-  // Load schedule data from Notion-backed API (with auto-refresh)
+  // Load schedule data from API (with auto-refresh)
   const loadSchedule = useCallback(
     async (opts: { showLoading?: boolean; force?: boolean } = {}) => {
       const { showLoading = false, force = false } = opts;

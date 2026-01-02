@@ -6,7 +6,13 @@ import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
 
 type ReportItem = { id: string; title: string; date?: string };
-type UserItem = { id: string; name: string; userType: string; goats: number };
+type UserItem = {
+  id: string;
+  name: string;
+  userType: string;
+  number: string;
+  active: boolean;
+};
 type ReportBlock = {
   id: string;
   type: string;
@@ -16,10 +22,6 @@ type ReportBlock = {
   caption?: { plain: string; href?: string; annotations?: any }[];
   children?: ReportBlock[];
 };
-
-function toNotionUrl(id: string) {
-  return `https://www.notion.so/${id.replace(/-/g, "")}`;
-}
 
 function renderRichText(nodes?: { plain: string; href?: string; annotations?: any }[]) {
   if (!nodes?.length) return null;
@@ -176,8 +178,12 @@ export default function AdminPage() {
   const [reportBlocks, setReportBlocks] = useState<ReportBlock[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [users, setUsers] = useState<UserItem[]>([]);
-  const [newUser, setNewUser] = useState({ name: "", userType: "Volunteer" });
-  const [goatUpdate, setGoatUpdate] = useState({ userId: "", goats: "" });
+  const [newUser, setNewUser] = useState({ name: "", userType: "Volunteer", number: "" });
+  const [editUserId, setEditUserId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editRole, setEditRole] = useState("Volunteer");
+  const [editNumber, setEditNumber] = useState("");
+  const [editPassword, setEditPassword] = useState("");
   const [resettingTasks, setResettingTasks] = useState(false);
 
   useEffect(() => {
@@ -217,6 +223,16 @@ export default function AdminPage() {
     })();
   }, [authorized]);
 
+  useEffect(() => {
+    if (!users.length) return;
+    const selected = users.find((user) => user.id === editUserId) || users[0];
+    if (!selected) return;
+    setEditUserId(selected.id);
+    setEditName(selected.name);
+    setEditRole(selected.userType || "Volunteer");
+    setEditNumber(selected.number || "");
+  }, [editUserId, users]);
+
   async function handleCreateReport() {
     setLoading(true);
     setMessage(null);
@@ -227,7 +243,7 @@ export default function AdminPage() {
       if (!res.ok) {
         throw new Error(json.error || "Failed to create report");
       }
-      setMessage("Daily report created successfully. Check Notion to review it.");
+      setMessage("Daily report created successfully.");
     } catch (err: any) {
       setMessage(err?.message || "Failed to create report.");
     } finally {
@@ -274,7 +290,7 @@ export default function AdminPage() {
       });
       if (!res.ok) throw new Error("Failed to create user");
       setMessage("User created with default passcode WAIANDAINA.");
-      setNewUser({ name: "", userType: "Volunteer" });
+      setNewUser({ name: "", userType: "Volunteer", number: "" });
       const refreshed = await fetch("/api/users");
       const json = await refreshed.json();
       setUsers(json.users || []);
@@ -299,25 +315,35 @@ export default function AdminPage() {
     }
   }
 
-  async function handleGoatUpdateSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleUpdateUser(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!goatUpdate.userId) {
-      setMessage("Choose a user to update goats.");
+    if (!editUserId) {
+      setMessage("Choose a user to update.");
       return;
     }
+
     try {
-      await fetch("/api/users", {
+      const res = await fetch("/api/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: goatUpdate.userId, goats: Number(goatUpdate.goats) }),
+        body: JSON.stringify({
+          id: editUserId,
+          name: editName,
+          userType: editRole,
+          number: editNumber,
+          password: editPassword || undefined,
+        }),
       });
-      setMessage("Goat balance updated.");
-      setGoatUpdate({ userId: "", goats: "" });
+
+      if (!res.ok) throw new Error("Failed to update user.");
+
+      setMessage("User updated.");
+      setEditPassword("");
       const refreshed = await fetch("/api/users");
       const json = await refreshed.json();
       setUsers(json.users || []);
     } catch (err: any) {
-      setMessage(err?.message || "Could not update goats");
+      setMessage(err?.message || "Could not update user.");
     }
   }
 
@@ -341,6 +367,12 @@ export default function AdminPage() {
             >
               {loading ? "Creating…" : "Create Daily Report"}
             </button>
+            <Link
+              href="/hub/admin/tasks"
+              className="rounded-md bg-[#6f8f3d] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
+            >
+              Task editor
+            </Link>
             <button
               type="button"
               disabled={!authorized || resettingTasks}
@@ -357,9 +389,9 @@ export default function AdminPage() {
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded-lg bg-[#f6f1dd] p-4 text-sm text-[#4b5133]">
             <ul className="list-disc space-y-1 pl-5">
-              <li>Uses the schedule date configured in Notion Settings.</li>
+              <li>Uses the schedule date configured in Settings.</li>
               <li>Captures assignments, statuses, descriptions, extra notes, and comments.</li>
-              <li>Auto-creates when the Notion "Report Time" clock hits in Hawaii time.</li>
+              <li>Auto-creates when the report time hits in Hawaii time.</li>
             </ul>
           </div>
           <div className="rounded-lg border border-[#e2d7b5] bg-white/70 p-4 text-sm text-[#4b5133]">
@@ -393,14 +425,6 @@ export default function AdminPage() {
                       >
                         Preview
                       </button>
-                      <a
-                        className="rounded-md bg-[#e6edcc] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#3c4b2a] shadow-sm transition hover:bg-[#d6e4ad]"
-                        href={toNotionUrl(r.id)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Notion
-                      </a>
                     </div>
                   </div>
                 </div>
@@ -436,6 +460,15 @@ export default function AdminPage() {
                     />
                   </div>
                   <div className="space-y-1 text-sm">
+                    <label className="text-[#5f5a3b]">Number</label>
+                    <input
+                      value={newUser.number}
+                      onChange={(e) => setNewUser((prev) => ({ ...prev, number: e.target.value }))}
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Phone or member number"
+                    />
+                  </div>
+                  <div className="space-y-1 text-sm">
                     <label className="text-[#5f5a3b]">Role</label>
                     <select
                       value={newUser.userType}
@@ -458,32 +491,54 @@ export default function AdminPage() {
                 </form>
 
                 <div className="mt-5 rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] p-4">
-                  <h3 className="text-sm font-semibold text-[#314123]">Set goat balance</h3>
-                  <form className="mt-2 space-y-2 text-sm" onSubmit={handleGoatUpdateSubmit}>
+                  <h3 className="text-sm font-semibold text-[#314123]">Edit user</h3>
+                  <form className="mt-2 space-y-2 text-sm" onSubmit={handleUpdateUser}>
                     <select
-                      value={goatUpdate.userId}
-                      onChange={(e) => setGoatUpdate((prev) => ({ ...prev, userId: e.target.value }))}
+                      value={editUserId}
+                      onChange={(e) => setEditUserId(e.target.value)}
                       className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
                     >
                       <option value="">Choose user</option>
                       {users.map((u) => (
                         <option key={u.id} value={u.id}>
-                          {u.name} — {u.goats} 🐐
+                          {u.name}
                         </option>
                       ))}
                     </select>
                     <input
-                      type="number"
-                      value={goatUpdate.goats}
-                      onChange={(e) => setGoatUpdate((prev) => ({ ...prev, goats: e.target.value }))}
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
                       className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                      placeholder="New goat balance"
+                      placeholder="Display name"
+                    />
+                    <input
+                      value={editNumber}
+                      onChange={(e) => setEditNumber(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Phone or member number"
+                    />
+                    <select
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                    >
+                      <option>Admin</option>
+                      <option>Volunteer</option>
+                      <option>External Volunteer</option>
+                      <option>Inactive Volunteer</option>
+                    </select>
+                    <input
+                      type="password"
+                      value={editPassword}
+                      onChange={(e) => setEditPassword(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="New passcode (optional)"
                     />
                     <button
                       type="submit"
                       className="w-full rounded-md bg-[#a0b764] px-4 py-2 text-sm font-semibold text-[#f9f9ec] shadow-sm transition hover:bg-[#93a95d]"
                     >
-                      Update balance
+                      Update user
                     </button>
                   </form>
                 </div>
@@ -501,17 +556,23 @@ export default function AdminPage() {
                     Reorder tasks, move work between shifts, and chat with the AI assistant directly inside the new workspace.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href="/hub/admin/schedule"
-                    className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
-                  >
-                    Open schedule editor
-                  </Link>
-                  <Link
-                    href="/hub"
-                    className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-                  >
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href="/hub/admin/schedule"
+                  className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+                >
+                  Open schedule editor
+                </Link>
+                <Link
+                  href="/hub/admin/tasks"
+                  className="rounded-md bg-[#6f8f3d] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
+                >
+                  Open task editor
+                </Link>
+                <Link
+                  href="/hub"
+                  className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+                >
                     View live schedule
                   </Link>
                 </div>

@@ -1,117 +1,116 @@
 import { NextResponse } from "next/server";
-import {
-  createPageInDatabase,
-  queryAllDatabasePages,
-  updatePage,
-} from "@/lib/notion";
+import { supabaseRequest } from "@/lib/supabase";
 
-const USERS_DB_ID = process.env.NOTION_USERS_DATABASE_ID!;
-const NAME_KEY = "Name";
-const PASSWORD_KEY = "Password";
-const USER_TYPE_KEY = "User Type";
-const GOAT_DICE_KEY = "Goat Dice";
-const GOAT_RUN_KEY = "Goat Run";
+const DEFAULT_PASSCODE = "WAIANDAINA";
 
-function getPlainText(prop: any): string {
-  if (!prop) return "";
-  switch (prop.type) {
-    case "title":
-      return (prop.title || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "rich_text":
-      return (prop.rich_text || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "select":
-      return prop.select?.name || "";
-    default:
-      return "";
-  }
+async function resolveRoleId(roleName?: string | null) {
+  if (!roleName) return null;
+  const data = await supabaseRequest<any[]>("user_roles", {
+    query: { select: "id", name: `eq.${roleName}`, limit: 1 },
+  });
+  return data?.[0]?.id ?? null;
 }
 
 export async function GET() {
-  if (!USERS_DB_ID) {
-    return NextResponse.json({ error: "Users DB not configured" }, { status: 500 });
+  try {
+    const data = await supabaseRequest<any[]>("users", {
+      query: {
+        select: "id,display_name,phone_number,active,user_role:user_roles(name)",
+        order: "display_name.asc",
+      },
+    });
+
+    const users =
+      data?.map((user) => ({
+        id: user.id,
+        name: user.display_name,
+        number: user.phone_number ?? "",
+        userType: user.user_role?.name ?? "",
+        active: Boolean(user.active),
+      })) ?? [];
+
+    return NextResponse.json({ users });
+  } catch (err) {
+    console.error("Failed to load users:", err);
+    return NextResponse.json({ error: "Unable to load users" }, { status: 500 });
   }
-
-  const data = await queryAllDatabasePages(USERS_DB_ID, {
-    sorts: [{ property: NAME_KEY, direction: "ascending" }],
-  });
-
-  const users = (data.results || []).map((page: any) => {
-    const props = page.properties || {};
-    return {
-      id: page.id,
-      name: getPlainText(props[NAME_KEY]),
-      userType: getPlainText(props[USER_TYPE_KEY]),
-      goats: props[GOAT_DICE_KEY]?.number || 0,
-      bestRun: props[GOAT_RUN_KEY]?.number || 0,
-    };
-  });
-
-  return NextResponse.json({ users });
 }
 
 export async function POST(req: Request) {
-  if (!USERS_DB_ID) {
-    return NextResponse.json({ error: "Users DB not configured" }, { status: 500 });
-  }
-
   const body = await req.json().catch(() => null);
-  const { name, userType, goats = 0, bestRun = 0 } = body || {};
+  const { name, userType, number } = body || {};
 
   if (!name) {
     return NextResponse.json({ error: "Missing name" }, { status: 400 });
   }
 
-  const properties: any = {
-    [NAME_KEY]: {
-      title: [{ type: "text", text: { content: name } }],
-    },
-    [PASSWORD_KEY]: {
-      rich_text: [{ type: "text", text: { content: "WAIANDAINA" } }],
-    },
-    [USER_TYPE_KEY]: {
-      select: userType ? { name: userType } : null,
-    },
-    [GOAT_DICE_KEY]: {
-      number: Number(goats) || 0,
-    },
-    [GOAT_RUN_KEY]: {
-      number: Number(bestRun) || 0,
-    },
-  };
+  try {
+    const roleId = await resolveRoleId(userType);
+    const data = await supabaseRequest<any[]>("users", {
+      method: "POST",
+      prefer: "return=representation",
+      query: { select: "id" },
+      body: {
+        display_name: name.trim(),
+        user_role_id: roleId,
+        phone_number: number?.trim() || null,
+        passcode: DEFAULT_PASSCODE,
+        active: true,
+      },
+    });
 
-  const page = await createPageInDatabase(USERS_DB_ID, properties);
-  return NextResponse.json({ success: true, id: page.id });
+    return NextResponse.json({ success: true, id: data?.[0]?.id });
+  } catch (err) {
+    console.error("Failed to create user:", err);
+    return NextResponse.json({ error: "Unable to create user" }, { status: 500 });
+  }
 }
 
 export async function PATCH(req: Request) {
-  if (!USERS_DB_ID) {
-    return NextResponse.json({ error: "Users DB not configured" }, { status: 500 });
-  }
-
   const body = await req.json().catch(() => null);
-  const { id, userType, goats, bestRun } = body || {};
+  const { id, userType, name, password, number, active } = body || {};
 
   if (!id) {
     return NextResponse.json({ error: "Missing user id" }, { status: 400 });
   }
 
-  const properties: Record<string, any> = {};
-  if (userType !== undefined) {
-    properties[USER_TYPE_KEY] = { select: userType ? { name: userType } : null };
-  }
-  if (goats !== undefined) {
-    properties[GOAT_DICE_KEY] = { number: Number(goats) || 0 };
-  }
-  if (bestRun !== undefined) {
-    properties[GOAT_RUN_KEY] = { number: Number(bestRun) || 0 };
-  }
+  try {
+    const updates: Record<string, unknown> = {};
 
-  await updatePage(id, properties);
-  return NextResponse.json({ success: true });
+    if (typeof name === "string") {
+      updates.display_name = name.trim();
+    }
+
+    if (typeof number === "string") {
+      updates.phone_number = number.trim() || null;
+    }
+
+    if (typeof password === "string" && password.trim()) {
+      updates.passcode = password.trim();
+    }
+
+    if (userType !== undefined) {
+      const roleId = await resolveRoleId(userType);
+      updates.user_role_id = roleId;
+    }
+
+    if (typeof active === "boolean") {
+      updates.active = active;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ success: true });
+    }
+
+    await supabaseRequest("users", {
+      method: "PATCH",
+      query: { id: `eq.${id}` },
+      body: updates,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Failed to update user:", err);
+    return NextResponse.json({ error: "Unable to update user" }, { status: 500 });
+  }
 }

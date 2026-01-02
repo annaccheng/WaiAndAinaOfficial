@@ -19,6 +19,8 @@ type TaskCatalogItem = {
   type?: string;
   typeColor?: string;
   status?: string;
+  occurrenceDate?: string | null;
+  description?: string | null;
 };
 type TaskTypeOption = { name: string; color: string };
 type StatusOption = { name: string; color: string };
@@ -142,7 +144,8 @@ export default function AdminScheduleEditorPage() {
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleData, setScheduleData] = useState<ScheduleResponse | null>(null);
-  const [taskBank, setTaskBank] = useState<TaskCatalogItem[]>([]);
+  const [recurringTasks, setRecurringTasks] = useState<TaskCatalogItem[]>([]);
+  const [oneOffTasks, setOneOffTasks] = useState<TaskCatalogItem[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
   const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
   const [taskSearch, setTaskSearch] = useState("");
@@ -150,6 +153,8 @@ export default function AdminScheduleEditorPage() {
   const [taskStatusFilter, setTaskStatusFilter] = useState("");
   const [selectedCell, setSelectedCell] = useState<{ person: string; slotId: string; slotLabel: string } | null>(null);
   const [customTask, setCustomTask] = useState("");
+  const [quickTaskName, setQuickTaskName] = useState("");
+  const [quickTaskDescription, setQuickTaskDescription] = useState("");
   const [inlineTaskDrafts, setInlineTaskDrafts] = useState<Record<string, string>>({});
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
@@ -161,8 +166,6 @@ export default function AdminScheduleEditorPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
-  const [newPersonName, setNewPersonName] = useState("");
-  const [volunteerSyncMessage, setVolunteerSyncMessage] = useState<string | null>(null);
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
   const [taskEditFields, setTaskEditFields] = useState<TaskPropertyField[]>([]);
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
@@ -171,9 +174,11 @@ export default function AdminScheduleEditorPage() {
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [shiftEditorOpen, setShiftEditorOpen] = useState(false);
+  const [shifts, setShifts] = useState<Slot[]>([]);
+  const [newShift, setNewShift] = useState({ label: "", timeRange: "" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastInlineAddRef = useRef<Record<string, string>>({});
-  const autoCreateRef = useRef<string | null>(null);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -207,16 +212,12 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const [taskRes, typeRes, scheduleListRes] = await Promise.all([
-          fetch("/api/task?list=1"),
+        const [typeRes, scheduleListRes, shiftsRes] = await Promise.all([
           fetch("/api/task-types"),
-          fetch("/api/schedule/list?ensureStaging=1"),
+          fetch("/api/schedule/list"),
+          fetch("/api/shifts"),
         ]);
 
-        if (taskRes.ok) {
-          const json = await taskRes.json();
-          setTaskBank(json.tasks || []);
-        }
         if (typeRes.ok) {
           const json = await typeRes.json();
           setTaskTypes(json.types || []);
@@ -230,7 +231,14 @@ export default function AdminScheduleEditorPage() {
             setSelectedDate(json.selectedDate);
           } else if (Array.isArray(json.schedules) && json.schedules.length) {
             setSelectedDate(json.schedules[json.schedules.length - 1].dateLabel);
+          } else {
+            const today = new Date().toISOString().slice(0, 10);
+            setSelectedDate(formatDateInput(today));
           }
+        }
+        if (shiftsRes.ok) {
+          const json = await shiftsRes.json();
+          setShifts(json.shifts || []);
         }
       } catch (err) {
         console.error("Failed to load schedule editor data", err);
@@ -245,17 +253,10 @@ export default function AdminScheduleEditorPage() {
     () => availableSchedules.find((entry) => entry.dateLabel === selectedDate),
     [availableSchedules, selectedDate]
   );
-  const scheduleMissing = Boolean(
-    scheduleMode === "page" && selectedDate && !selectedEntry
-  );
 
   useEffect(() => {
     if (!authorized) return;
     if (scheduleMode === "page" && !selectedDate) return;
-    if (scheduleMissing) {
-      setScheduleData(null);
-      return;
-    }
     let cancelled = false;
 
     const loadSchedule = async () => {
@@ -287,15 +288,15 @@ export default function AdminScheduleEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [authorized, scheduleMissing, scheduleMode, selectedDate]);
+  }, [authorized, scheduleMode, selectedDate]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
 
-  const filteredTaskBank = useMemo(() => {
-    return taskBank.filter((task) => {
+  const filteredRecurringTasks = useMemo(() => {
+    return recurringTasks.filter((task) => {
       const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
       const matchesType = taskTypeFilter
         ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
@@ -305,12 +306,86 @@ export default function AdminScheduleEditorPage() {
         : true;
       return matchesSearch && matchesType && matchesStatus;
     });
-  }, [taskBank, taskSearch, taskStatusFilter, taskTypeFilter]);
+  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter]);
+
+  const filteredOneOffTasks = useMemo(() => {
+    return oneOffTasks.filter((task) => {
+      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
+      const matchesType = taskTypeFilter
+        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
+        : true;
+      return matchesSearch && matchesType;
+    });
+  }, [oneOffTasks, taskSearch, taskTypeFilter]);
 
   const scheduleTitle = useMemo(() => {
     if (!selectedDate) return "Schedule editor";
     return `Editing Staging - ${selectedDate}`;
   }, [selectedDate]);
+
+  const scheduleOptions = useMemo(() => {
+    const options = [...availableSchedules];
+    if (selectedDate && !options.find((entry) => entry.dateLabel === selectedDate)) {
+      options.push({ dateLabel: selectedDate });
+    }
+    return options;
+  }, [availableSchedules, selectedDate]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    let cancelled = false;
+
+    const loadTaskDocks = async () => {
+      try {
+        const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+        const recurringPromise = selectedDate
+          ? fetch(
+              `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
+            )
+          : Promise.resolve(null);
+        const oneOffPromise = fetch("/api/tasks?recurring=false&includeOccurrences=true");
+        const [recurringRes, oneOffRes] = await Promise.all([recurringPromise, oneOffPromise]);
+
+        if (!cancelled && recurringRes && recurringRes.ok) {
+          const json = await recurringRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            occurrenceDate: task.occurrence_date || null,
+            description: task.description || null,
+          }));
+          setRecurringTasks(items);
+        } else if (!cancelled && !selectedDate) {
+          setRecurringTasks([]);
+        }
+        if (!cancelled && oneOffRes.ok) {
+          const json = await oneOffRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            occurrenceDate: task.occurrence_date || null,
+            description: task.description || null,
+          }));
+          setOneOffTasks(items);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load task docks", err);
+        }
+      }
+    };
+
+    loadTaskDocks();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized, selectedDate]);
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
@@ -355,6 +430,83 @@ export default function AdminScheduleEditorPage() {
       });
     }
   }, []);
+
+  const createQuickTask = useCallback(async () => {
+    if (!quickTaskName.trim() || !selectedDate) return;
+    const dateParam = formatLabelToInput(selectedDate);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: quickTaskName.trim(),
+          description: quickTaskDescription.trim() || null,
+          status: "Not Started",
+          priority: "Medium",
+          recurring: false,
+          origin_date: dateParam,
+          occurrence_date: dateParam,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to create task");
+      }
+      setQuickTaskName("");
+      setQuickTaskDescription("");
+      const oneOffRes = await fetch("/api/tasks?recurring=false&includeOccurrences=true");
+      if (oneOffRes.ok) {
+        const json = await oneOffRes.json();
+        const items = (json.tasks || []).map((task: any) => ({
+          id: task.id,
+          name: task.name,
+          type: task.task_type?.name || "",
+          typeColor: task.task_type?.color || "default",
+          status: task.status || "",
+          occurrenceDate: task.occurrence_date || null,
+          description: task.description || null,
+        }));
+        setOneOffTasks(items);
+      }
+    } catch (err) {
+      console.error("Failed to create quick task", err);
+      setMessage("Unable to create quick task.");
+    }
+  }, [quickTaskDescription, quickTaskName, selectedDate]);
+
+  const updateShiftOrder = useCallback(async (updated: Slot[]) => {
+    setShifts(updated);
+    try {
+      await fetch("/api/shifts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shifts: updated }),
+      });
+    } catch (err) {
+      console.error("Failed to update shifts", err);
+    }
+  }, []);
+
+  const addShift = useCallback(async () => {
+    if (!newShift.label.trim()) return;
+    try {
+      const res = await fetch("/api/shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: newShift.label.trim(),
+          timeRange: newShift.timeRange.trim(),
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setShifts(json.shifts || []);
+        setNewShift({ label: "", timeRange: "" });
+      }
+    } catch (err) {
+      console.error("Failed to add shift", err);
+    }
+  }, [newShift.label, newShift.timeRange]);
 
   const handleTaskMove = useCallback(
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
@@ -599,45 +751,18 @@ export default function AdminScheduleEditorPage() {
         setScheduleData(json);
         setMessage(null);
       }
+      if (scheduleMode === "page") {
+        const listRes = await fetch("/api/schedule/list");
+        if (listRes.ok) {
+          const listJson = await listRes.json();
+          setAvailableSchedules(listJson.schedules || []);
+        }
+      }
     } catch (err) {
       console.error("Refresh failed", err);
       setMessage("Unable to refresh schedule. Try again soon.");
     }
   };
-
-  const ensureScheduleForDate = async (dateLabel: string) => {
-    if (scheduleMode !== "page") return;
-    if (!dateLabel) return;
-    setScheduleNote(null);
-    try {
-      const res = await fetch("/api/schedule/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dateLabel }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to create schedule");
-      }
-      setScheduleNote(`Created schedule for ${dateLabel}.`);
-      const listRes = await fetch("/api/schedule/list?ensureStaging=1");
-      if (listRes.ok) {
-        const listJson = await listRes.json();
-        setAvailableSchedules(listJson.schedules || []);
-      }
-      await refreshSchedule();
-    } catch (err) {
-      console.error("Failed to create schedule", err);
-      setScheduleNote("Unable to create that schedule right now.");
-    }
-  };
-
-  useEffect(() => {
-    if (!selectedDate || !scheduleMissing) return;
-    if (autoCreateRef.current === selectedDate) return;
-    autoCreateRef.current = selectedDate;
-    ensureScheduleForDate(selectedDate);
-  }, [scheduleMissing, selectedDate]);
 
   const publishSchedule = async () => {
     if (scheduleMode !== "page") return;
@@ -657,55 +782,6 @@ export default function AdminScheduleEditorPage() {
     } catch (err) {
       console.error("Failed to publish schedule", err);
       setScheduleNote("Unable to publish the schedule right now.");
-    }
-  };
-
-  const syncVolunteers = async () => {
-    if (scheduleMode !== "page") return;
-    if (!selectedDate) return;
-    setVolunteerSyncMessage(null);
-    try {
-      const res = await fetch("/api/schedule/volunteers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dateLabel: selectedDate, staging: true }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to sync volunteers");
-      }
-      setVolunteerSyncMessage(
-        `Added ${json.added || 0} volunteers and removed ${json.removed || 0} rows.`
-      );
-      await refreshSchedule();
-    } catch (err) {
-      console.error("Failed to sync volunteers", err);
-      setVolunteerSyncMessage("Unable to sync volunteers right now.");
-    }
-  };
-
-  const addCustomPersonRow = async () => {
-    if (!newPersonName.trim()) return;
-    if (scheduleMode === "page" && !selectedDate) return;
-    try {
-      const res = await fetch("/api/schedule/people", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newPersonName.trim(),
-          dateLabel: scheduleMode === "page" ? selectedDate : undefined,
-          staging: scheduleMode === "page",
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to add person");
-      }
-      setNewPersonName("");
-      await refreshSchedule();
-    } catch (err) {
-      console.error("Failed to add person", err);
-      setMessage("Unable to add that person row.");
     }
   };
 
@@ -736,7 +812,7 @@ export default function AdminScheduleEditorPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Upload failed");
 
-      setPhotoMessage("Photo uploaded to Notion Photos.");
+      setPhotoMessage("Photo uploaded.");
       if (photoInputRef.current) {
         photoInputRef.current.value = "";
       }
@@ -759,110 +835,86 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
-          <h1 className="text-2xl font-semibold text-[#314123]">{scheduleTitle}</h1>
-          <p className="text-sm text-[#5f5a3b]">
-            Drag tasks anywhere and reorder inside a shift with smooth autosave.
-          </p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#fdfbf4]">
+      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
+            <h1 className="text-2xl font-semibold text-[#314123]">{scheduleTitle}</h1>
+            <p className="text-sm text-[#5f5a3b]">
+              Staging schedule with auto-synced volunteers and background saves.
+            </p>
+            {selectedEntry && (
+              <p className="mt-1 text-xs text-[#6a6c4d]">
+                Live: {selectedEntry.liveId ? "ready" : "missing"} • Staging:{" "}
+                {selectedEntry.stagingId ? "ready" : "missing"}
+              </p>
+            )}
+            {scheduleNote && (
+              <p className="mt-2 text-xs text-[#4b5133]">{scheduleNote}</p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
             <button
               type="button"
               onClick={refreshSchedule}
-              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
             >
-              Refresh schedule
-            </button>
-            <Link
-              href="/hub/admin"
-              className="rounded-md border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6]"
-            >
-              Back to admin
-            </Link>
-          </div>
-          <div className="mt-3 flex flex-wrap items-end gap-3 text-xs text-[#6a6c4d]">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Schedule date
-              </span>
-              <input
-                type="date"
-                value={selectedDate ? formatLabelToInput(selectedDate) : ""}
-                onChange={(e) => {
-                  const next = formatDateInput(e.target.value);
-                  setSelectedDate(next);
-                }}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123] focus:border-[#8fae4c] focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Existing schedules
-              </span>
-              <select
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123] focus:border-[#8fae4c] focus:outline-none"
-              >
-                <option value="">Select a date</option>
-                {availableSchedules.map((entry) => (
-                  <option key={entry.dateLabel} value={entry.dateLabel}>
-                    {entry.dateLabel}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => ensureScheduleForDate(selectedDate)}
-              disabled={!selectedDate || scheduleMode !== "page"}
-              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
-            >
-              Create schedule
+              Refresh
             </button>
             <button
               type="button"
               onClick={publishSchedule}
-              disabled={!selectedDate || scheduleMissing || scheduleMode !== "page"}
-              className="rounded-md bg-[#8fae4c] px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+              disabled={!selectedDate || scheduleMode !== "page"}
+              className="rounded-md bg-[#8fae4c] px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
             >
               Publish
             </button>
-            <button
-              type="button"
-              onClick={syncVolunteers}
-              disabled={!selectedDate || scheduleMode !== "page"}
-              className="rounded-md border border-[#d0c9a4] bg-[#f4f1df] px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6] disabled:opacity-60"
+            <Link
+              href="/hub/admin"
+              className="rounded-md border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6]"
             >
-              Add all volunteers
-            </button>
+              Back to admin
+            </Link>
           </div>
-          {scheduleMissing && (
-            <p className="mt-2 text-xs text-[#a05252]">
-              No schedule exists for {selectedDate}. Create it to begin editing.
-            </p>
-          )}
-          {selectedEntry && (
-            <p className="mt-1 text-xs text-[#6a6c4d]">
-              Live: {selectedEntry.liveId ? "ready" : "missing"} • Staging:{" "}
-              {selectedEntry.stagingId ? "ready" : "missing"}
-            </p>
-          )}
-          {scheduleMode === "database" && (
-            <p className="mt-1 text-xs text-[#6a6c4d]">
-              Editing the default schedule database (no per-date staging).
-            </p>
-          )}
-          {scheduleNote && (
-            <p className="mt-2 text-xs text-[#4b5133]">{scheduleNote}</p>
-          )}
-          {volunteerSyncMessage && (
-            <p className="mt-1 text-xs text-[#4b5133]">{volunteerSyncMessage}</p>
-          )}
+        </div>
+        <div className="mt-4 flex flex-wrap items-end gap-3 text-xs text-[#6a6c4d]">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
+              Schedule date
+            </span>
+            <input
+              type="date"
+              value={selectedDate ? formatLabelToInput(selectedDate) : ""}
+              onChange={(e) => {
+                const next = formatDateInput(e.target.value);
+                setSelectedDate(next);
+              }}
+              disabled={scheduleMode !== "page"}
+              className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs text-[#314123] focus:border-[#8fae4c] focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
+              Recent schedule dates
+            </span>
+            <select
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              disabled={scheduleMode !== "page"}
+              className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs text-[#314123] focus:border-[#8fae4c] focus:outline-none"
+            >
+              <option value="">Select a date</option>
+              {scheduleOptions.map((entry) => (
+                <option key={entry.dateLabel} value={entry.dateLabel}>
+                  {entry.dateLabel}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="rounded-full bg-[#f0f4de] px-3 py-2 text-[11px] font-semibold text-[#4b5133]">
+            Volunteers auto-sync from the Users database
+          </span>
         </div>
       </div>
 
@@ -872,8 +924,8 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_360px]">
-        <div className="rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
+      <div className="flex min-h-0 flex-1 gap-4 px-4 py-4">
+        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -888,29 +940,10 @@ export default function AdminScheduleEditorPage() {
               </span>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-end gap-2 text-xs text-[#6a6c4d]">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Add custom person
-              </span>
-              <input
-                value={newPersonName}
-                onChange={(e) => setNewPersonName(e.target.value)}
-                placeholder="Type a name"
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123] focus:border-[#8fae4c] focus:outline-none"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={addCustomPersonRow}
-              disabled={
-                !newPersonName.trim() ||
-                (scheduleMode === "page" && !selectedDate)
-              }
-              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
-            >
-              Add person row
-            </button>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
+            <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+              Volunteers auto-populate this grid.
+            </span>
             <span className="text-[11px] text-[#7a7f54]">
               {pendingCells.size ? "Saving updates…" : "All changes saved."}
             </span>
@@ -919,7 +952,7 @@ export default function AdminScheduleEditorPage() {
           {scheduleLoading && (
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
-          <div className="mt-3 max-h-[calc(100vh-220px)] min-h-[50vh] overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner">
+          <div className="mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner">
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-[#e5e7c5]">
                 <tr>
@@ -1015,7 +1048,7 @@ export default function AdminScheduleEditorPage() {
                             {dropLine(0)}
                             {content.tasks.map((task, idx) => {
                               const base = taskBaseName(task);
-                              const meta = taskBank.find((t) => t.name === base);
+                              const meta = recurringTasks.find((t) => t.name === base);
                               const isDraggingThis =
                                 draggingTask?.taskName === base &&
                                 draggingTask?.fromPerson === person &&
@@ -1143,22 +1176,20 @@ export default function AdminScheduleEditorPage() {
             </table>
           </div>
           <datalist id="task-options">
-            {taskBank.map((task) => (
+            {recurringTasks.map((task) => (
               <option key={task.id} value={task.name} />
             ))}
           </datalist>
         </div>
 
-        <div className="relative space-y-4 xl:sticky xl:top-4 xl:self-start">
+        <div className="relative w-[420px] shrink-0 space-y-4 overflow-y-auto">
           <div
             className="z-20 w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur"
           >
-            <div
-              className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-            >
-              <span>Task dock</span>
+            <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+              <span>Recurring task dock</span>
               <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                Always visible
+                {selectedDate || "Pick a date"}
               </span>
             </div>
             <div className="space-y-2 p-3 text-sm">
@@ -1196,7 +1227,7 @@ export default function AdminScheduleEditorPage() {
               </select>
 
               <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {filteredTaskBank.map((task) => (
+                {filteredRecurringTasks.map((task) => (
                   <button
                     key={task.id}
                     draggable
@@ -1226,10 +1257,84 @@ export default function AdminScheduleEditorPage() {
                     <span className="text-lg">🐐</span>
                   </button>
                 ))}
-                {!filteredTaskBank.length && (
-                  <p className="text-[12px] text-[#7a7f54]">No tasks loaded yet.</p>
+                {!filteredRecurringTasks.length && (
+                  <p className="text-[12px] text-[#7a7f54]">
+                    No recurring tasks for this date.
+                  </p>
                 )}
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+            <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+              One-off task dock
+            </div>
+            <div className="space-y-2 p-3 text-sm">
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {filteredOneOffTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDraggingTask({ taskName: task.name });
+                      e.dataTransfer.setData("text/task-name", task.name);
+                      e.dataTransfer.setData("text/plain", task.name);
+                      e.dataTransfer.setData(DRAG_DATA_TYPE, JSON.stringify({ taskName: task.name }));
+                      e.dataTransfer.effectAllowed = "copyMove";
+                    }}
+                    onDragEnd={() => {
+                      setDraggingTask(null);
+                      setPendingInsert(null);
+                    }}
+                    onClick={() => loadTaskDetail(task.name)}
+                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                      task.typeColor
+                    )}`}
+                  >
+                    <div>
+                      <div className="font-semibold">{task.name}</div>
+                      <div className="text-[11px] text-[#5f5a3b]">
+                        {task.type || "Uncategorized"}
+                        {task.occurrenceDate ? ` • ${task.occurrenceDate}` : ""}
+                      </div>
+                    </div>
+                    <span className="text-lg">🌿</span>
+                  </button>
+                ))}
+                {!filteredOneOffTasks.length && (
+                  <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
+            <p className="mt-1 text-[12px] text-[#6b6d4b]">
+              Adds a one-off task for {selectedDate || "the selected date"}.
+            </p>
+            <div className="mt-2 space-y-2">
+              <input
+                value={quickTaskName}
+                onChange={(e) => setQuickTaskName(e.target.value)}
+                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                placeholder="Task name"
+              />
+              <textarea
+                value={quickTaskDescription}
+                onChange={(e) => setQuickTaskDescription(e.target.value)}
+                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                placeholder="Task description"
+                rows={3}
+              />
+              <button
+                type="button"
+                onClick={createQuickTask}
+                className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+              >
+                Add quick task
+              </button>
             </div>
           </div>
 
@@ -1287,6 +1392,88 @@ export default function AdminScheduleEditorPage() {
               </div>
             ) : (
               <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#314123]">Shift editor</h3>
+              <button
+                type="button"
+                onClick={() => setShiftEditorOpen((prev) => !prev)}
+                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
+              >
+                {shiftEditorOpen ? "Collapse" : "Expand"}
+              </button>
+            </div>
+            {shiftEditorOpen && (
+              <div className="mt-3 space-y-2 text-sm">
+                {shifts.map((shift, index) => (
+                  <div
+                    key={shift.id}
+                    className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-white/90 px-2 py-2"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-[#314123]">{shift.label}</div>
+                      {shift.timeRange && (
+                        <div className="text-[11px] text-[#6b6d4b]">{shift.timeRange}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (index === 0) return;
+                          const updated = [...shifts];
+                          [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
+                          updateShiftOrder(updated);
+                        }}
+                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (index === shifts.length - 1) return;
+                          const updated = [...shifts];
+                          [updated[index + 1], updated[index]] = [updated[index], updated[index + 1]];
+                          updateShiftOrder(updated);
+                        }}
+                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
+                      >
+                        Down
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!shifts.length && (
+                  <p className="text-[12px] text-[#7a7f54]">No shifts loaded.</p>
+                )}
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={newShift.label}
+                    onChange={(e) => setNewShift((prev) => ({ ...prev, label: e.target.value }))}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                    placeholder="Shift name"
+                  />
+                  <input
+                    value={newShift.timeRange}
+                    onChange={(e) =>
+                      setNewShift((prev) => ({ ...prev, timeRange: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                    placeholder="Time range (optional)"
+                  />
+                  <button
+                    type="button"
+                    onClick={addShift}
+                    className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+                  >
+                    Add shift
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

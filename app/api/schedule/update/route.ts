@@ -1,172 +1,328 @@
 import { NextResponse } from "next/server";
-import { queryDatabase, retrieveDatabase, updateDatabase, updatePage } from "@/lib/notion";
-import { resolveScheduleDatabase } from "@/lib/schedule-loader";
+import { supabaseRequest } from "@/lib/supabase";
 
-function getPlainText(prop: any): string {
-  if (!prop) return "";
-  switch (prop.type) {
-    case "title":
-      return (prop.title || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    case "rich_text":
-      return (prop.rich_text || [])
-        .map((t: any) => t.plain_text || "")
-        .join("")
-        .trim();
-    default:
-      return "";
-  }
+type ScheduleRow = { id: string };
+type SchedulePersonRow = { id: string; name: string };
+type ScheduleCellRow = { id: string };
+type UserRow = {
+  display_name: string;
+  active: boolean;
+  user_role?: { name?: string | null };
+};
+
+function toIsoDate(label?: string | null) {
+  if (!label) return null;
+  if (label.includes("-")) return label;
+  const [month, day, year] = label.split("/");
+  if (!month || !day || !year) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function splitTasks(value: string) {
-  if (!value) return [] as string[];
-  return value
-    .split(/,|\n/)
-    .map((t) => t.trim())
+function parseCell(value?: string | null) {
+  if (!value?.trim()) return { tasks: [] as string[], note: "" };
+  const [firstLine, ...rest] = value.split("\n");
+  const tasks = firstLine
+    .split(",")
+    .map((task) => task.trim())
     .filter(Boolean);
+  const note = rest.join("\n").trim();
+  return { tasks, note };
 }
 
-function joinTasks(tasks: string[]) {
-  return tasks.join(", ");
+async function fetchVolunteers() {
+  const users = await supabaseRequest<UserRow[]>("users", {
+    query: {
+      select: "display_name,active,user_role:user_roles(name)",
+      order: "display_name.asc",
+    },
+  });
+
+  return (
+    users
+      ?.filter(
+        (user) =>
+          user.active &&
+          (user.user_role?.name || "")
+            .toLowerCase()
+            .includes("volunteer")
+      )
+      .map((user) => user.display_name) || []
+  );
 }
 
-function getTitlePropertyKey(meta: any): string {
-  const props = meta?.properties || {};
-  for (const [key, value] of Object.entries(props)) {
-    if ((value as any)?.type === "title") return key;
+async function ensureSchedulePeople(scheduleId: string, volunteers: string[]) {
+  const normalizedVolunteers = volunteers
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const people = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+    query: {
+      select: "id,name",
+      schedule_id: `eq.${scheduleId}`,
+      order: "order_index.asc",
+    },
+  });
+  const existing = new Map(
+    people.map((person) => [person.name.trim(), person.id])
+  );
+  const missing = normalizedVolunteers.filter(
+    (name) => !existing.has(name)
+  );
+
+  if (missing.length) {
+    await supabaseRequest("schedule_people", {
+      method: "POST",
+      body: missing.map((name) => ({
+        schedule_id: scheduleId,
+        name: name.trim(),
+        order_index: normalizedVolunteers.indexOf(name) + 1,
+      })),
+    });
   }
-  return "Person";
+
+  const refreshed = await supabaseRequest<SchedulePersonRow[]>(
+    "schedule_people",
+    {
+      query: {
+        select: "id,name",
+        schedule_id: `eq.${scheduleId}`,
+        order: "order_index.asc",
+      },
+    }
+  );
+
+  return refreshed;
+}
+
+async function upsertScheduleCell(params: {
+  scheduleId: string;
+  personId: string;
+  slotId: string;
+  tasks: string[];
+  note: string | null;
+}) {
+  const existing = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
+    query: {
+      select: "id",
+      schedule_id: `eq.${params.scheduleId}`,
+      person_id: `eq.${params.personId}`,
+      shift_id: `eq.${params.slotId}`,
+      limit: 1,
+    },
+  });
+
+  if (existing.length) {
+    await supabaseRequest("schedule_cells", {
+      method: "PATCH",
+      query: { id: `eq.${existing[0].id}` },
+      body: {
+        tasks: params.tasks,
+        note: params.note,
+      },
+    });
+    return;
+  }
+
+  await supabaseRequest("schedule_cells", {
+    method: "POST",
+    body: {
+      schedule_id: params.scheduleId,
+      person_id: params.personId,
+      shift_id: params.slotId,
+      tasks: params.tasks,
+      note: params.note,
+    },
+  });
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const {
-      person,
-      slotId,
-      addTask,
-      removeTask,
-      replaceValue,
-      reportValue,
-      dateLabel,
-      staging,
-    } = body || {};
+  const body = await req.json().catch(() => null);
+  const { person, slotId, replaceValue, dateLabel } = body || {};
 
-    if (!person || !slotId) {
+  if (!person || !slotId) {
+    return NextResponse.json(
+      { error: "Missing person or slot." },
+      { status: 400 }
+    );
+  }
+
+  const isoDate = toIsoDate(dateLabel);
+  if (!isoDate) {
+    return NextResponse.json(
+      { error: "Missing schedule date." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { tasks, note } = parseCell(replaceValue || "");
+    const hasContent = tasks.length > 0 || note.trim().length > 0;
+    console.log("schedule.update payload", {
+      isoDate,
+      person: String(person).trim(),
+      slotId,
+      taskCount: tasks.length,
+      hasNote: Boolean(note.trim()),
+    });
+
+    let scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+      query: {
+        select: "id",
+        schedule_date: `eq.${isoDate}`,
+        state: "eq.staging",
+        limit: 1,
+      },
+    });
+
+    let scheduleId = scheduleRows?.[0]?.id || null;
+    console.log("schedule.update schedule lookup", { scheduleId });
+
+    if (!scheduleId && !hasContent) {
+      return NextResponse.json({ ok: true });
+    }
+
+    if (!scheduleId) {
+      const created = await supabaseRequest<ScheduleRow[]>("schedules", {
+        method: "POST",
+        prefer: "return=representation",
+        body: {
+          schedule_date: isoDate,
+          state: "staging",
+        },
+      });
+      scheduleId = created?.[0]?.id || null;
+    }
+
+    if (!scheduleId) {
+      const refreshed = await supabaseRequest<ScheduleRow[]>("schedules", {
+        query: {
+          select: "id",
+          schedule_date: `eq.${isoDate}`,
+          state: "eq.staging",
+          limit: 1,
+        },
+      });
+      scheduleId = refreshed?.[0]?.id || null;
+      console.log("schedule.update schedule refresh", { scheduleId });
+    }
+
+    if (!scheduleId) {
       return NextResponse.json(
-        { error: "Missing person or slot" },
+        { error: "Unable to create schedule." },
+        { status: 500 }
+      );
+    }
+
+    const volunteers = await fetchVolunteers();
+    const people = await ensureSchedulePeople(scheduleId, volunteers);
+    const normalizedPerson = String(person).trim();
+    const personEntry = people.find(
+      (entry) => entry.name.trim() === normalizedPerson
+    );
+    console.log("schedule.update people lookup", {
+      normalizedPerson,
+      peopleCount: people.length,
+      personFound: Boolean(personEntry),
+    });
+
+    let resolvedPerson = personEntry;
+    if (!resolvedPerson) {
+      const created = await supabaseRequest<SchedulePersonRow[]>(
+        "schedule_people",
+        {
+          method: "POST",
+          prefer: "return=representation",
+          body: {
+            schedule_id: scheduleId,
+            name: normalizedPerson,
+            order_index: people.length + 1,
+          },
+        }
+      );
+      resolvedPerson = created?.[0] ?? null;
+      console.log("schedule.update person created", {
+        personId: resolvedPerson?.id,
+      });
+    }
+
+    if (!resolvedPerson) {
+      return NextResponse.json(
+        { error: "Person not found in schedule." },
         { status: 400 }
       );
     }
 
-    const context = await resolveScheduleDatabase({
-      dateLabel,
-      staging: Boolean(staging),
-    });
-    const databaseId = context.databaseId;
-    const meta = context.databaseMeta || (await retrieveDatabase(databaseId));
-    const titleKey = getTitlePropertyKey(meta);
-
-    const query = await queryDatabase(databaseId, {
-      page_size: 1,
-      filter: {
-        property: titleKey,
-        title: { equals: person },
-      },
-    });
-
-    const page = query.results?.[0];
-    if (!page) {
-      return NextResponse.json(
-        { error: "Person row not found" },
-        { status: 404 }
-      );
-    }
-
-    const slotMeta = meta?.properties?.[slotId];
-    if (slotMeta?.type === "checkbox") {
-      await updatePage(page.id, {
-        [slotId]: { checkbox: Boolean(reportValue) },
+    if (!hasContent) {
+      await supabaseRequest("schedule_cells", {
+        method: "DELETE",
+        query: {
+          schedule_id: `eq.${scheduleId}`,
+          person_id: `eq.${resolvedPerson.id}`,
+          shift_id: `eq.${slotId}`,
+        },
       });
-      return NextResponse.json({ success: true, value: Boolean(reportValue) });
-    }
 
-    const currentValue = getPlainText(page.properties?.[slotId]);
-    const baseValue =
-      replaceValue !== undefined ? replaceValue : currentValue;
-    const normalizedValue =
-      slotMeta?.type === "multi_select"
-        ? baseValue.split("\n")[0] || ""
-        : baseValue;
-    let tasks = splitTasks(normalizedValue);
-
-    if (removeTask) {
-      tasks = tasks.filter(
-        (t) => t.toLowerCase() !== String(removeTask).trim().toLowerCase()
-      );
-    }
-
-    if (addTask) {
-      const exists = tasks.some(
-        (t) => t.toLowerCase() === String(addTask).trim().toLowerCase()
-      );
-      if (!exists) tasks.push(String(addTask).trim());
-    }
-
-    const nextValue = joinTasks(tasks);
-
-    if (slotMeta?.type === "multi_select") {
-      const existingOptions = slotMeta.multi_select?.options || [];
-      const existingNames = new Set(
-        existingOptions.map((opt: any) => (opt?.name || "").toLowerCase())
-      );
-      const trimmedTasks = Array.from(
-        new Set(tasks.map((task) => task.trim()).filter(Boolean))
-      );
-      const missing = trimmedTasks.filter(
-        (task) => !existingNames.has(task.toLowerCase())
-      );
-
-      if (missing.length) {
-        const nextOptions = [
-          ...existingOptions,
-          ...missing.map((name: string) => ({ name, color: "default" })),
-        ];
-        await updateDatabase(databaseId, {
-          [slotId]: {
-            multi_select: {
-              options: nextOptions,
-            },
+      const remaining = await supabaseRequest<ScheduleCellRow[]>(
+        "schedule_cells",
+        {
+          query: {
+            select: "id",
+            schedule_id: `eq.${scheduleId}`,
+            limit: 1,
           },
+        }
+      );
+
+      if (!remaining.length) {
+        await supabaseRequest("schedules", {
+          method: "DELETE",
+          query: { id: `eq.${scheduleId}` },
         });
       }
 
-      await updatePage(page.id, {
-        [slotId]: {
-          multi_select: trimmedTasks.map((task) => ({ name: task })),
-        },
-      });
-      return NextResponse.json({ success: true, value: trimmedTasks });
+      return NextResponse.json({ ok: true });
     }
 
-    await updatePage(page.id, {
-      [slotId]: {
-        rich_text: [
-          {
-            type: "text",
-            text: { content: nextValue },
-          },
-        ],
-      },
+    await upsertScheduleCell({
+      scheduleId,
+      personId: resolvedPerson.id,
+      slotId,
+      tasks,
+      note: note.trim() || null,
+    });
+    console.log("schedule.update cell upserted", {
+      scheduleId,
+      personId: resolvedPerson.id,
+      slotId,
     });
 
-    return NextResponse.json({ success: true, value: nextValue });
+    const verify = await supabaseRequest<ScheduleCellRow[]>(
+      "schedule_cells",
+      {
+        query: {
+          select: "id",
+          schedule_id: `eq.${scheduleId}`,
+          person_id: `eq.${resolvedPerson.id}`,
+          shift_id: `eq.${slotId}`,
+          limit: 1,
+        },
+      }
+    );
+    console.log("schedule.update cell verify", {
+      found: verify.length,
+    });
+    if (!verify.length) {
+      return NextResponse.json(
+        { error: "Schedule cell failed to persist." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Schedule update failed:", err);
+    console.error("Failed to update schedule", err);
+    const message = err instanceof Error ? err.message : "Unable to update schedule.";
     return NextResponse.json(
-      { error: "Failed to update schedule" },
+      { error: message },
       { status: 500 }
     );
   }
