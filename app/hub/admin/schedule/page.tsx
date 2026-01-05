@@ -392,7 +392,10 @@ export default function AdminScheduleEditorPage() {
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
       if (!person || !slotId || !data) return null;
-      const row = data.people.indexOf(person);
+      const normalizedPerson = person.trim().toLowerCase();
+      const row = data.people.findIndex(
+        (name) => name.trim().toLowerCase() === normalizedPerson
+      );
       const col = data.slots.findIndex((s) => s.id === slotId);
       if (row < 0 || col < 0) return null;
       return { row, col };
@@ -593,6 +596,15 @@ export default function AdminScheduleEditorPage() {
     (e: React.DragEvent, person: string, slot: Slot, targetIndex?: number) => {
       e.preventDefault();
       e.stopPropagation();
+      if (!scheduleData) {
+        setSaveLog({
+          status: "error",
+          message: "Schedule data has not loaded yet. Please refresh and try again.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId: slot.id },
+        });
+        return;
+      }
       e.dataTransfer.dropEffect = "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
@@ -610,7 +622,7 @@ export default function AdminScheduleEditorPage() {
       handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
       setPendingInsert(null);
     },
-    [handleTaskMove]
+    [handleTaskMove, scheduleData]
   );
 
   const handleDragOverEvent = useCallback(
