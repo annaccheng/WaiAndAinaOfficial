@@ -55,14 +55,15 @@ export async function supabaseRequest<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  const text = await res.text();
+
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(text || `Supabase request failed with ${res.status}`);
   }
 
-  if (res.status === 204) {
+  if (!text) {
     return null as T;
   }
 
-  return (await res.json()) as T;
+  return JSON.parse(text) as T;
 }

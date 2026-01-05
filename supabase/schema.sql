@@ -83,3 +83,59 @@ values
   ('Landscaping', 'emerald'),
   ('Maintenance', 'gray')
 on conflict (name) do nothing;
+
+create table if not exists shifts (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  time_range text,
+  order_index integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists schedules (
+  id uuid primary key default gen_random_uuid(),
+  schedule_date date not null,
+  state text not null default 'staging',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (schedule_date, state)
+);
+
+create table if not exists schedule_people (
+  id uuid primary key default gen_random_uuid(),
+  schedule_id uuid references schedules(id) on delete cascade,
+  name text not null,
+  order_index integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (schedule_id, name)
+);
+
+create table if not exists schedule_cells (
+  id uuid primary key default gen_random_uuid(),
+  schedule_id uuid references schedules(id) on delete cascade,
+  person_id uuid references schedule_people(id) on delete cascade,
+  shift_id uuid references shifts(id) on delete cascade,
+  tasks text[] not null default '{}',
+  note text,
+  created_at timestamptz not null default now(),
+  unique (schedule_id, person_id, shift_id)
+);
+
+insert into shifts (label, time_range, order_index)
+values
+  ('Breakfast', '10:30-11:30', 1),
+  ('Lunch', '2:30-3:30', 2),
+  ('Dinner', null, 3),
+  ('Morning Shift 1', '7:30-9:00', 4),
+  ('Morning Shift 2', '9:00-10:30', 5),
+  ('Noon Shift 1', '11:30-1:00', 6),
+  ('Noon Shift 2', '1:00-2:30', 7),
+  ('Afternoon Shift 1', '3:30-4:00', 8),
+  ('Afternoon Shift 2', '4:00-6:30', 9),
+  ('Evening Shift', null, 10),
+  ('Weekend Saturday Morning', null, 11),
+  ('Weekend Saturday Evening', null, 12),
+  ('Weekend Sunday Morning', null, 13),
+  ('Weekend Sunday Evening', null, 14)
+on conflict do nothing;
