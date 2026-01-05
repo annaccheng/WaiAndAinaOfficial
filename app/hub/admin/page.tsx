@@ -56,7 +56,7 @@ export default function AdminPage() {
       </div>
 
       {authorized && (
-        <div className="grid gap-5 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Schedule</p>
             <h2 className="text-lg font-semibold text-[#314123]">Admin schedule</h2>
@@ -68,6 +68,20 @@ export default function AdminPage() {
               className="mt-4 inline-flex items-center justify-center rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
             >
               Open schedule editor
+            </Link>
+          </div>
+
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Shifts</p>
+            <h2 className="text-lg font-semibold text-[#314123]">Shift editor</h2>
+            <p className="mt-2 text-sm text-[#5f5a3b]">
+              Update shift names, times, and ordering in one place.
+            </p>
+            <Link
+              href="/hub/admin/shifts"
+              className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+            >
+              Open shift editor
             </Link>
           </div>
 

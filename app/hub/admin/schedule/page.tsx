@@ -151,7 +151,11 @@ export default function AdminScheduleEditorPage() {
   const [taskSearch, setTaskSearch] = useState("");
   const [taskTypeFilter, setTaskTypeFilter] = useState("");
   const [taskStatusFilter, setTaskStatusFilter] = useState("");
-  const [selectedCell, setSelectedCell] = useState<{ person: string; slotId: string; slotLabel: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{
+    person: string;
+    slotId: string;
+    slotLabel: string;
+  } | null>(null);
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
@@ -174,9 +178,6 @@ export default function AdminScheduleEditorPage() {
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
-  const [shiftEditorOpen, setShiftEditorOpen] = useState(false);
-  const [shifts, setShifts] = useState<Slot[]>([]);
-  const [newShift, setNewShift] = useState({ label: "", timeRange: "" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastInlineAddRef = useRef<Record<string, string>>({});
 
@@ -212,10 +213,9 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const [typeRes, scheduleListRes, shiftsRes] = await Promise.all([
+        const [typeRes, scheduleListRes] = await Promise.all([
           fetch("/api/task-types"),
           fetch("/api/schedule/list"),
-          fetch("/api/shifts"),
         ]);
 
         if (typeRes.ok) {
@@ -235,10 +235,6 @@ export default function AdminScheduleEditorPage() {
             const today = new Date().toISOString().slice(0, 10);
             setSelectedDate(formatDateInput(today));
           }
-        }
-        if (shiftsRes.ok) {
-          const json = await shiftsRes.json();
-          setShifts(json.shifts || []);
         }
       } catch (err) {
         console.error("Failed to load schedule editor data", err);
@@ -400,7 +396,8 @@ export default function AdminScheduleEditorPage() {
 
   const persistCell = useCallback(
     async (person: string, slotId: string, content: CellContent) => {
-      if (scheduleMode === "page" && !selectedDate) return;
+      const activeDate = selectedDate || scheduleData?.scheduleDate || "";
+      if (scheduleMode === "page" && !activeDate) return;
       const key = `${person}-${slotId}`;
       setPendingCells((prev) => new Set(prev).add(key));
       try {
@@ -411,7 +408,7 @@ export default function AdminScheduleEditorPage() {
             person,
             slotId,
             replaceValue: serializeCell(content),
-            dateLabel: scheduleMode === "page" ? selectedDate : undefined,
+            dateLabel: scheduleMode === "page" ? activeDate : undefined,
             staging: scheduleMode === "page",
           }),
         });
@@ -432,7 +429,7 @@ export default function AdminScheduleEditorPage() {
         });
       }
     },
-    [scheduleMode, selectedDate]
+    [scheduleData?.scheduleDate, scheduleMode, selectedDate]
   );
 
   const createQuickTask = useCallback(async () => {
@@ -477,40 +474,6 @@ export default function AdminScheduleEditorPage() {
       setMessage("Unable to create quick task.");
     }
   }, [quickTaskDescription, quickTaskName, selectedDate]);
-
-  const updateShiftOrder = useCallback(async (updated: Slot[]) => {
-    setShifts(updated);
-    try {
-      await fetch("/api/shifts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shifts: updated }),
-      });
-    } catch (err) {
-      console.error("Failed to update shifts", err);
-    }
-  }, []);
-
-  const addShift = useCallback(async () => {
-    if (!newShift.label.trim()) return;
-    try {
-      const res = await fetch("/api/shifts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: newShift.label.trim(),
-          timeRange: newShift.timeRange.trim(),
-        }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setShifts(json.shifts || []);
-        setNewShift({ label: "", timeRange: "" });
-      }
-    } catch (err) {
-      console.error("Failed to add shift", err);
-    }
-  }, [newShift.label, newShift.timeRange]);
 
   const handleTaskMove = useCallback(
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
@@ -839,7 +802,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col overflow-hidden bg-[#fdfbf4]">
+    <div className="flex min-h-screen w-full flex-col bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -879,6 +842,12 @@ export default function AdminScheduleEditorPage() {
               className="rounded-md border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6]"
             >
               Back to admin
+            </Link>
+            <Link
+              href="/hub/admin/shifts"
+              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
+            >
+              Shift editor
             </Link>
           </div>
         </div>
@@ -928,7 +897,7 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
+      <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1186,7 +1155,7 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="relative w-full shrink-0 space-y-4 overflow-y-auto lg:w-[420px]">
+        <div className="relative w-full shrink-0 space-y-4 overflow-y-visible lg:w-[420px]">
           <div
             className="z-20 w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur"
           >
@@ -1396,88 +1365,6 @@ export default function AdminScheduleEditorPage() {
               </div>
             ) : (
               <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#314123]">Shift editor</h3>
-              <button
-                type="button"
-                onClick={() => setShiftEditorOpen((prev) => !prev)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-              >
-                {shiftEditorOpen ? "Collapse" : "Expand"}
-              </button>
-            </div>
-            {shiftEditorOpen && (
-              <div className="mt-3 space-y-2 text-sm">
-                {shifts.map((shift, index) => (
-                  <div
-                    key={shift.id}
-                    className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-white/90 px-2 py-2"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-[#314123]">{shift.label}</div>
-                      {shift.timeRange && (
-                        <div className="text-[11px] text-[#6b6d4b]">{shift.timeRange}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (index === 0) return;
-                          const updated = [...shifts];
-                          [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
-                          updateShiftOrder(updated);
-                        }}
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (index === shifts.length - 1) return;
-                          const updated = [...shifts];
-                          [updated[index + 1], updated[index]] = [updated[index], updated[index + 1]];
-                          updateShiftOrder(updated);
-                        }}
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        Down
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {!shifts.length && (
-                  <p className="text-[12px] text-[#7a7f54]">No shifts loaded.</p>
-                )}
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={newShift.label}
-                    onChange={(e) => setNewShift((prev) => ({ ...prev, label: e.target.value }))}
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                    placeholder="Shift name"
-                  />
-                  <input
-                    value={newShift.timeRange}
-                    onChange={(e) =>
-                      setNewShift((prev) => ({ ...prev, timeRange: e.target.value }))
-                    }
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                    placeholder="Time range (optional)"
-                  />
-                  <button
-                    type="button"
-                    onClick={addShift}
-                    className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-                  >
-                    Add shift
-                  </button>
-                </div>
-              </div>
             )}
           </div>
 

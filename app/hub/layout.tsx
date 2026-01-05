@@ -36,6 +36,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
   const [mobileWorkOpen, setMobileWorkOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [newlyOnline, setNewlyOnline] = useState<Record<string, boolean>>({});
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   const normalizedType = (userType || "").toLowerCase();
   const isExternalVolunteer = normalizedType === "external volunteer";
@@ -52,6 +53,26 @@ export default function HubLayout({ children }: { children: ReactNode }) {
     setUserType(session.userType ?? null);
     setUserTypeColor(session.userTypeColor ?? null);
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("waianda_theme");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const nextTheme = stored === "dark" || (!stored && prefersDark) ? "dark" : "light";
+    setTheme(nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      if (typeof window !== "undefined") {
+        localStorage.setItem("waianda_theme", next);
+        document.documentElement.classList.toggle("dark", next === "dark");
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (isInactiveVolunteer && pathname.startsWith("/hub") && pathname !== "/hub/goat") {
@@ -256,16 +277,16 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <main className="min-h-screen flex flex-col bg-[#f8f4e3] text-[#3b4224]">
+      <main className="min-h-screen flex flex-col bg-[#f8f4e3] text-[#3b4224] dark:bg-[#12160d] dark:text-[#f5f7eb]">
         {/* Header bar */}
-        <header className="w-full bg-[#a0b764] text-[#f9f9ec] shadow-md relative">
+        <header className="w-full bg-[#a0b764] text-[#f9f9ec] shadow-md relative dark:bg-[#2b3720] dark:text-[#f7f9ef]">
           <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-3 flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
             {/* Top row on mobile: logo + toggles */}
             <div className="flex items-center justify-between gap-3 w-full">
               <div className="flex items-center gap-2 sm:hidden">
                 <button
                   onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors shadow-sm"
+                  className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors shadow-sm dark:bg-[#1f2716] dark:text-[#dbe8c1]"
                   aria-label="Open navigation"
                 >
                   ☰
@@ -289,8 +310,14 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
               <div className="flex items-center gap-2 sm:hidden">
                 <button
+                  onClick={toggleTheme}
+                  className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors dark:bg-[#1f2716] dark:text-[#dbe8c1]"
+                >
+                  {theme === "dark" ? "Light" : "Dark"}
+                </button>
+                <button
                   onClick={handleLogout}
-                  className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors"
+                  className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors dark:bg-[#1f2716] dark:text-[#dbe8c1]"
                 >
                   Logout
                 </button>
@@ -316,7 +343,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                     Work Dashboard
                   </button>
                   <div
-                    className={`absolute left-0 mt-2 min-w-[230px] rounded-xl bg-[#f7f4e6] border border-[#d0c9a4] shadow-lg overflow-hidden transition-all duration-200 origin-top ${
+                    className={`absolute left-0 mt-2 min-w-[230px] rounded-xl bg-[#f7f4e6] border border-[#d0c9a4] shadow-lg overflow-hidden transition-all duration-200 origin-top dark:bg-[#1c2214] dark:border-[#3d4a2f] ${
                       desktopWorkOpen
                         ? "opacity-100 translate-y-0 scale-100"
                         : "opacity-0 -translate-y-1 scale-95 pointer-events-none"
@@ -329,8 +356,8 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                           href={link.href}
                           className={`flex items-center gap-2 px-4 py-2.5 text-[12px] transition-colors ${
                             pathname === link.href
-                              ? "bg-[#e5efc8] text-[#3b4224]"
-                              : "hover:bg-[#f0ead4] text-[#485926]"
+                              ? "bg-[#e5efc8] text-[#3b4224] dark:bg-[#2e3a22] dark:text-[#f5f7eb]"
+                              : "hover:bg-[#f0ead4] text-[#485926] dark:text-[#d8e2c3] dark:hover:bg-[#2a3521]"
                           }`}
                         >
                           <span>{link.icon}</span>
@@ -358,7 +385,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                   Guides
                 </button>
                 <div
-                  className={`absolute left-0 mt-2 min-w-[230px] rounded-xl bg-[#f7f4e6] border border-[#d0c9a4] shadow-lg overflow-hidden transition-all duration-200 origin-top ${
+                  className={`absolute left-0 mt-2 min-w-[230px] rounded-xl bg-[#f7f4e6] border border-[#d0c9a4] shadow-lg overflow-hidden transition-all duration-200 origin-top dark:bg-[#1c2214] dark:border-[#3d4a2f] ${
                     desktopGuidesOpen
                       ? "opacity-100 translate-y-0 scale-100"
                       : "opacity-0 -translate-y-1 scale-95 pointer-events-none"
@@ -371,8 +398,8 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                         href={link.href}
                         className={`flex items-center gap-2 px-4 py-2.5 text-[12px] transition-colors ${
                           pathname === link.href
-                            ? "bg-[#e5efc8] text-[#3b4224]"
-                            : "hover:bg-[#f0ead4] text-[#485926]"
+                            ? "bg-[#e5efc8] text-[#3b4224] dark:bg-[#2e3a22] dark:text-[#f5f7eb]"
+                            : "hover:bg-[#f0ead4] text-[#485926] dark:text-[#d8e2c3] dark:hover:bg-[#2a3521]"
                         }`}
                       >
                         <span>{link.icon}</span>
@@ -407,9 +434,15 @@ export default function HubLayout({ children }: { children: ReactNode }) {
             )}
             <button
               onClick={handleLogout}
-              className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors"
+              className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors dark:bg-[#1f2716] dark:text-[#dbe8c1]"
             >
               Logout
+            </button>
+            <button
+              onClick={toggleTheme}
+              className="rounded-md border border-[#e5eacc]/60 bg-[#f4f7de]/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#56652f] hover:bg-white transition-colors dark:bg-[#1f2716] dark:text-[#dbe8c1]"
+            >
+              {theme === "dark" ? "Light mode" : "Dark mode"}
             </button>
           </div>
 
@@ -446,12 +479,12 @@ export default function HubLayout({ children }: { children: ReactNode }) {
             onClick={() => setMobileMenuOpen(false)}
           />
           <div
-            className={`absolute left-0 top-0 h-full w-64 bg-[#f7f4e6] shadow-2xl border-r border-[#d0c9a4] transform transition-transform duration-200 ease-out ${
+            className={`absolute left-0 top-0 h-full w-64 bg-[#f7f4e6] shadow-2xl border-r border-[#d0c9a4] transform transition-transform duration-200 ease-out dark:bg-[#1c2214] dark:border-[#3d4a2f] ${
               mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#e7dfc0] bg-[#f0ead4]">
-              <div className="flex items-center gap-2 text-[#485926]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#e7dfc0] bg-[#f0ead4] dark:bg-[#26301c] dark:border-[#3d4a2f]">
+              <div className="flex items-center gap-2 text-[#485926] dark:text-[#d8e2c3]">
                 <span className="text-lg">📋</span>
                 <span className="text-xs font-semibold uppercase tracking-[0.14em]">
                   Quick Menu
@@ -459,7 +492,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
               </div>
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="rounded-full bg-white text-[#3b4224] h-8 w-8 flex items-center justify-center shadow hover:shadow-md transition"
+                className="rounded-full bg-white text-[#3b4224] h-8 w-8 flex items-center justify-center shadow hover:shadow-md transition dark:bg-[#1f2716] dark:text-[#d8e2c3]"
                 aria-label="Close navigation"
               >
                 ✕
@@ -467,7 +500,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="relative h-full">
-              <div className="flex flex-col gap-1 px-3 py-4 text-[#485926] overflow-y-auto max-h-[calc(100vh-140px)]">
+              <div className="flex flex-col gap-1 px-3 py-4 text-[#485926] overflow-y-auto max-h-[calc(100vh-140px)] dark:text-[#d8e2c3]">
                 <MobileLink href="/" active={false}>
                   Home
                 </MobileLink>
@@ -476,7 +509,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                   <div className="flex flex-col gap-2">
                     <button
                       onClick={() => setMobileWorkOpen((v) => !v)}
-                      className="flex items-center justify-between rounded-lg px-3 py-3 text-sm font-semibold uppercase tracking-[0.14em] bg-white hover:bg-[#f3edd8]"
+                      className="flex items-center justify-between rounded-lg px-3 py-3 text-sm font-semibold uppercase tracking-[0.14em] bg-white hover:bg-[#f3edd8] dark:bg-[#1f2716] dark:hover:bg-[#2a3521]"
                     >
                       <span className="flex items-center gap-2">
                         <span>🧭</span> Work Dashboard
@@ -491,7 +524,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                         mobileWorkOpen ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
                       }`}
                     >
-                      <div className="mt-1 ml-2 rounded-lg border border-[#e7dfc0] bg-white shadow-inner max-h-56 overflow-y-auto">
+                      <div className="mt-1 ml-2 rounded-lg border border-[#e7dfc0] bg-white shadow-inner max-h-56 overflow-y-auto dark:bg-[#1c2214] dark:border-[#3d4a2f]">
                         <div className="flex flex-col divide-y divide-[#f0ead4]">
                           {workLinks.map((link) => (
                             <Link
@@ -499,8 +532,8 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                               href={link.href}
                               className={`flex items-center gap-2 px-4 py-3 text-[13px] transition-colors ${
                                 pathname === link.href
-                                  ? "bg-[#e5efc8] text-[#3b4224]"
-                                  : "hover:bg-[#f8f4e3] text-[#485926]"
+                                  ? "bg-[#e5efc8] text-[#3b4224] dark:bg-[#2e3a22] dark:text-[#f5f7eb]"
+                                  : "hover:bg-[#f8f4e3] text-[#485926] dark:text-[#d8e2c3] dark:hover:bg-[#2a3521]"
                               }`}
                             >
                               <span>{link.icon}</span>
@@ -518,6 +551,14 @@ export default function HubLayout({ children }: { children: ReactNode }) {
                     Settings
                   </MobileLink>
                 )}
+                <button
+                  onClick={toggleTheme}
+                  className="mt-2 flex items-center justify-between rounded-lg px-3 py-3 text-sm font-semibold uppercase tracking-[0.14em] bg-white hover:bg-[#f3edd8] dark:bg-[#1f2716] dark:hover:bg-[#2a3521]"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🌓</span> {theme === "dark" ? "Light mode" : "Dark mode"}
+                  </span>
+                </button>
 
                 <button
                   onClick={() => setMobileGuidesOpen((v) => !v)}
