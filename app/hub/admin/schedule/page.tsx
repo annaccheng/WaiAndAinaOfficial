@@ -10,6 +10,7 @@ type ScheduleResponse = {
   people: string[];
   slots: Slot[];
   cells: string[][];
+  cellExists?: boolean[][];
   scheduleDate?: string;
   message?: string;
 };
@@ -969,6 +970,12 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
+      {(scheduleLoading || pendingCells.size > 0) && (
+        <div className="rounded-xl border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+          {scheduleLoading ? "Loading schedule data…" : "Saving updates… Please wait."}
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#d0c9a4] bg-white/80 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
@@ -1040,7 +1047,16 @@ export default function AdminScheduleEditorPage() {
           {scheduleLoading && (
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
-          <div className="mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner">
+          <div
+            className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
+              scheduleLoading || pendingCells.size ? "pointer-events-none opacity-80" : ""
+            }`}
+          >
+            {(scheduleLoading || pendingCells.size) && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
+                {scheduleLoading ? "Loading schedule…" : "Saving…"}
+              </div>
+            )}
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-[#e5e7c5]">
                 <tr>
@@ -1080,6 +1096,7 @@ export default function AdminScheduleEditorPage() {
                       const isSelected =
                         selectedCell?.person === person && selectedCell?.slotId === slot.id;
                       const saving = pendingCells.has(`${person}-${slot.id}`);
+                      const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
 
                       const dropLine = (index: number) => (
                         <div
@@ -1109,7 +1126,9 @@ export default function AdminScheduleEditorPage() {
                           key={`${person}-${slot.id}`}
                           className={`border border-[#d1d4aa] p-2 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
-                          } ${saving ? "animate-pulse" : ""}`}
+                          } ${saving ? "animate-pulse" : ""} ${
+                            cellExists ? "" : "opacity-60"
+                          }`}
                           onClick={() => setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label })}
                           onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                           onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
@@ -1125,6 +1144,15 @@ export default function AdminScheduleEditorPage() {
                             onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDrop={(e) => {
+                              if (!cellExists) {
+                                setSaveLog({
+                                  status: "error",
+                                  message: "This cell is still loading from Supabase.",
+                                  lastAttempt: new Date().toLocaleTimeString(),
+                                  payload: { person, slotId: slot.id },
+                                });
+                                return;
+                              }
                               const targetIndex =
                                 pendingInsert?.person === person && pendingInsert?.slotId === slot.id
                                   ? pendingInsert.index
@@ -1133,6 +1161,11 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                           >
+                            {!cellExists && (
+                              <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-2 py-2 text-[11px] text-[#7a7f54]">
+                                🔒 Cell not loaded yet. Please wait for the schedule to finish syncing.
+                              </div>
+                            )}
                             {dropLine(0)}
                             {content.tasks.map((task, idx) => {
                               const base = taskBaseName(task);

@@ -290,11 +290,15 @@ export async function GET(req: Request) {
         return serializeCell(cell.tasks || [], cell.note);
       })
     );
+    const existsMatrix = schedulePeople.map((person) =>
+      slots.map((slot) => cellMap.has(`${person.id}-${slot.id}`))
+    );
 
     return NextResponse.json({
       people: schedulePeople.map((person) => person.name),
       slots,
       cells: matrix,
+      cellExists: existsMatrix,
       scheduleDate: toLabel(isoDate),
     });
   } catch (err) {
