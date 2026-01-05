@@ -178,6 +178,12 @@ export default function AdminScheduleEditorPage() {
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [saveLog, setSaveLog] = useState<{
+    status: "idle" | "saving" | "success" | "error";
+    message?: string;
+    lastAttempt?: string;
+    payload?: { person: string; slotId: string; dateLabel?: string };
+  }>({ status: "idle" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastInlineAddRef = useRef<Record<string, string>>({});
 
@@ -400,6 +406,11 @@ export default function AdminScheduleEditorPage() {
       if (scheduleMode === "page" && !activeDate) return;
       const key = `${person}-${slotId}`;
       setPendingCells((prev) => new Set(prev).add(key));
+      setSaveLog({
+        status: "saving",
+        lastAttempt: new Date().toLocaleTimeString(),
+        payload: { person, slotId, dateLabel: activeDate },
+      });
       try {
         const res = await fetch("/api/schedule/update", {
           method: "POST",
@@ -414,13 +425,26 @@ export default function AdminScheduleEditorPage() {
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          throw new Error(json.error || "Failed to save schedule update");
+          const errorMessage = json.error || "Failed to save schedule update";
+          throw new Error(errorMessage);
         }
+        setSaveLog({
+          status: "success",
+          message: "Saved to Supabase.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId, dateLabel: activeDate },
+        });
       } catch (err) {
         console.error(err);
         const friendly =
           err instanceof Error ? err.message : "Unable to save this drop. Please retry.";
         setMessage(friendly);
+        setSaveLog({
+          status: "error",
+          message: friendly,
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId, dateLabel: activeDate },
+        });
       } finally {
         setPendingCells((prev) => {
           const next = new Set(prev);
@@ -896,6 +920,49 @@ export default function AdminScheduleEditorPage() {
           {message}
         </div>
       )}
+
+      <div className="rounded-xl border border-[#d0c9a4] bg-white/80 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+            Save status
+          </div>
+          <span className="text-[11px] text-[#7a7f54]">
+            {saveLog.lastAttempt ? `Last attempt ${saveLog.lastAttempt}` : "No changes yet"}
+          </span>
+        </div>
+        <div className="mt-2 grid gap-2 text-[11px] md:grid-cols-2">
+          <div>
+            <span className="font-semibold">Mode:</span> {scheduleMode}
+          </div>
+          <div>
+            <span className="font-semibold">Selected date:</span>{" "}
+            {selectedDate || "Not set"}
+          </div>
+          <div>
+            <span className="font-semibold">Loaded schedule date:</span>{" "}
+            {scheduleData?.scheduleDate || "Not loaded"}
+          </div>
+          <div>
+            <span className="font-semibold">Pending saves:</span> {pendingCells.size}
+          </div>
+        </div>
+        <div className="mt-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px]">
+          {saveLog.status === "saving" && "Saving to Supabase…"}
+          {saveLog.status === "success" && saveLog.message}
+          {saveLog.status === "error" && (
+            <span className="font-semibold text-[#8b4b3c]">
+              Save failed: {saveLog.message}
+            </span>
+          )}
+          {saveLog.status === "idle" && "Drag a task to start saving updates."}
+          {saveLog.payload && (
+            <div className="mt-1 text-[10px] text-[#6b6d4b]">
+              Person: {saveLog.payload.person} • Shift: {saveLog.payload.slotId} • Date:{" "}
+              {saveLog.payload.dateLabel || "n/a"}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
