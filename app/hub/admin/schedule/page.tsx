@@ -403,7 +403,15 @@ export default function AdminScheduleEditorPage() {
   const persistCell = useCallback(
     async (person: string, slotId: string, content: CellContent) => {
       const activeDate = selectedDate || scheduleData?.scheduleDate || "";
-      if (scheduleMode === "page" && !activeDate) return;
+      if (scheduleMode === "page" && !activeDate) {
+        setSaveLog({
+          status: "error",
+          message: "Missing schedule date. Select a date before saving.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId },
+        });
+        return;
+      }
       const key = `${person}-${slotId}`;
       setPendingCells((prev) => new Set(prev).add(key));
       setSaveLog({
@@ -541,6 +549,14 @@ export default function AdminScheduleEditorPage() {
       });
 
       updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
+      if (!updates.length) {
+        setSaveLog({
+          status: "error",
+          message: "No matching schedule cell found for this drop.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person: target.person, slotId: target.slotId },
+        });
+      }
       setSelectedCell({ person: target.person, slotId: target.slotId, slotLabel: target.slotLabel });
       setPendingInsert(null);
       setDraggingTask(null);
