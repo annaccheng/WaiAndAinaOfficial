@@ -515,12 +515,27 @@ export default function AdminScheduleEditorPage() {
       if (!payload.taskName) return;
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
 
+      const directPersist = async () => {
+        const content: CellContent = { tasks: [payload.taskName], note: "" };
+        setSaveLog({
+          status: "saving",
+          message: "Target cell not loaded; saving directly to Supabase.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person: target.person, slotId: target.slotId },
+        });
+        await persistCell(target.person, target.slotId, content);
+        await refreshSchedule();
+      };
+
       setScheduleData((prev) => {
         if (!prev) return prev;
         const nextCells = prev.cells.map((row) => [...row]);
 
         const targetCoord = findCoord(target.person, target.slotId, prev);
-        if (!targetCoord) return prev;
+        if (!targetCoord) {
+          void directPersist();
+          return prev;
+        }
         let targetContent = parseCell(nextCells[targetCoord.row][targetCoord.col]);
 
         let insertionIndex = safeIndex(targetContent.tasks.length, target.targetIndex);
