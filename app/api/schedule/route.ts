@@ -197,6 +197,40 @@ async function syncSchedulePeople(scheduleId: string, volunteers: string[]) {
   });
 }
 
+async function ensureScheduleCells(scheduleId: string, people: SchedulePersonRow[], slots: Slot[]) {
+  const existing = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
+    query: {
+      select: "id,person_id,shift_id",
+      schedule_id: `eq.${scheduleId}`,
+    },
+  });
+
+  const existingKeys = new Set(
+    existing.map((cell) => `${cell.person_id}-${cell.shift_id}`)
+  );
+
+  const missing: { schedule_id: string; person_id: string; shift_id: string }[] = [];
+  people.forEach((person) => {
+    slots.forEach((slot) => {
+      const key = `${person.id}-${slot.id}`;
+      if (!existingKeys.has(key)) {
+        missing.push({
+          schedule_id: scheduleId,
+          person_id: person.id,
+          shift_id: slot.id,
+        });
+      }
+    });
+  });
+
+  if (missing.length) {
+    await supabaseRequest("schedule_cells", {
+      method: "POST",
+      body: missing.map((cell) => ({ ...cell, tasks: [], note: null })),
+    });
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -236,6 +270,7 @@ export async function GET(req: Request) {
     }
 
     const schedulePeople = await syncSchedulePeople(scheduleId, volunteers);
+    await ensureScheduleCells(scheduleId, schedulePeople, slots);
     const cells = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
       query: {
         select: "id,person_id,shift_id,tasks,note",
