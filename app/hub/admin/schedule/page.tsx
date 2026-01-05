@@ -274,6 +274,9 @@ export default function AdminScheduleEditorPage() {
           const json = await res.json();
           if (!cancelled) {
             setScheduleData(json);
+            if (scheduleMode === "page" && !selectedDate && json?.scheduleDate) {
+              setSelectedDate(json.scheduleDate);
+            }
           }
         }
       } catch (err) {
@@ -514,8 +517,10 @@ export default function AdminScheduleEditorPage() {
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
       if (!payload.taskName) return;
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
+      let usedDirectPersist = false;
 
       const directPersist = async () => {
+        usedDirectPersist = true;
         const content: CellContent = { tasks: [payload.taskName], note: "" };
         setSaveLog({
           status: "saving",
@@ -567,7 +572,7 @@ export default function AdminScheduleEditorPage() {
       });
 
       updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
-      if (!updates.length) {
+      if (!updates.length && !usedDirectPersist) {
         setSaveLog({
           status: "error",
           message: "No matching schedule cell found for this drop.",
