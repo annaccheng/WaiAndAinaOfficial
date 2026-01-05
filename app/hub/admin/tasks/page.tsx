@@ -45,6 +45,12 @@ const COLOR_OPTIONS = [
   "emerald",
 ];
 
+const STATUS_COLORS: Record<string, string> = {
+  "Not Started": "border-l-[#d0c9a4] bg-[#fdfaf1]",
+  "In Progress": "border-l-[#8fae4c] bg-[#f3f7e7]",
+  Completed: "border-l-[#6fa3d9] bg-[#eef4fb]",
+};
+
 export default function TaskEditorPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
@@ -317,7 +323,7 @@ export default function TaskEditorPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
-      <div className="rounded-2xl border border-[#d0c9a4] bg-white/70 p-5 shadow-sm">
+      <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin</p>
@@ -339,7 +345,7 @@ export default function TaskEditorPage() {
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-2xl border border-[#d0c9a4] bg-white/70 p-5 shadow-sm">
+        <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-[#314123]">Filters</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <input
@@ -423,22 +429,15 @@ export default function TaskEditorPage() {
             {loading ? (
               <p className="text-sm text-[#7a7f54]">Loading tasks…</p>
             ) : (
-              <div className="overflow-x-auto">
-                <div className="min-w-[960px] space-y-2">
-                  <div className="grid grid-cols-[2.2fr_2.5fr_1.4fr_1.2fr_1.2fr_0.8fr_0.8fr] gap-2 rounded-md bg-[#eef2d9] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#556036]">
-                    <div>Name</div>
-                    <div>Description</div>
-                    <div>Instance date</div>
-                    <div>Status</div>
-                    <div>Priority</div>
-                    <div>Type</div>
-                    <div>Actions</div>
-                  </div>
-                  {filteredTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="grid grid-cols-[2.2fr_2.5fr_1.4fr_1.2fr_1.2fr_0.8fr_0.8fr] gap-2 rounded-md border border-[#e2d7b5] bg-white/90 px-3 py-2 text-sm"
-                    >
+              <div className="grid gap-3 md:grid-cols-2">
+                {filteredTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-4 shadow-sm ${
+                      STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
                       <input
                         value={task.name}
                         onChange={(e) =>
@@ -446,9 +445,14 @@ export default function TaskEditorPage() {
                             prev.map((t) => (t.id === task.id ? { ...t, name: e.target.value } : t))
                           )
                         }
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-sm"
+                        className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
                       />
-                      <input
+                      <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                        {task.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-3 text-sm">
+                      <textarea
                         value={task.description || ""}
                         onChange={(e) =>
                           setTasks((prev) =>
@@ -457,58 +461,83 @@ export default function TaskEditorPage() {
                             )
                           )
                         }
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-sm"
+                        className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                        placeholder="Task description"
                       />
-                      <input
-                        type="date"
-                        value={task.occurrence_date || ""}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) =>
-                              t.id === task.id ? { ...t, occurrence_date: e.target.value } : t
-                            )
-                          )
-                        }
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-sm"
-                      />
-                      <select
-                        value={task.status}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) =>
-                              t.id === task.id ? { ...t, status: e.target.value } : t
-                            )
-                          )
-                        }
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-sm"
-                      >
-                        {STATUS_OPTIONS.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={task.priority}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) =>
-                              t.id === task.id ? { ...t, priority: e.target.value } : t
-                            )
-                          )
-                        }
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-sm"
-                      >
-                        {PRIORITY_OPTIONS.map((priority) => (
-                          <option key={priority} value={priority}>
-                            {priority}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="text-xs text-[#6b6d4b]">
-                        {task.task_type?.name || "—"}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                            Instance date
+                          </label>
+                          <input
+                            type="date"
+                            value={task.occurrence_date || ""}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, occurrence_date: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                            Priority
+                          </label>
+                          <select
+                            value={task.priority}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, priority: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                          >
+                            {PRIORITY_OPTIONS.map((priority) => (
+                              <option key={priority} value={priority}>
+                                {priority}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-2">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                            Status
+                          </label>
+                          <select
+                            value={task.status}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, status: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                            Task type
+                          </label>
+                          <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
+                            {task.task_type?.name || "Unassigned"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={async () => {
@@ -534,7 +563,7 @@ export default function TaskEditorPage() {
                               setSaving(false);
                             }
                           }}
-                          className="rounded-md bg-[#a0b764] px-2 py-1 text-[11px] font-semibold uppercase text-white"
+                          className="rounded-md bg-[#a0b764] px-3 py-2 text-[11px] font-semibold uppercase text-white"
                         >
                           Save
                         </button>
@@ -547,24 +576,24 @@ export default function TaskEditorPage() {
                               occurrenceDate: task.occurrence_date || null,
                             })
                           }
-                          className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-semibold uppercase text-red-700"
+                          className="rounded-md border border-red-200 px-3 py-2 text-[11px] font-semibold uppercase text-red-700"
                         >
                           Delete
                         </button>
                         <button
                           type="button"
                           onClick={() => openEditor(task)}
-                          className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          className="rounded-md border border-[#d0c9a4] px-3 py-2 text-[11px] font-semibold uppercase text-[#4f5730]"
                         >
                           Details
                         </button>
                       </div>
                     </div>
-                  ))}
-                  {!filteredTasks.length && (
-                    <p className="text-sm text-[#7a7f54]">No tasks found.</p>
-                  )}
-                </div>
+                  </div>
+                ))}
+                {!filteredTasks.length && (
+                  <p className="text-sm text-[#7a7f54]">No tasks found.</p>
+                )}
               </div>
             )}
           </div>

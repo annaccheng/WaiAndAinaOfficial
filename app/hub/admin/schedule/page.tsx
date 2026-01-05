@@ -10,6 +10,7 @@ type ScheduleResponse = {
   people: string[];
   slots: Slot[];
   cells: string[][];
+  cellExists?: boolean[][];
   scheduleDate?: string;
   message?: string;
 };
@@ -151,7 +152,11 @@ export default function AdminScheduleEditorPage() {
   const [taskSearch, setTaskSearch] = useState("");
   const [taskTypeFilter, setTaskTypeFilter] = useState("");
   const [taskStatusFilter, setTaskStatusFilter] = useState("");
-  const [selectedCell, setSelectedCell] = useState<{ person: string; slotId: string; slotLabel: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{
+    person: string;
+    slotId: string;
+    slotLabel: string;
+  } | null>(null);
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
@@ -174,9 +179,12 @@ export default function AdminScheduleEditorPage() {
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
-  const [shiftEditorOpen, setShiftEditorOpen] = useState(false);
-  const [shifts, setShifts] = useState<Slot[]>([]);
-  const [newShift, setNewShift] = useState({ label: "", timeRange: "" });
+  const [saveLog, setSaveLog] = useState<{
+    status: "idle" | "saving" | "success" | "error";
+    message?: string;
+    lastAttempt?: string;
+    payload?: { person: string; slotId: string; dateLabel?: string };
+  }>({ status: "idle" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastInlineAddRef = useRef<Record<string, string>>({});
 
@@ -212,10 +220,9 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const [typeRes, scheduleListRes, shiftsRes] = await Promise.all([
+        const [typeRes, scheduleListRes] = await Promise.all([
           fetch("/api/task-types"),
           fetch("/api/schedule/list"),
-          fetch("/api/shifts"),
         ]);
 
         if (typeRes.ok) {
@@ -235,10 +242,6 @@ export default function AdminScheduleEditorPage() {
             const today = new Date().toISOString().slice(0, 10);
             setSelectedDate(formatDateInput(today));
           }
-        }
-        if (shiftsRes.ok) {
-          const json = await shiftsRes.json();
-          setShifts(json.shifts || []);
         }
       } catch (err) {
         console.error("Failed to load schedule editor data", err);
@@ -272,6 +275,9 @@ export default function AdminScheduleEditorPage() {
           const json = await res.json();
           if (!cancelled) {
             setScheduleData(json);
+            if (scheduleMode === "page" && !selectedDate && json?.scheduleDate) {
+              setSelectedDate(json.scheduleDate);
+            }
           }
         }
       } catch (err) {
@@ -390,7 +396,10 @@ export default function AdminScheduleEditorPage() {
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
       if (!person || !slotId || !data) return null;
-      const row = data.people.indexOf(person);
+      const normalizedPerson = person.trim().toLowerCase();
+      const row = data.people.findIndex(
+        (name) => name.trim().toLowerCase() === normalizedPerson
+      );
       const col = data.slots.findIndex((s) => s.id === slotId);
       if (row < 0 || col < 0) return null;
       return { row, col };
@@ -398,38 +407,69 @@ export default function AdminScheduleEditorPage() {
     []
   );
 
-  const persistCell = useCallback(async (person: string, slotId: string, content: CellContent) => {
-    if (scheduleMode === "page" && !selectedDate) return;
-    const key = `${person}-${slotId}`;
-    setPendingCells((prev) => new Set(prev).add(key));
-    try {
-      const res = await fetch("/api/schedule/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          person,
-          slotId,
-          replaceValue: serializeCell(content),
-          dateLabel: scheduleMode === "page" ? selectedDate : undefined,
-          staging: scheduleMode === "page",
-        }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || "Failed to save schedule update");
+  const persistCell = useCallback(
+    async (person: string, slotId: string, content: CellContent) => {
+      const activeDate = selectedDate || scheduleData?.scheduleDate || "";
+      if (scheduleMode === "page" && !activeDate) {
+        setSaveLog({
+          status: "error",
+          message: "Missing schedule date. Select a date before saving.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId },
+        });
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      const friendly = err instanceof Error ? err.message : "Unable to save this drop. Please retry.";
-      setMessage(friendly);
-    } finally {
-      setPendingCells((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
+      const key = `${person}-${slotId}`;
+      setPendingCells((prev) => new Set(prev).add(key));
+      setSaveLog({
+        status: "saving",
+        lastAttempt: new Date().toLocaleTimeString(),
+        payload: { person, slotId, dateLabel: activeDate },
       });
-    }
-  }, []);
+      try {
+        const res = await fetch("/api/schedule/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            person,
+            slotId,
+            replaceValue: serializeCell(content),
+            dateLabel: scheduleMode === "page" ? activeDate : undefined,
+            staging: scheduleMode === "page",
+          }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          const errorMessage = json.error || "Failed to save schedule update";
+          throw new Error(errorMessage);
+        }
+        setSaveLog({
+          status: "success",
+          message: "Saved to Supabase.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId, dateLabel: activeDate },
+        });
+      } catch (err) {
+        console.error(err);
+        const friendly =
+          err instanceof Error ? err.message : "Unable to save this drop. Please retry.";
+        setMessage(friendly);
+        setSaveLog({
+          status: "error",
+          message: friendly,
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId, dateLabel: activeDate },
+        });
+      } finally {
+        setPendingCells((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [scheduleData?.scheduleDate, scheduleMode, selectedDate]
+  );
 
   const createQuickTask = useCallback(async () => {
     if (!quickTaskName.trim() || !selectedDate) return;
@@ -474,51 +514,34 @@ export default function AdminScheduleEditorPage() {
     }
   }, [quickTaskDescription, quickTaskName, selectedDate]);
 
-  const updateShiftOrder = useCallback(async (updated: Slot[]) => {
-    setShifts(updated);
-    try {
-      await fetch("/api/shifts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shifts: updated }),
-      });
-    } catch (err) {
-      console.error("Failed to update shifts", err);
-    }
-  }, []);
-
-  const addShift = useCallback(async () => {
-    if (!newShift.label.trim()) return;
-    try {
-      const res = await fetch("/api/shifts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: newShift.label.trim(),
-          timeRange: newShift.timeRange.trim(),
-        }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setShifts(json.shifts || []);
-        setNewShift({ label: "", timeRange: "" });
-      }
-    } catch (err) {
-      console.error("Failed to add shift", err);
-    }
-  }, [newShift.label, newShift.timeRange]);
-
   const handleTaskMove = useCallback(
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
       if (!payload.taskName) return;
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
+      let usedDirectPersist = false;
+
+      const directPersist = async () => {
+        usedDirectPersist = true;
+        const content: CellContent = { tasks: [payload.taskName], note: "" };
+        setSaveLog({
+          status: "saving",
+          message: "Target cell not loaded; saving directly to Supabase.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person: target.person, slotId: target.slotId },
+        });
+        await persistCell(target.person, target.slotId, content);
+        await refreshSchedule();
+      };
 
       setScheduleData((prev) => {
         if (!prev) return prev;
         const nextCells = prev.cells.map((row) => [...row]);
 
         const targetCoord = findCoord(target.person, target.slotId, prev);
-        if (!targetCoord) return prev;
+        if (!targetCoord) {
+          void directPersist();
+          return prev;
+        }
         let targetContent = parseCell(nextCells[targetCoord.row][targetCoord.col]);
 
         let insertionIndex = safeIndex(targetContent.tasks.length, target.targetIndex);
@@ -550,6 +573,14 @@ export default function AdminScheduleEditorPage() {
       });
 
       updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
+      if (!updates.length && !usedDirectPersist) {
+        setSaveLog({
+          status: "error",
+          message: "No matching schedule cell found for this drop.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person: target.person, slotId: target.slotId },
+        });
+      }
       setSelectedCell({ person: target.person, slotId: target.slotId, slotLabel: target.slotLabel });
       setPendingInsert(null);
       setDraggingTask(null);
@@ -586,6 +617,15 @@ export default function AdminScheduleEditorPage() {
     (e: React.DragEvent, person: string, slot: Slot, targetIndex?: number) => {
       e.preventDefault();
       e.stopPropagation();
+      if (!scheduleData) {
+        setSaveLog({
+          status: "error",
+          message: "Schedule data has not loaded yet. Please refresh and try again.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId: slot.id },
+        });
+        return;
+      }
       e.dataTransfer.dropEffect = "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
@@ -603,7 +643,7 @@ export default function AdminScheduleEditorPage() {
       handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
       setPendingInsert(null);
     },
-    [handleTaskMove]
+    [handleTaskMove, scheduleData]
   );
 
   const handleDragOverEvent = useCallback(
@@ -835,7 +875,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#fdfbf4]">
+    <div className="flex min-h-screen w-full flex-col bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -875,6 +915,12 @@ export default function AdminScheduleEditorPage() {
               className="rounded-md border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6]"
             >
               Back to admin
+            </Link>
+            <Link
+              href="/hub/admin/shifts"
+              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
+            >
+              Shift editor
             </Link>
           </div>
         </div>
@@ -924,7 +970,56 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 gap-4 px-4 py-4">
+      {(scheduleLoading || pendingCells.size > 0) && (
+        <div className="rounded-xl border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+          {scheduleLoading ? "Loading schedule data…" : "Saving updates… Please wait."}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-[#d0c9a4] bg-white/80 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+            Save status
+          </div>
+          <span className="text-[11px] text-[#7a7f54]">
+            {saveLog.lastAttempt ? `Last attempt ${saveLog.lastAttempt}` : "No changes yet"}
+          </span>
+        </div>
+        <div className="mt-2 grid gap-2 text-[11px] md:grid-cols-2">
+          <div>
+            <span className="font-semibold">Mode:</span> {scheduleMode}
+          </div>
+          <div>
+            <span className="font-semibold">Selected date:</span>{" "}
+            {selectedDate || "Not set"}
+          </div>
+          <div>
+            <span className="font-semibold">Loaded schedule date:</span>{" "}
+            {scheduleData?.scheduleDate || "Not loaded"}
+          </div>
+          <div>
+            <span className="font-semibold">Pending saves:</span> {pendingCells.size}
+          </div>
+        </div>
+        <div className="mt-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px]">
+          {saveLog.status === "saving" && "Saving to Supabase…"}
+          {saveLog.status === "success" && saveLog.message}
+          {saveLog.status === "error" && (
+            <span className="font-semibold text-[#8b4b3c]">
+              Save failed: {saveLog.message}
+            </span>
+          )}
+          {saveLog.status === "idle" && "Drag a task to start saving updates."}
+          {saveLog.payload && (
+            <div className="mt-1 text-[10px] text-[#6b6d4b]">
+              Person: {saveLog.payload.person} • Shift: {saveLog.payload.slotId} • Date:{" "}
+              {saveLog.payload.dateLabel || "n/a"}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -952,7 +1047,16 @@ export default function AdminScheduleEditorPage() {
           {scheduleLoading && (
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
-          <div className="mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner">
+          <div
+            className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
+              scheduleLoading || pendingCells.size ? "pointer-events-none opacity-80" : ""
+            }`}
+          >
+            {(scheduleLoading || pendingCells.size) && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
+                {scheduleLoading ? "Loading schedule…" : "Saving…"}
+              </div>
+            )}
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-[#e5e7c5]">
                 <tr>
@@ -992,6 +1096,7 @@ export default function AdminScheduleEditorPage() {
                       const isSelected =
                         selectedCell?.person === person && selectedCell?.slotId === slot.id;
                       const saving = pendingCells.has(`${person}-${slot.id}`);
+                      const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
 
                       const dropLine = (index: number) => (
                         <div
@@ -1021,7 +1126,9 @@ export default function AdminScheduleEditorPage() {
                           key={`${person}-${slot.id}`}
                           className={`border border-[#d1d4aa] p-2 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
-                          } ${saving ? "animate-pulse" : ""}`}
+                          } ${saving ? "animate-pulse" : ""} ${
+                            cellExists ? "" : "opacity-60"
+                          }`}
                           onClick={() => setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label })}
                           onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                           onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
@@ -1037,6 +1144,15 @@ export default function AdminScheduleEditorPage() {
                             onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDrop={(e) => {
+                              if (!cellExists) {
+                                setSaveLog({
+                                  status: "error",
+                                  message: "This cell is still loading from Supabase.",
+                                  lastAttempt: new Date().toLocaleTimeString(),
+                                  payload: { person, slotId: slot.id },
+                                });
+                                return;
+                              }
                               const targetIndex =
                                 pendingInsert?.person === person && pendingInsert?.slotId === slot.id
                                   ? pendingInsert.index
@@ -1045,6 +1161,11 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                           >
+                            {!cellExists && (
+                              <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-2 py-2 text-[11px] text-[#7a7f54]">
+                                🔒 Cell not loaded yet. Please wait for the schedule to finish syncing.
+                              </div>
+                            )}
                             {dropLine(0)}
                             {content.tasks.map((task, idx) => {
                               const base = taskBaseName(task);
@@ -1182,7 +1303,7 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="relative w-[420px] shrink-0 space-y-4 overflow-y-auto">
+        <div className="relative w-full shrink-0 space-y-4 overflow-y-visible lg:w-[420px]">
           <div
             className="z-20 w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur"
           >
@@ -1392,88 +1513,6 @@ export default function AdminScheduleEditorPage() {
               </div>
             ) : (
               <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#314123]">Shift editor</h3>
-              <button
-                type="button"
-                onClick={() => setShiftEditorOpen((prev) => !prev)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-              >
-                {shiftEditorOpen ? "Collapse" : "Expand"}
-              </button>
-            </div>
-            {shiftEditorOpen && (
-              <div className="mt-3 space-y-2 text-sm">
-                {shifts.map((shift, index) => (
-                  <div
-                    key={shift.id}
-                    className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-white/90 px-2 py-2"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-[#314123]">{shift.label}</div>
-                      {shift.timeRange && (
-                        <div className="text-[11px] text-[#6b6d4b]">{shift.timeRange}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (index === 0) return;
-                          const updated = [...shifts];
-                          [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
-                          updateShiftOrder(updated);
-                        }}
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (index === shifts.length - 1) return;
-                          const updated = [...shifts];
-                          [updated[index + 1], updated[index]] = [updated[index], updated[index + 1]];
-                          updateShiftOrder(updated);
-                        }}
-                        className="rounded-md border border-[#d0c9a4] px-2 py-1 text-[10px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        Down
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {!shifts.length && (
-                  <p className="text-[12px] text-[#7a7f54]">No shifts loaded.</p>
-                )}
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={newShift.label}
-                    onChange={(e) => setNewShift((prev) => ({ ...prev, label: e.target.value }))}
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                    placeholder="Shift name"
-                  />
-                  <input
-                    value={newShift.timeRange}
-                    onChange={(e) =>
-                      setNewShift((prev) => ({ ...prev, timeRange: e.target.value }))
-                    }
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                    placeholder="Time range (optional)"
-                  />
-                  <button
-                    type="button"
-                    onClick={addShift}
-                    className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-                  >
-                    Add shift
-                  </button>
-                </div>
-              </div>
             )}
           </div>
 
