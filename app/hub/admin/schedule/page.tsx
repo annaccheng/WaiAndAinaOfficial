@@ -398,38 +398,42 @@ export default function AdminScheduleEditorPage() {
     []
   );
 
-  const persistCell = useCallback(async (person: string, slotId: string, content: CellContent) => {
-    if (scheduleMode === "page" && !selectedDate) return;
-    const key = `${person}-${slotId}`;
-    setPendingCells((prev) => new Set(prev).add(key));
-    try {
-      const res = await fetch("/api/schedule/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          person,
-          slotId,
-          replaceValue: serializeCell(content),
-          dateLabel: scheduleMode === "page" ? selectedDate : undefined,
-          staging: scheduleMode === "page",
-        }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || "Failed to save schedule update");
+  const persistCell = useCallback(
+    async (person: string, slotId: string, content: CellContent) => {
+      if (scheduleMode === "page" && !selectedDate) return;
+      const key = `${person}-${slotId}`;
+      setPendingCells((prev) => new Set(prev).add(key));
+      try {
+        const res = await fetch("/api/schedule/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            person,
+            slotId,
+            replaceValue: serializeCell(content),
+            dateLabel: scheduleMode === "page" ? selectedDate : undefined,
+            staging: scheduleMode === "page",
+          }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error || "Failed to save schedule update");
+        }
+      } catch (err) {
+        console.error(err);
+        const friendly =
+          err instanceof Error ? err.message : "Unable to save this drop. Please retry.";
+        setMessage(friendly);
+      } finally {
+        setPendingCells((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       }
-    } catch (err) {
-      console.error(err);
-      const friendly = err instanceof Error ? err.message : "Unable to save this drop. Please retry.";
-      setMessage(friendly);
-    } finally {
-      setPendingCells((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  }, []);
+    },
+    [scheduleMode, selectedDate]
+  );
 
   const createQuickTask = useCallback(async () => {
     if (!quickTaskName.trim() || !selectedDate) return;
@@ -835,7 +839,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#fdfbf4]">
+    <div className="flex min-h-screen w-full flex-col overflow-hidden bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -924,7 +928,7 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 gap-4 px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1182,7 +1186,7 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="relative w-[420px] shrink-0 space-y-4 overflow-y-auto">
+        <div className="relative w-full shrink-0 space-y-4 overflow-y-auto lg:w-[420px]">
           <div
             className="z-20 w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur"
           >
