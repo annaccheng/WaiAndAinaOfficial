@@ -1350,7 +1350,7 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-4">
+      <div className="flex flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -2340,6 +2340,93 @@ export default function AdminScheduleEditorPage() {
             Open task dock
           </button>
         )}
+      </div>
+
+      <div className="hidden lg:block">
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d0c9a4] bg-white/95 shadow-[0_-8px_20px_rgba(0,0,0,0.08)]">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                Task dock
+              </div>
+              <div className="flex gap-2 rounded-full bg-[#f6f1dd] p-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                <button
+                  type="button"
+                  onClick={() => setMobileDockTab("recurring")}
+                  className={`rounded-full px-3 py-1 transition ${
+                    mobileDockTab === "recurring" ? "bg-white shadow" : ""
+                  }`}
+                >
+                  Recurring
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileDockTab("oneOff")}
+                  className={`rounded-full px-3 py-1 transition ${
+                    mobileDockTab === "oneOff" ? "bg-white shadow" : ""
+                  }`}
+                >
+                  One-off
+                </button>
+              </div>
+            </div>
+            <div className="max-h-40 overflow-y-auto pr-1 text-sm">
+              {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
+                (task) => {
+                  const taskHandled = isTaskHandled(task);
+                  return (
+                    <button
+                      key={`bottom-${task.id}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggingTask({ taskId: task.id, taskName: task.name });
+                        e.dataTransfer.setData("text/task-name", task.name);
+                        e.dataTransfer.setData("text/plain", task.name);
+                        e.dataTransfer.setData(
+                          DRAG_DATA_TYPE,
+                          JSON.stringify({ taskId: task.id, taskName: task.name })
+                        );
+                        e.dataTransfer.effectAllowed = "copyMove";
+                      }}
+                      onDragEnd={() => {
+                        setDraggingTask(null);
+                        setPendingInsert(null);
+                      }}
+                      onClick={() => loadTaskDetail(task.id, task.name)}
+                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                        task.typeColor
+                      )}`}
+                    >
+                      <div>
+                        <div className="font-semibold">{task.name}</div>
+                        <div className="text-[11px] text-[#5f5a3b]">
+                          {task.type || "Uncategorized"}
+                          {task.status ? ` • ${task.status}` : ""}
+                          {task.priority ? ` • ${task.priority}` : ""}
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          taskHandled.hasEnoughPeople
+                            ? "text-2xl text-emerald-600"
+                            : "text-xl"
+                        }
+                      >
+                        {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                      </span>
+                    </button>
+                  );
+                }
+              )}
+              {mobileDockTab === "recurring" && !filteredRecurringTasks.length && (
+                <p className="text-[12px] text-[#7a7f54]">No recurring tasks for this date.</p>
+              )}
+              {mobileDockTab === "oneOff" && !filteredOneOffTasks.length && (
+                <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
