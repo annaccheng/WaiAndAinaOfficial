@@ -606,6 +606,11 @@ export default function AdminScheduleEditorPage() {
         await refreshSchedule();
       };
 
+      if (!scheduleData) {
+        void directPersist();
+        return;
+      }
+
       setScheduleData((prev) => {
         if (!prev) return prev;
         const nextCells = prev.cells.map((row) => row.map((cell) => ({ ...cell, tasks: [...cell.tasks] })));
@@ -673,7 +678,7 @@ export default function AdminScheduleEditorPage() {
       setPendingInsert(null);
       setDraggingTask(null);
     },
-    [findCoord, persistCell]
+    [findCoord, persistCell, scheduleData]
   );
 
   const removeTaskFromCell = useCallback(
@@ -704,6 +709,16 @@ export default function AdminScheduleEditorPage() {
     (e: React.DragEvent, person: string, slot: Slot, targetIndex?: number) => {
       e.preventDefault();
       e.stopPropagation();
+      const activeDate = selectedDate || scheduleData?.scheduleDate || "";
+      if (scheduleMode === "page" && !activeDate) {
+        setSaveLog({
+          status: "error",
+          message: "Select a schedule date before saving drops.",
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId: slot.id },
+        });
+        return;
+      }
       if (!scheduleData) {
         setSaveLog({
           status: "error",
@@ -744,7 +759,7 @@ export default function AdminScheduleEditorPage() {
 
       void finalizeDrop();
     },
-    [handleTaskMove, resolveTaskEntry, scheduleData]
+    [handleTaskMove, resolveTaskEntry, scheduleData, scheduleMode, selectedDate]
   );
 
   const handleDragOverEvent = useCallback(
