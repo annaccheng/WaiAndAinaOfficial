@@ -421,7 +421,7 @@ export default function AdminScheduleEditorPage() {
         task.personCount && task.personCount > 0 ? Number(task.personCount) : null;
       const hasEnoughPeople = needed ? assigned >= needed : false;
       const isCompleted = (task.status || "").toLowerCase() === "completed";
-      return { handled: hasEnoughPeople || isCompleted, hasEnoughPeople };
+      return { handled: hasEnoughPeople || isCompleted, hasEnoughPeople, isCompleted };
     },
     [taskPeopleCountById]
   );
@@ -1599,7 +1599,7 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div className="relative w-full shrink-0 space-y-4 overflow-y-visible lg:w-[420px]">
-          <div className="sticky top-24 z-30 space-y-4">
+          <div className="sticky top-32 z-30 space-y-4">
             <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
               <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
                 <span>Recurring task dock</span>
@@ -1674,7 +1674,13 @@ export default function AdminScheduleEditorPage() {
                             {task.status ? ` • ${task.status}` : ""}
                           </div>
                         </div>
-                        <span className="text-2xl">
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
                           {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
                         </span>
                       </button>
@@ -1727,7 +1733,13 @@ export default function AdminScheduleEditorPage() {
                             {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
                           </div>
                         </div>
-                        <span className="text-2xl">
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
                           {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
                         </span>
                       </button>

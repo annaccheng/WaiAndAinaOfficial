@@ -564,15 +564,17 @@ export default function TaskEditorPage() {
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
-                              <span className="rounded-full bg-white/70 px-2 py-1">Recurring</span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[#4b5133]">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
+                                Recurring
+                              </span>
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 Edit {recurringEditDate}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 {task.priority || "Priority unset"}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 {task.task_type?.name || "Unassigned"}
                               </span>
                             </div>
@@ -633,15 +635,17 @@ export default function TaskEditorPage() {
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
-                              <span className="rounded-full bg-white/70 px-2 py-1">One-off</span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[#4b5133]">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
+                                One-off
+                              </span>
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 {task.occurrence_date || task.origin_date || "No date set"}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 {task.priority || "Priority unset"}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-1">
+                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
                                 {task.task_type?.name || "Unassigned"}
                               </span>
                             </div>
