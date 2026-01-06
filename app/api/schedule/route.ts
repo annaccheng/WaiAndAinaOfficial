@@ -301,11 +301,15 @@ export async function GET(req: Request) {
       slots.map((slot) => {
         const cell = cellMap.get(`${person.id}-${slot.id}`);
         if (!cell) return { tasks: [], note: "" };
+        const tasks = (cell.tasks || [])
+          .map((taskId) => {
+            const name = taskMap.get(taskId);
+            if (!name) return null;
+            return { id: taskId, name };
+          })
+          .filter(Boolean) as { id: string; name: string }[];
         return {
-          tasks: (cell.tasks || []).map((taskId) => ({
-            id: taskId,
-            name: taskMap.get(taskId) || "Unknown task",
-          })),
+          tasks,
           note: (cell.note || "").trim(),
         };
       })

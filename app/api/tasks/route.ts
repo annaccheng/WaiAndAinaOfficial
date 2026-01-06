@@ -63,9 +63,10 @@ export async function POST(req: Request) {
   try {
     const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
     const isRecurring = Boolean(body.recurring);
-    const originDate = body.origin_date || body.occurrence_date;
+    const fallbackDate = new Date().toISOString().slice(0, 10);
+    const originDate = body.origin_date || body.occurrence_date || fallbackDate;
     const interval = Number(body.recurrence_interval || 1);
-    const unit = body.recurrence_unit;
+    const unit = body.recurrence_unit || "day";
     const until = body.recurrence_until;
 
     const payload = {
