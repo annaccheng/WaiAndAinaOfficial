@@ -317,8 +317,10 @@ export default function AdminScheduleEditorPage() {
   }, [oneOffTasks, taskSearch, taskTypeFilter]);
 
   const taskMetaById = useMemo(() => {
-    const entries = [...recurringTasks, ...oneOffTasks].map((task) => [task.id, task]);
-    return new Map(entries);
+    const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
+      (task) => [task.id, task]
+    );
+    return new Map<string, TaskCatalogItem>(entries);
   }, [oneOffTasks, recurringTasks]);
 
   const taskNameOptions = useMemo(() => {
