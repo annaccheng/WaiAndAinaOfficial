@@ -384,8 +384,11 @@ export default function AdminScheduleEditorPage() {
   }, [authorized, selectedDate]);
 
   const taskPeopleCountById = useMemo(() => {
-    if (!scheduleData) return new Map<string, number>();
+    if (!scheduleData) {
+      return { byId: new Map<string, number>(), byName: new Map<string, number>() };
+    }
     const peopleSets = new Map<string, Set<string>>();
+    const nameSets = new Map<string, Set<string>>();
     scheduleData.people.forEach((person, rowIdx) => {
       const row = scheduleData.cells?.[rowIdx] || [];
       row.forEach((cell) => {
@@ -394,12 +397,19 @@ export default function AdminScheduleEditorPage() {
             peopleSets.set(task.id, new Set<string>());
           }
           peopleSets.get(task.id)?.add(person);
+          const nameKey = task.name.trim().toLowerCase();
+          if (!nameSets.has(nameKey)) {
+            nameSets.set(nameKey, new Set<string>());
+          }
+          nameSets.get(nameKey)?.add(person);
         });
       });
     });
     const counts = new Map<string, number>();
+    const nameCounts = new Map<string, number>();
     peopleSets.forEach((set, taskId) => counts.set(taskId, set.size));
-    return counts;
+    nameSets.forEach((set, name) => nameCounts.set(name, set.size));
+    return { byId: counts, byName: nameCounts };
   }, [scheduleData]);
 
   const priorityRank = useCallback((priority?: string) => {
@@ -416,7 +426,10 @@ export default function AdminScheduleEditorPage() {
 
   const isTaskHandled = useCallback(
     (task: TaskCatalogItem) => {
-      const assigned = taskPeopleCountById.get(task.id) ?? 0;
+      const assigned =
+        taskPeopleCountById.byId.get(task.id) ??
+        taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
+        0;
       const needed =
         task.personCount && task.personCount > 0 ? Number(task.personCount) : null;
       const hasEnoughPeople = needed ? assigned >= needed : false;
@@ -1598,8 +1611,8 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="relative w-full shrink-0 space-y-4 overflow-y-visible lg:w-[420px]">
-          <div className="sticky top-32 z-30 space-y-4">
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
+          <div className="sticky top-40 z-30 space-y-4">
             <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
               <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
                 <span>Recurring task dock</span>
