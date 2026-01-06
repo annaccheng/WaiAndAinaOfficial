@@ -348,6 +348,21 @@ export default function HubSchedulePage() {
     return "This schedule date is not today. Please confirm timing before starting.";
   }, [isScheduleYesterday, scheduleOutdated]);
 
+  const todayAssignments = useMemo(() => {
+    if (!data || !currentUserName) return [];
+    const personIndex = data.people.findIndex(
+      (person) => person.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (personIndex === -1) return [];
+    return data.slots
+      .map((slot, slotIdx) => {
+        const cell = (data.cells?.[personIndex]?.[slotIdx] ?? "").trim();
+        const tasks = splitCellTasks(cell).map((task) => taskBaseName(task)).filter(Boolean);
+        return { slot, tasks };
+      })
+      .filter((entry) => entry.tasks.length > 0);
+  }, [data, currentUserName]);
+
   async function ensureAnimalsLoaded() {
     if (animalsLoaded || animalFetchInFlight.current) return;
     animalFetchInFlight.current = true;
@@ -1577,6 +1592,49 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                   onTaskClick={handleTaskClick}
                 />
               ))}
+            </div>
+          </section>
+        )}
+
+        {showStandardSection && (
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
+              Today&apos;s Schedule Snapshot
+            </h2>
+            <p className="text-sm text-[#7a7f54]">
+              Quick view for {currentUserName || "you"} on {scheduleDateLabel || "today"}.
+            </p>
+            {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
+              <p className="mt-1 text-xs font-semibold text-red-700">
+                {scheduleOutdatedMessage}
+              </p>
+            ) : null}
+            <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+              {loading && (
+                <p className="text-sm text-[#7a7f54]">Loading today&apos;s assignments…</p>
+              )}
+              {!loading && !error && todayAssignments.length === 0 && (
+                <p className="text-sm text-[#7a7f54]">
+                  No tasks assigned to you yet today.
+                </p>
+              )}
+              {!loading && !error && todayAssignments.length > 0 && (
+                <div className="space-y-2">
+                  {todayAssignments.map((entry) => (
+                    <div
+                      key={entry.slot.id}
+                      className="rounded-md border border-[#e2d7b5] bg-[#f9f6e7] px-3 py-2 text-sm"
+                    >
+                      <div className="font-semibold text-[#314123]">
+                        {entry.slot.label}
+                      </div>
+                      <div className="text-[#5f5a3b]">
+                        {entry.tasks.join(", ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         )}

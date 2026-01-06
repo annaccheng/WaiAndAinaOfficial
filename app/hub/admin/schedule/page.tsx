@@ -234,6 +234,7 @@ export default function AdminScheduleEditorPage() {
     loadStatic();
   }, [authorized]);
 
+
   useEffect(() => {
     if (!selectedDate) {
       setSelectedDate(todayLabel);
@@ -244,6 +245,7 @@ export default function AdminScheduleEditorPage() {
     () => availableSchedules.find((entry) => entry.dateLabel === selectedDate),
     [availableSchedules, selectedDate]
   );
+
 
   useEffect(() => {
     if (!authorized) return;
@@ -290,6 +292,7 @@ export default function AdminScheduleEditorPage() {
   }, [scheduleMode, selectedDate]);
 
   const filteredRecurringTasks = useMemo(() => {
+    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
     return recurringTasks.filter((task) => {
       const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
       const matchesType = taskTypeFilter
@@ -298,9 +301,10 @@ export default function AdminScheduleEditorPage() {
       const matchesStatus = taskStatusFilter
         ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
         : true;
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
+      return matchesSearch && matchesType && matchesStatus && matchesDate;
     });
-  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter]);
+  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter, selectedDate]);
 
   const filteredOneOffTasks = useMemo(() => {
     const filtered = oneOffTasks.filter((task) => {
@@ -1225,7 +1229,7 @@ export default function AdminScheduleEditorPage() {
               Save failed: {saveLog.message}
             </span>
           )}
-          {saveLog.status === "idle" && "Drag a task to start saving updates."}
+          {saveLog.status === "idle" && "Waiting for changes."}
           {saveLog.payload && (
             <div className="mt-1 text-[10px] text-[#6b6d4b]">
               Person: {saveLog.payload.person} • Shift: {saveLog.payload.slotId} • Date:{" "}
@@ -1236,11 +1240,11 @@ export default function AdminScheduleEditorPage() {
       </div>
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
+        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
-              <p className="text-xs text-[#6a6c4d]">Drag from anywhere, drop anywhere. Saving happens in the background.</p>
+              <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
             </div>
             <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
               <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
@@ -1252,9 +1256,6 @@ export default function AdminScheduleEditorPage() {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
-            <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-              Volunteers auto-populate this grid.
-            </span>
             <span className="text-[11px] text-[#7a7f54]">
               {pendingCells.size ? "Saving updates…" : "All changes saved."}
             </span>
@@ -1273,16 +1274,16 @@ export default function AdminScheduleEditorPage() {
                 {scheduleLoading ? "Loading schedule…" : "Saving…"}
               </div>
             )}
-            <table className="min-w-full border-collapse text-sm">
+            <table className="min-w-full border-collapse text-[11px] sm:text-sm">
               <thead className="bg-[#e5e7c5]">
                 <tr>
-                  <th className="min-w-[160px] border border-[#d1d4aa] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
+                  <th className="min-w-[120px] sm:min-w-[160px] border border-[#d1d4aa] px-2 sm:px-3 py-2 text-left text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
                     Person
                   </th>
                   {scheduleData?.slots.map((slot) => (
                     <th
                       key={slot.id}
-                      className="border border-[#d1d4aa] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+                      className="border border-[#d1d4aa] px-2 sm:px-3 py-2 text-left text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div>
@@ -1299,8 +1300,8 @@ export default function AdminScheduleEditorPage() {
               </thead>
               <tbody>
                 {scheduleData?.people.map((person, rowIdx) => (
-                  <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
-                    <td className="border border-[#d1d4aa] px-3 py-2 align-top text-sm font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
+                    <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
+                    <td className="border border-[#d1d4aa] px-2 sm:px-3 py-2 align-top text-xs sm:text-sm font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
                       <div className="flex items-center justify-between gap-2">
                         <span>{person}</span>
                         <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
@@ -1340,7 +1341,7 @@ export default function AdminScheduleEditorPage() {
                       return (
                         <td
                           key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] p-2 align-top transition-colors duration-150 ${
+                          className={`border border-[#d1d4aa] p-1 sm:p-2 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
                           } ${saving ? "animate-pulse" : ""} ${
                             cellExists ? "" : "opacity-60"
@@ -1455,18 +1456,6 @@ export default function AdminScheduleEditorPage() {
                               );
                             })}
 
-                            {!content.tasks.length && (
-                              <div
-                                onDragOver={(e) => handleDragOverEvent(e, person, slot.id, 0)}
-                                onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, 0)}
-                                onDrop={(e) => handleDropEvent(e, person, slot, 0)}
-                                className="flex flex-col gap-2 rounded-md border border-dashed border-[#d0c9a4] bg-white/60 p-2 text-[11px] text-[#7a7f54]"
-                              >
-                                <span className="text-[11px] italic text-[#7a7f54]">
-                                  Drop tasks here or type below.
-                                </span>
-                              </div>
-                            )}
                             <div className="rounded-md border border-[#d0c9a4] bg-white/80 p-2">
                               <label className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
                                 Add task
@@ -1500,7 +1489,7 @@ export default function AdminScheduleEditorPage() {
                                     content.tasks.length
                                   )
                                 }
-                                placeholder="Type or choose a task"
+                                placeholder="Type to add a task"
                                 className="mt-1 w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[12px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
                               />
                             </div>
@@ -1722,7 +1711,7 @@ export default function AdminScheduleEditorPage() {
                     </div>
                   ))}
                   {!getCellValue(selectedCell)?.content.tasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">No tasks yet. Drag one in or add below.</p>
+                    <p className="text-[12px] text-[#7a7f54]">No tasks yet. Add one below.</p>
                   )}
                 </div>
                 <div className="space-y-1">

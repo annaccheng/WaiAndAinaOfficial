@@ -60,6 +60,11 @@ export default function TaskEditorPage() {
   const [types, setTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const [occurrenceLoading, setOccurrenceLoading] = useState(false);
+  const [recurringEditDate, setRecurringEditDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
 
   const [filters, setFilters] = useState({
     search: "",
@@ -107,6 +112,63 @@ export default function TaskEditorPage() {
 
   const [typeEditor, setTypeEditor] = useState({ name: "", color: "default" });
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
+
+  function toggleExpanded(taskId: string) {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
+  function normalizeTask(task: TaskItem): TaskItem {
+    return {
+      ...task,
+      task_type_id: task.task_type?.id || task.task_type_id || "",
+      recurrence_interval: task.recurrence_interval ?? null,
+      recurrence_unit: task.recurrence_unit ?? "day",
+      recurrence_until: task.recurrence_until ?? "",
+      origin_date: task.origin_date ?? "",
+      occurrence_date: task.occurrence_date ?? "",
+      estimated_time: task.estimated_time ?? "",
+      description: task.description ?? "",
+      links: task.links ?? [],
+      comments: task.comments ?? [],
+      photos: task.photos ?? [],
+      time_slots: task.time_slots ?? [],
+      extra_notes: task.extra_notes ?? [],
+      person_count: task.person_count ?? null,
+    };
+  }
+
+  async function loadOccurrence(seriesId: string, occurrenceDate: string) {
+    setOccurrenceLoading(true);
+    try {
+      const res = await fetch("/api/tasks/occurrence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seriesId, occurrenceDate }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.task) {
+        throw new Error(json.error || "Unable to load occurrence");
+      }
+      const normalized = normalizeTask(json.task);
+      setEditing(normalized);
+      setDraft(normalized);
+      setFutureFromDate(normalized.occurrence_date || occurrenceDate);
+      setApplyTo("single");
+    } catch (err) {
+      console.error("Failed to load occurrence", err);
+      setMessage("Unable to load that occurrence yet.");
+    } finally {
+      setOccurrenceLoading(false);
+    }
+  }
 
   useEffect(() => {
     const session = loadSession();
@@ -161,15 +223,15 @@ export default function TaskEditorPage() {
     return () => clearTimeout(timeout);
   }, [filters, authorized]);
 
-  function openEditor(task?: TaskItem) {
+  function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
-      setEditing(task);
-      setDraft({
-        ...task,
-        task_type_id: task.task_type?.id || task.task_type_id || "",
-        recurrence_interval: task.recurrence_interval ?? null,
-        recurrence_unit: task.recurrence_unit ?? "day",
-      });
+      const normalized = normalizeTask(task);
+      setEditing(normalized);
+      setDraft(normalized);
+      const seriesId = task.parent_task_id || task.id;
+      if (task.recurring && occurrenceDate && seriesId) {
+        void loadOccurrence(seriesId, occurrenceDate);
+      }
       if (task.recurring && task.occurrence_date) {
         setFutureFromDate(task.occurrence_date);
       }
@@ -211,10 +273,16 @@ export default function TaskEditorPage() {
       setMessage("Task name is required.");
       return;
     }
+    if (draft.recurring && !draft.recurrence_until) {
+      setMessage("Set an end date so recurring tasks create all occurrences.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
 
-    const resolvedOccurrence = draft.occurrence_date || draft.origin_date || null;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const resolvedOccurrence =
+      draft.occurrence_date || draft.origin_date || (draft.recurring ? todayIso : null);
     const resolvedOrigin = draft.recurring
       ? draft.origin_date || resolvedOccurrence
       : resolvedOccurrence;
@@ -304,11 +372,34 @@ export default function TaskEditorPage() {
     if (!deletePrompt.task) return;
     setSaving(true);
     try {
+      let deleteId = deletePrompt.task.id;
+      const isSingle = deletePrompt.mode === "single";
+      if (isSingle && deletePrompt.task.recurring && deletePrompt.occurrenceDate) {
+        const seriesId = deletePrompt.task.parent_task_id || deletePrompt.task.id;
+        if (seriesId) {
+          try {
+            const res = await fetch("/api/tasks/occurrence", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                seriesId,
+                occurrenceDate: deletePrompt.occurrenceDate,
+              }),
+            });
+            const json = await res.json();
+            if (res.ok && json.task?.id) {
+              deleteId = json.task.id;
+            }
+          } catch (err) {
+            console.error("Failed to resolve occurrence for delete", err);
+          }
+        }
+      }
       await fetch("/api/tasks", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: deletePrompt.task.id,
+          id: deleteId,
           applyTo: deletePrompt.mode,
           occurrenceDate: deletePrompt.occurrenceDate,
         }),
@@ -325,6 +416,16 @@ export default function TaskEditorPage() {
   }
 
   const filteredTasks = useMemo(() => tasks, [tasks]);
+  const recurringTasks = useMemo(
+    () => filteredTasks.filter((task) => task.recurring && !task.parent_task_id),
+    [filteredTasks]
+  );
+  const oneOffTasks = useMemo(
+    () => filteredTasks.filter((task) => !task.recurring),
+    [filteredTasks]
+  );
+  const editingDateLabel =
+    draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
 
   if (!authorized) {
     return (
@@ -442,171 +543,419 @@ export default function TaskEditorPage() {
             {loading ? (
               <p className="text-sm text-[#7a7f54]">Loading tasks…</p>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {filteredTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-4 shadow-sm ${
-                      STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <input
-                        value={task.name}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) => (t.id === task.id ? { ...t, name: e.target.value } : t))
-                          )
-                        }
-                        className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
-                      />
-                      <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                        {task.status}
-                      </span>
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-[#314123]">Recurring tasks</h3>
+                      <p className="text-xs text-[#6b6d4b]">
+                        Pick a date to load a specific occurrence before editing.
+                      </p>
                     </div>
-                    <div className="mt-3 space-y-3 text-sm">
-                      <textarea
-                        value={task.description || ""}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) =>
-                              t.id === task.id ? { ...t, description: e.target.value } : t
-                            )
-                          )
-                        }
-                        className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                        placeholder="Task description"
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                        Edit date
+                      </label>
+                      <input
+                        type="date"
+                        value={recurringEditDate}
+                        onChange={(e) => setRecurringEditDate(e.target.value)}
+                        className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
                       />
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                            Instance date
-                          </label>
-                          <input
-                            type="date"
-                            value={task.occurrence_date || ""}
-                            onChange={(e) =>
-                              setTasks((prev) =>
-                                prev.map((t) =>
-                                  t.id === task.id ? { ...t, occurrence_date: e.target.value } : t
-                                )
-                              )
-                            }
-                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                            Priority
-                          </label>
-                          <select
-                            value={task.priority}
-                            onChange={(e) =>
-                              setTasks((prev) =>
-                                prev.map((t) =>
-                                  t.id === task.id ? { ...t, priority: e.target.value } : t
-                                )
-                              )
-                            }
-                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                          >
-                            {PRIORITY_OPTIONS.map((priority) => (
-                              <option key={priority} value={priority}>
-                                {priority}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                            Status
-                          </label>
-                          <select
-                            value={task.status}
-                            onChange={(e) =>
-                              setTasks((prev) =>
-                                prev.map((t) =>
-                                  t.id === task.id ? { ...t, status: e.target.value } : t
-                                )
-                              )
-                            }
-                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                          >
-                            {STATUS_OPTIONS.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                            Task type
-                          </label>
-                          <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
-                            {task.task_type?.name || "Unassigned"}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setSaving(true);
-                            try {
-                              await fetch("/api/tasks", {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  id: task.id,
-                                  name: task.name,
-                                  description: task.description || null,
-                                  occurrence_date: task.occurrence_date || null,
-                                  status: task.status,
-                                  priority: task.priority,
-                                }),
-                              });
-                              setMessage("Task updated.");
-                            } catch (err) {
-                              console.error("Failed to update task", err);
-                              setMessage("Unable to update task.");
-                            } finally {
-                              setSaving(false);
-                            }
-                          }}
-                          className="rounded-md bg-[#a0b764] px-3 py-2 text-[11px] font-semibold uppercase text-white"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDeletePrompt({
-                              task,
-                              mode: "single",
-                              occurrenceDate: task.occurrence_date || null,
-                            })
-                          }
-                          className="rounded-md border border-red-200 px-3 py-2 text-[11px] font-semibold uppercase text-red-700"
-                        >
-                          Delete
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEditor(task)}
-                          className="rounded-md border border-[#d0c9a4] px-3 py-2 text-[11px] font-semibold uppercase text-[#4f5730]"
-                        >
-                          Details
-                        </button>
-                      </div>
                     </div>
                   </div>
-                ))}
-                {!filteredTasks.length && (
-                  <p className="text-sm text-[#7a7f54]">No tasks found.</p>
-                )}
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {recurringTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-3 shadow-sm ${
+                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <input
+                            value={task.name}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, name: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
+                          />
+                          <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
+                          <span className="rounded-full bg-white/70 px-2 py-1">Recurring</span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            Edit {recurringEditDate}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.priority || "Priority unset"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.task_type?.name || "Unassigned"}
+                          </span>
+                        </div>
+                        {expandedTasks.has(task.id) && (
+                          <div className="mt-3 space-y-3 text-sm">
+                            <textarea
+                              value={task.description || ""}
+                              onChange={(e) =>
+                                setTasks((prev) =>
+                                  prev.map((t) =>
+                                    t.id === task.id ? { ...t, description: e.target.value } : t
+                                  )
+                                )
+                              }
+                              className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                              placeholder="Task description"
+                            />
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Series start
+                                </label>
+                                <input
+                                  type="date"
+                                  value={task.origin_date || ""}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, origin_date: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Priority
+                                </label>
+                                <select
+                                  value={task.priority}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, priority: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {PRIORITY_OPTIONS.map((priority) => (
+                                    <option key={priority} value={priority}>
+                                      {priority}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Status
+                                </label>
+                                <select
+                                  value={task.status}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, status: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Task type
+                                </label>
+                                <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
+                                  {task.task_type?.name || "Unassigned"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(task.id)}
+                            className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            {expandedTasks.has(task.id) ? "Collapse" : "Expand"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSaving(true);
+                              try {
+                                await fetch("/api/tasks", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    id: task.id,
+                                    name: task.name,
+                                    description: task.description || null,
+                                    origin_date: task.origin_date || null,
+                                    status: task.status,
+                                    priority: task.priority,
+                                  }),
+                                });
+                                setMessage("Task updated.");
+                              } catch (err) {
+                                console.error("Failed to update task", err);
+                                setMessage("Unable to update task.");
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                            className="rounded-md bg-[#a0b764] px-3 py-1 text-[11px] font-semibold uppercase text-white"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeletePrompt({
+                                task,
+                                mode: "single",
+                                occurrenceDate: recurringEditDate,
+                              })
+                            }
+                            className="rounded-md border border-red-200 px-3 py-1 text-[11px] font-semibold uppercase text-red-700"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditor(task, recurringEditDate)}
+                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            Details
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!recurringTasks.length && (
+                      <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-[#314123]">One-off tasks</h3>
+                      <p className="text-xs text-[#6b6d4b]">
+                        Unique tasks with a single instance date.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {oneOffTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-3 shadow-sm ${
+                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <input
+                            value={task.name}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, name: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
+                          />
+                          <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
+                          <span className="rounded-full bg-white/70 px-2 py-1">One-off</span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.occurrence_date || task.origin_date || "No date set"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.priority || "Priority unset"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.task_type?.name || "Unassigned"}
+                          </span>
+                        </div>
+                        {expandedTasks.has(task.id) && (
+                          <div className="mt-3 space-y-3 text-sm">
+                            <textarea
+                              value={task.description || ""}
+                              onChange={(e) =>
+                                setTasks((prev) =>
+                                  prev.map((t) =>
+                                    t.id === task.id ? { ...t, description: e.target.value } : t
+                                  )
+                                )
+                              }
+                              className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                              placeholder="Task description"
+                            />
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Instance date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={task.occurrence_date || ""}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id
+                                          ? { ...t, occurrence_date: e.target.value }
+                                          : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Priority
+                                </label>
+                                <select
+                                  value={task.priority}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, priority: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {PRIORITY_OPTIONS.map((priority) => (
+                                    <option key={priority} value={priority}>
+                                      {priority}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Status
+                                </label>
+                                <select
+                                  value={task.status}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, status: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Task type
+                                </label>
+                                <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
+                                  {task.task_type?.name || "Unassigned"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(task.id)}
+                            className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            {expandedTasks.has(task.id) ? "Collapse" : "Expand"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSaving(true);
+                              try {
+                                await fetch("/api/tasks", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    id: task.id,
+                                    name: task.name,
+                                    description: task.description || null,
+                                    occurrence_date: task.occurrence_date || null,
+                                    status: task.status,
+                                    priority: task.priority,
+                                  }),
+                                });
+                                setMessage("Task updated.");
+                              } catch (err) {
+                                console.error("Failed to update task", err);
+                                setMessage("Unable to update task.");
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                            className="rounded-md bg-[#a0b764] px-3 py-1 text-[11px] font-semibold uppercase text-white"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeletePrompt({
+                                task,
+                                mode: "single",
+                                occurrenceDate: task.occurrence_date || null,
+                              })
+                            }
+                            className="rounded-md border border-red-200 px-3 py-1 text-[11px] font-semibold uppercase text-red-700"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditor(task)}
+                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            Details
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!oneOffTasks.length && (
+                      <p className="text-sm text-[#7a7f54]">No one-off tasks found.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -768,6 +1117,17 @@ export default function TaskEditorPage() {
               </div>
             </div>
 
+            {editingDateLabel && (
+              <div className="mt-4 rounded-lg border border-[#d0c9a4] bg-white px-4 py-2 text-xs text-[#4b5133]">
+                <span className="font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                  Editing date
+                </span>
+                <div className="mt-1 text-sm font-semibold text-[#314123]">
+                  {editingDateLabel}
+                </div>
+              </div>
+            )}
+
             {!draft.recurring && (
               <div className="mt-4 space-y-2">
                 <label className="text-xs font-semibold uppercase text-[#6b6f4c]">
@@ -848,6 +1208,9 @@ export default function TaskEditorPage() {
                         }
                         className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                       />
+                      <p className="text-[10px] text-[#6f754f]">
+                        Required to generate each recurring occurrence.
+                      </p>
                     </div>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -869,11 +1232,23 @@ export default function TaskEditorPage() {
                       <input
                         type="date"
                         value={draft.occurrence_date || ""}
-                        onChange={(e) =>
-                          setDraft((prev) => ({ ...prev, occurrence_date: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const nextDate = e.target.value;
+                          setDraft((prev) => ({ ...prev, occurrence_date: nextDate }));
+                          if (editing?.recurring && nextDate) {
+                            const seriesId = editing.parent_task_id || editing.id;
+                            if (seriesId) {
+                              void loadOccurrence(seriesId, nextDate);
+                            }
+                          }
+                        }}
                         className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                       />
+                      {editing?.recurring && (
+                        <p className="text-[11px] text-[#6f754f]">
+                          Switching dates loads the saved occurrence so each day stays unique.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
@@ -1073,36 +1448,36 @@ export default function TaskEditorPage() {
               </div>
             )}
 
-              <div className="mt-5 flex items-center justify-end gap-2">
-                {editing && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDeletePrompt({
-                        task: editing,
-                        mode: "single",
-                        occurrenceDate: editing.occurrence_date || null,
-                      })
-                    }
-                    className="rounded-md border border-red-200 px-4 py-2 text-xs font-semibold uppercase text-red-700"
-                  >
-                    Delete task
-                  </button>
-                )}
+            <div className="mt-5 flex items-center justify-end gap-2">
+              {editing && (
                 <button
                   type="button"
-                  onClick={() => setEditorOpen(false)}
-                  className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#4f5730]"
+                  onClick={() =>
+                    setDeletePrompt({
+                      task: editing,
+                      mode: "single",
+                      occurrenceDate: editing.occurrence_date || null,
+                    })
+                  }
+                  className="rounded-md border border-red-200 px-4 py-2 text-xs font-semibold uppercase text-red-700"
                 >
+                  Delete task
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setEditorOpen(false)}
+                className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#4f5730]"
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || occurrenceLoading}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
               >
-                {saving ? "Saving…" : "Save task"}
+                {saving || occurrenceLoading ? "Saving…" : "Save task"}
               </button>
             </div>
           </div>
@@ -1117,6 +1492,11 @@ export default function TaskEditorPage() {
               Choose which tasks to delete for{" "}
               <span className="font-semibold">{deletePrompt.task.name}</span>.
             </p>
+            {deletePrompt.task.recurring && deletePrompt.occurrenceDate && (
+              <p className="mt-1 text-[11px] text-[#6f754f]">
+                Occurrence date: {deletePrompt.occurrenceDate}
+              </p>
+            )}
             <div className="mt-4 space-y-2 text-sm">
               {deletePrompt.task.recurring ? (
                 <>
