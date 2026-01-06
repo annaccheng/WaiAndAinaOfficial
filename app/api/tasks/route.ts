@@ -69,21 +69,15 @@ export async function POST(req: Request) {
     const unit = body.recurrence_unit || "day";
     const until = body.recurrence_until;
 
-    const payload = {
-      ...body,
+    const buildPayload = (payloadBody: Record<string, unknown>) => ({
+      ...payloadBody,
       origin_date: originDate,
       occurrence_date: originDate,
       recurring: isRecurring,
-    };
-
-    const [parent] = await supabaseRequest<any[]>("tasks", {
-      method: "POST",
-      prefer: "return=representation",
-      query: { select: "*" },
-      body: payload,
     });
 
-    if (parent && isRecurring && originDate && interval > 0 && unit) {
+    const createOccurrences = async (parentId: string, payloadBody: Record<string, unknown>) => {
+      if (!isRecurring || !originDate || interval <= 0 || !unit) return;
       const occurrences: Record<string, unknown>[] = [];
       const startDate = new Date(originDate);
       const endDate = until
@@ -107,10 +101,10 @@ export async function POST(req: Request) {
         if (nextDate > endDate) break;
 
         occurrences.push({
-          ...body,
+          ...payloadBody,
           origin_date: originDate,
           occurrence_date: nextDate.toISOString().slice(0, 10),
-          parent_task_id: parent.id,
+          parent_task_id: parentId,
           recurring: true,
         });
       }
@@ -122,6 +116,18 @@ export async function POST(req: Request) {
           body: occurrences,
         });
       }
+    };
+
+    const payload = buildPayload(body);
+    const [parent] = await supabaseRequest<any[]>("tasks", {
+      method: "POST",
+      prefer: "return=representation",
+      query: { select: "*" },
+      body: payload,
+    });
+
+    if (parent?.id) {
+      await createOccurrences(parent.id, body);
     }
 
     return NextResponse.json({ task: parent });
@@ -131,12 +137,71 @@ export async function POST(req: Request) {
       try {
         const fallbackBody = { ...body };
         delete fallbackBody.comments;
+        const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
+        const isRecurring = Boolean(fallbackBody.recurring);
+        const fallbackDate = new Date().toISOString().slice(0, 10);
+        const originDate =
+          (fallbackBody.origin_date as string) ||
+          (fallbackBody.occurrence_date as string) ||
+          fallbackDate;
+        const interval = Number(fallbackBody.recurrence_interval || 1);
+        const unit = (fallbackBody.recurrence_unit as string) || "day";
+        const until = fallbackBody.recurrence_until as string | undefined;
+        const createOccurrences = async (parentId: string) => {
+          if (!isRecurring || !originDate || interval <= 0 || !unit) return;
+          const occurrences: Record<string, unknown>[] = [];
+          const startDate = new Date(originDate);
+          const endDate = until
+            ? new Date(until)
+            : new Date(
+                startDate.getFullYear(),
+                startDate.getMonth(),
+                startDate.getDate() + DEFAULT_OCCURRENCE_SPAN_DAYS
+              );
+          const nextDate = new Date(startDate);
+
+          while (true) {
+            if (unit === "day") {
+              nextDate.setDate(nextDate.getDate() + interval);
+            } else if (unit === "month") {
+              nextDate.setMonth(nextDate.getMonth() + interval);
+            } else if (unit === "year") {
+              nextDate.setFullYear(nextDate.getFullYear() + interval);
+            }
+
+            if (nextDate > endDate) break;
+
+            occurrences.push({
+              ...fallbackBody,
+              origin_date: originDate,
+              occurrence_date: nextDate.toISOString().slice(0, 10),
+              parent_task_id: parentId,
+              recurring: true,
+            });
+          }
+
+          if (occurrences.length) {
+            await supabaseRequest("tasks", {
+              method: "POST",
+              prefer: "return=minimal",
+              body: occurrences,
+            });
+          }
+        };
         const [parent] = await supabaseRequest<any[]>("tasks", {
           method: "POST",
           prefer: "return=representation",
           query: { select: "*" },
-          body: fallbackBody,
+          body: {
+            ...fallbackBody,
+            origin_date: originDate,
+            occurrence_date: originDate,
+            recurring: isRecurring,
+          },
         });
+        if (parent?.id) {
+          await createOccurrences(parent.id);
+        }
         return NextResponse.json({ task: parent });
       } catch (fallbackErr) {
         console.error("Failed to create task (fallback):", fallbackErr);
