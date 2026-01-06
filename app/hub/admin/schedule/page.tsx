@@ -158,6 +158,7 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [taskEditorExpanded, setTaskEditorExpanded] = useState(false);
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
@@ -182,6 +183,8 @@ export default function AdminScheduleEditorPage() {
     if (!month || !day || !year) return "";
     return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
   };
+
+  const todayLabel = formatDateInput(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     const session = loadSession();
@@ -216,14 +219,7 @@ export default function AdminScheduleEditorPage() {
           const json = await scheduleListRes.json();
           setAvailableSchedules(json.schedules || []);
           setScheduleMode(json.mode === "database" ? "database" : "page");
-          if (json.selectedDate) {
-            setSelectedDate(json.selectedDate);
-          } else if (Array.isArray(json.schedules) && json.schedules.length) {
-            setSelectedDate(json.schedules[json.schedules.length - 1].dateLabel);
-          } else {
-            const today = new Date().toISOString().slice(0, 10);
-            setSelectedDate(formatDateInput(today));
-          }
+          setSelectedDate(todayLabel);
         }
       } catch (err) {
         console.error("Failed to load schedule editor data", err);
@@ -233,6 +229,12 @@ export default function AdminScheduleEditorPage() {
 
     loadStatic();
   }, [authorized]);
+
+  useEffect(() => {
+    if (!selectedDate) {
+      setSelectedDate(todayLabel);
+    }
+  }, [selectedDate, todayLabel]);
 
   const selectedEntry = useMemo(
     () => availableSchedules.find((entry) => entry.dateLabel === selectedDate),
@@ -590,11 +592,9 @@ export default function AdminScheduleEditorPage() {
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
       if (!payload.taskId || !payload.taskName) return;
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
-      let usedDirectPersist = false;
       const taskEntry = { id: payload.taskId, name: payload.taskName };
 
       const directPersist = async () => {
-        usedDirectPersist = true;
         const content: CellContent = { tasks: [taskEntry], note: "" };
         setSaveLog({
           status: "saving",
@@ -611,68 +611,62 @@ export default function AdminScheduleEditorPage() {
         return;
       }
 
-      setScheduleData((prev) => {
-        if (!prev) return prev;
-        const nextCells = prev.cells.map((row) => row.map((cell) => ({ ...cell, tasks: [...cell.tasks] })));
+      const nextCells = scheduleData.cells.map((row) =>
+        row.map((cell) => ({ ...cell, tasks: [...cell.tasks] }))
+      );
 
-        const targetCoord = findCoord(target.person, target.slotId, prev);
-        if (!targetCoord) {
-          void directPersist();
-          return prev;
-        }
-        let targetContent = nextCells[targetCoord.row][targetCoord.col];
+      const targetCoord = findCoord(target.person, target.slotId, scheduleData);
+      if (!targetCoord) {
+        void directPersist();
+        return;
+      }
+      let targetContent = nextCells[targetCoord.row][targetCoord.col];
 
-        let insertionIndex = safeIndex(targetContent.tasks.length, target.targetIndex);
+      let insertionIndex = safeIndex(targetContent.tasks.length, target.targetIndex);
 
-        if (payload.fromPerson && payload.fromSlotId) {
-          const sourceCoord = findCoord(payload.fromPerson, payload.fromSlotId, prev);
-          if (sourceCoord) {
-            const sourceContent = nextCells[sourceCoord.row][sourceCoord.col];
-            const idx =
-              payload.fromIndex ??
-              sourceContent.tasks.findIndex((t) => t.id === payload.taskId);
-            if (idx > -1) {
-              sourceContent.tasks.splice(idx, 1);
-              if (
-                sourceCoord.row === targetCoord.row &&
-                sourceCoord.col === targetCoord.col &&
-                insertionIndex > idx
-              ) {
-                insertionIndex -= 1;
-              }
-              updates.push({
-                person: payload.fromPerson,
-                slotId: payload.fromSlotId,
-                content: sourceContent,
-              });
-              if (
-                sourceCoord.row === targetCoord.row &&
-                sourceCoord.col === targetCoord.col
-              ) {
-                targetContent = sourceContent;
-              }
+      if (payload.fromPerson && payload.fromSlotId) {
+        const sourceCoord = findCoord(payload.fromPerson, payload.fromSlotId, scheduleData);
+        if (sourceCoord) {
+          const sourceContent = nextCells[sourceCoord.row][sourceCoord.col];
+          const idx =
+            payload.fromIndex ??
+            sourceContent.tasks.findIndex((t) => t.id === payload.taskId);
+          if (idx > -1) {
+            sourceContent.tasks.splice(idx, 1);
+            if (
+              sourceCoord.row === targetCoord.row &&
+              sourceCoord.col === targetCoord.col &&
+              insertionIndex > idx
+            ) {
+              insertionIndex -= 1;
+            }
+            updates.push({
+              person: payload.fromPerson,
+              slotId: payload.fromSlotId,
+              content: sourceContent,
+            });
+            if (
+              sourceCoord.row === targetCoord.row &&
+              sourceCoord.col === targetCoord.col
+            ) {
+              targetContent = sourceContent;
             }
           }
         }
+      }
 
-        targetContent.tasks.splice(insertionIndex, 0, taskEntry);
-        updates.push({
-          person: target.person,
-          slotId: target.slotId,
-          content: targetContent,
-        });
-
-        return { ...prev, cells: nextCells };
+      targetContent.tasks.splice(insertionIndex, 0, taskEntry);
+      updates.push({
+        person: target.person,
+        slotId: target.slotId,
+        content: targetContent,
       });
 
+      setScheduleData({ ...scheduleData, cells: nextCells });
+
       updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
-      if (!updates.length && !usedDirectPersist) {
-        setSaveLog({
-          status: "error",
-          message: "No matching schedule cell found for this drop.",
-          lastAttempt: new Date().toLocaleTimeString(),
-          payload: { person: target.person, slotId: target.slotId },
-        });
+      if (!updates.length) {
+        void directPersist();
       }
       setSelectedCell({ person: target.person, slotId: target.slotId, slotLabel: target.slotLabel });
       setPendingInsert(null);
@@ -816,6 +810,7 @@ export default function AdminScheduleEditorPage() {
       };
       setTaskDetail(detail);
       setTaskEditFields(detail.properties || []);
+      setTaskEditorExpanded(false);
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
@@ -1737,187 +1732,206 @@ export default function AdminScheduleEditorPage() {
                   <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task editor</p>
                   <h3 className="text-base font-semibold text-[#314123]">Edit task properties</h3>
                 </div>
-                {taskEditSaving && <span className="text-[11px] text-[#6b6d4b]">Saving…</span>}
+                <div className="flex items-center gap-2">
+                  {taskEditSaving && <span className="text-[11px] text-[#6b6d4b]">Saving…</span>}
+                  <button
+                    type="button"
+                    onClick={() => setTaskEditorExpanded((prev) => !prev)}
+                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]"
+                  >
+                    {taskEditorExpanded ? "Collapse" : "Expand"}
+                  </button>
+                </div>
               </div>
 
-              <div className="mt-3 space-y-3">
-                {taskEditFields.map((field) => {
-                  const value = field.value;
-                  const isReadOnly = field.readOnly;
+              {!taskEditorExpanded && (
+                <p className="mt-3 text-[12px] text-[#6b6d4b]">
+                  Expand to edit task properties, status, and custom fields.
+                </p>
+              )}
 
-                  if (field.type === "checkbox") {
-                    return (
-                      <label
-                        key={field.name}
-                        className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-3 py-2 text-sm text-[#4b5133]"
-                      >
-                        <span className="font-semibold">{field.name}</span>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(value)}
-                          disabled={isReadOnly}
-                          onChange={(e) => updateTaskField(field.name, e.target.checked)}
-                          className="h-4 w-4 accent-[#8fae4c]"
-                        />
-                      </label>
-                    );
-                  }
+              {taskEditorExpanded && (
+                <>
+                  <div className="mt-3 space-y-3">
+                    {taskEditFields.map((field) => {
+                      const value = field.value;
+                      const isReadOnly = field.readOnly;
 
-                  if (field.type === "select" || field.type === "status") {
-                    return (
-                      <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                        <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                        <select
-                          value={String(value || "")}
-                          disabled={isReadOnly}
-                          onChange={(e) => updateTaskField(field.name, e.target.value)}
-                          className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                        >
-                          <option value="">None</option>
-                          {field.options?.map((opt) => (
-                            <option key={opt.name} value={opt.name}>
-                              {opt.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    );
-                  }
-
-                  if (field.type === "multi_select") {
-                    const selected = Array.isArray(value) ? value : [];
-                    const options = field.options || [];
-                    const customValue = multiSelectDrafts[field.name] || "";
-
-                    return (
-                      <div key={field.name} className="space-y-2 text-sm text-[#4b5133]">
-                        <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                        <div className="flex flex-wrap gap-2">
-                          {options.length ? (
-                            options.map((opt) => (
-                              <label
-                                key={opt.name}
-                                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] font-semibold ${
-                                  selected.includes(opt.name)
-                                    ? "bg-[#dfeac1] border-[#b9cd7f] text-[#2f3b21]"
-                                    : "bg-white border-[#d0c9a4] text-[#4b5133]"
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="accent-[#8fae4c]"
-                                  checked={selected.includes(opt.name)}
-                                  disabled={isReadOnly}
-                                  onChange={() => toggleMultiSelect(field, opt.name)}
-                                />
-                                {opt.name}
-                              </label>
-                            ))
-                          ) : (
-                            <span className="text-[12px] text-[#7a7f54]">No options defined.</span>
-                          )}
-                        </div>
-                        {!isReadOnly && (
-                          <div className="flex items-center gap-2">
+                      if (field.type === "checkbox") {
+                        return (
+                          <label
+                            key={field.name}
+                            className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-3 py-2 text-sm text-[#4b5133]"
+                          >
+                            <span className="font-semibold">{field.name}</span>
                             <input
-                              value={customValue}
-                              onChange={(e) =>
-                                setMultiSelectDrafts((prev) => ({
-                                  ...prev,
-                                  [field.name]: e.target.value,
-                                }))
-                              }
-                              placeholder="Add custom option"
-                              className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                              type="checkbox"
+                              checked={Boolean(value)}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.checked)}
+                              className="h-4 w-4 accent-[#8fae4c]"
                             />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                addMultiSelectCustom(field, customValue);
-                                setMultiSelectDrafts((prev) => ({ ...prev, [field.name]: "" }));
-                              }}
-                              className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
+                          </label>
+                        );
+                      }
+
+                      if (field.type === "select" || field.type === "status") {
+                        return (
+                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <select
+                              value={String(value || "")}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.value)}
+                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
                             >
-                              Add
-                            </button>
+                              <option value="">None</option>
+                              {field.options?.map((opt) => (
+                                <option key={opt.name} value={opt.name}>
+                                  {opt.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        );
+                      }
+
+                      if (field.type === "multi_select") {
+                        const selected = Array.isArray(value) ? value : [];
+                        const options = field.options || [];
+                        const customValue = multiSelectDrafts[field.name] || "";
+
+                        return (
+                          <div key={field.name} className="space-y-2 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <div className="flex flex-wrap gap-2">
+                              {options.length ? (
+                                options.map((opt) => (
+                                  <label
+                                    key={opt.name}
+                                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] font-semibold ${
+                                      selected.includes(opt.name)
+                                        ? "bg-[#dfeac1] border-[#b9cd7f] text-[#2f3b21]"
+                                        : "bg-white border-[#d0c9a4] text-[#4b5133]"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="accent-[#8fae4c]"
+                                      checked={selected.includes(opt.name)}
+                                      disabled={isReadOnly}
+                                      onChange={() => toggleMultiSelect(field, opt.name)}
+                                    />
+                                    {opt.name}
+                                  </label>
+                                ))
+                              ) : (
+                                <span className="text-[12px] text-[#7a7f54]">No options defined.</span>
+                              )}
+                            </div>
+                            {!isReadOnly && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={customValue}
+                                  onChange={(e) =>
+                                    setMultiSelectDrafts((prev) => ({
+                                      ...prev,
+                                      [field.name]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Add custom option"
+                                  className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    addMultiSelectCustom(field, customValue);
+                                    setMultiSelectDrafts((prev) => ({ ...prev, [field.name]: "" }));
+                                  }}
+                                  className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  }
+                        );
+                      }
 
-                  if (field.type === "rich_text") {
-                    return (
-                      <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                        <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                        <textarea
-                          value={String(value || "")}
-                          disabled={isReadOnly}
-                          onChange={(e) => updateTaskField(field.name, e.target.value)}
-                          className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                        />
-                      </label>
-                    );
-                  }
+                      if (field.type === "rich_text") {
+                        return (
+                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <textarea
+                              value={String(value || "")}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.value)}
+                              className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                            />
+                          </label>
+                        );
+                      }
 
-                  if (field.type === "number") {
-                    return (
-                      <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                        <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                        <input
-                          type="number"
-                          value={value === null ? "" : String(value)}
-                          disabled={isReadOnly}
-                          onChange={(e) => updateTaskField(field.name, e.target.value)}
-                          className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                        />
-                      </label>
-                    );
-                  }
+                      if (field.type === "number") {
+                        return (
+                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <input
+                              type="number"
+                              value={value === null ? "" : String(value)}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.value)}
+                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                            />
+                          </label>
+                        );
+                      }
 
-                  if (field.type === "date") {
-                    return (
-                      <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                        <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                        <input
-                          type="date"
-                          value={String(value || "")}
-                          disabled={isReadOnly}
-                          onChange={(e) => updateTaskField(field.name, e.target.value)}
-                          className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                        />
-                      </label>
-                    );
-                  }
+                      if (field.type === "date") {
+                        return (
+                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <input
+                              type="date"
+                              value={String(value || "")}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.value)}
+                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                            />
+                          </label>
+                        );
+                      }
 
-                  return (
-                    <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                      <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                      <input
-                        type="text"
-                        value={String(value || "")}
-                        disabled={isReadOnly}
-                        onChange={(e) => updateTaskField(field.name, e.target.value)}
-                        className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                      />
-                    </label>
-                  );
-                })}
-              </div>
+                      return (
+                        <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                          <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                          <input
+                            type="text"
+                            value={String(value || "")}
+                            disabled={isReadOnly}
+                            onChange={(e) => updateTaskField(field.name, e.target.value)}
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={saveTaskEdits}
-                  disabled={taskEditSaving}
-                  className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                >
-                  Save task updates
-                </button>
-                {taskEditMessage && (
-                  <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
-                )}
-              </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={saveTaskEdits}
+                      disabled={taskEditSaving}
+                      className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                    >
+                      Save task updates
+                    </button>
+                    {taskEditMessage && (
+                      <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

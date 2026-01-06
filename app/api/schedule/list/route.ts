@@ -69,9 +69,7 @@ export async function GET() {
     });
 
     const schedules = Array.from(grouped.values());
-    const selectedDate = schedules.length
-      ? schedules[schedules.length - 1].dateLabel
-      : toLabel(new Date().toISOString().slice(0, 10));
+    const selectedDate = toLabel(new Date().toISOString().slice(0, 10));
 
     return NextResponse.json({
       schedules,
