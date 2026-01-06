@@ -691,16 +691,18 @@ export default function HubSchedulePage() {
         }
         const json = await res.json();
         setData(json);
-        setError(json.message || null);
+        setError(null);
       } catch (e) {
         console.error(e);
-        setError("Unable to load schedule. Please refresh when online.");
+        setError(
+          data ? null : "Unable to load schedule. Please refresh when online."
+        );
       } finally {
         scheduleFetchInFlight.current = false;
         if (showLoading) setLoading(false);
       }
     },
-    [scheduleRefreshIntervalMs]
+    [data, scheduleRefreshIntervalMs]
   );
 
   useEffect(() => {

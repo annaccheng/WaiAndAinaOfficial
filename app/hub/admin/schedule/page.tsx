@@ -1352,19 +1352,18 @@ export default function AdminScheduleEditorPage() {
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
-                <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                  {scheduleData?.slots.length || 0} shifts
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#f0f4de] px-3 py-1 font-semibold text-[#4b5133]">
-                  {scheduleData?.people.length || 0} teammates
-                </span>
-              </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
+              <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                {scheduleData?.slots.length || 0} shifts
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#f0f4de] px-3 py-1 font-semibold text-[#4b5133]">
+                {scheduleData?.people.length || 0} teammates
+              </span>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
@@ -2203,6 +2202,7 @@ export default function AdminScheduleEditorPage() {
             )}
           </div>
         </div>
+      </div>
 
       <div className="lg:hidden">
         {mobileDockOpen ? (
