@@ -293,53 +293,6 @@ export default function AdminScheduleEditorPage() {
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
 
-  const priorityRank = useCallback((priority?: string) => {
-    const map: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
-    if (!priority) return 3;
-    return map[priority] ?? 3;
-  }, []);
-
-  const statusRank = useCallback((status?: string) => {
-    const map: Record<string, number> = { "Not Started": 0, "In Progress": 1, Completed: 2 };
-    if (!status) return 3;
-    return map[status] ?? 3;
-  }, []);
-
-  const isTaskHandled = useCallback(
-    (task: TaskCatalogItem) => {
-      const assigned = taskPeopleCountById.get(task.id) ?? 0;
-      const needed =
-        task.personCount && task.personCount > 0 ? Number(task.personCount) : null;
-      const hasEnoughPeople = needed ? assigned >= needed : false;
-      const isCompleted = (task.status || "").toLowerCase() === "completed";
-      return { handled: hasEnoughPeople || isCompleted, hasEnoughPeople };
-    },
-    [taskPeopleCountById]
-  );
-
-  const sortTasks = useCallback(
-    (a: TaskCatalogItem, b: TaskCatalogItem) => {
-      const aHandled = isTaskHandled(a).handled;
-      const bHandled = isTaskHandled(b).handled;
-      if (aHandled !== bHandled) return aHandled ? 1 : -1;
-      const aDate = a.occurrenceDate || "";
-      const bDate = b.occurrenceDate || "";
-      if (aDate !== bDate) {
-        if (!aDate) return 1;
-        if (!bDate) return -1;
-        return aDate.localeCompare(bDate);
-      }
-      const aPriority = priorityRank(a.priority);
-      const bPriority = priorityRank(b.priority);
-      if (aPriority !== bPriority) return aPriority - bPriority;
-      const aStatus = statusRank(a.status);
-      const bStatus = statusRank(b.status);
-      if (aStatus !== bStatus) return aStatus - bStatus;
-      return a.name.localeCompare(b.name);
-    },
-    [isTaskHandled, priorityRank, statusRank]
-  );
-
   const filteredRecurringTasks = useMemo(() => {
     const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
     return recurringTasks
@@ -485,6 +438,53 @@ export default function AdminScheduleEditorPage() {
     peopleSets.forEach((set, taskId) => counts.set(taskId, set.size));
     return counts;
   }, [scheduleData]);
+
+  const priorityRank = useCallback((priority?: string) => {
+    const map: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+    if (!priority) return 3;
+    return map[priority] ?? 3;
+  }, []);
+
+  const statusRank = useCallback((status?: string) => {
+    const map: Record<string, number> = { "Not Started": 0, "In Progress": 1, Completed: 2 };
+    if (!status) return 3;
+    return map[status] ?? 3;
+  }, []);
+
+  const isTaskHandled = useCallback(
+    (task: TaskCatalogItem) => {
+      const assigned = taskPeopleCountById.get(task.id) ?? 0;
+      const needed =
+        task.personCount && task.personCount > 0 ? Number(task.personCount) : null;
+      const hasEnoughPeople = needed ? assigned >= needed : false;
+      const isCompleted = (task.status || "").toLowerCase() === "completed";
+      return { handled: hasEnoughPeople || isCompleted, hasEnoughPeople };
+    },
+    [taskPeopleCountById]
+  );
+
+  const sortTasks = useCallback(
+    (a: TaskCatalogItem, b: TaskCatalogItem) => {
+      const aHandled = isTaskHandled(a).handled;
+      const bHandled = isTaskHandled(b).handled;
+      if (aHandled !== bHandled) return aHandled ? 1 : -1;
+      const aDate = a.occurrenceDate || "";
+      const bDate = b.occurrenceDate || "";
+      if (aDate !== bDate) {
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return aDate.localeCompare(bDate);
+      }
+      const aPriority = priorityRank(a.priority);
+      const bPriority = priorityRank(b.priority);
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      const aStatus = statusRank(a.status);
+      const bStatus = statusRank(b.status);
+      if (aStatus !== bStatus) return aStatus - bStatus;
+      return a.name.localeCompare(b.name);
+    },
+    [isTaskHandled, priorityRank, statusRank]
+  );
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
