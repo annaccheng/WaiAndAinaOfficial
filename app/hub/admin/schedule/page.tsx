@@ -2203,7 +2203,6 @@ export default function AdminScheduleEditorPage() {
             )}
           </div>
         </div>
-      </div>
 
       <div className="lg:hidden">
         {mobileDockOpen ? (
