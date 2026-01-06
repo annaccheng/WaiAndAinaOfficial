@@ -22,6 +22,8 @@ type TaskCatalogItem = {
   typeColor?: string;
   status?: string;
   occurrenceDate?: string | null;
+  recurring?: boolean;
+  parentTaskId?: string | null;
   description?: string | null;
 };
 type TaskTypeOption = { name: string; color: string };
@@ -37,6 +39,7 @@ type TaskDetail = {
   id: string;
   name: string;
   description: string;
+  status?: string;
   taskType?: { name: string; color: string };
   properties?: TaskPropertyField[];
   recurring?: boolean;
@@ -159,6 +162,7 @@ export default function AdminScheduleEditorPage() {
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
   const [taskEditorExpanded, setTaskEditorExpanded] = useState(false);
+  const [taskDetailExpanded, setTaskDetailExpanded] = useState(false);
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
@@ -368,6 +372,8 @@ export default function AdminScheduleEditorPage() {
             typeColor: task.task_type?.color || "default",
             status: task.status || "",
             occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
             description: task.description || null,
           }));
           setRecurringTasks(items);
@@ -383,6 +389,8 @@ export default function AdminScheduleEditorPage() {
             typeColor: task.task_type?.color || "default",
             status: task.status || "",
             occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
             description: task.description || null,
           }));
           setOneOffTasks(items);
@@ -505,17 +513,19 @@ export default function AdminScheduleEditorPage() {
       const oneOffRes = await fetch("/api/tasks?recurring=false&includeOccurrences=true");
       if (oneOffRes.ok) {
         const json = await oneOffRes.json();
-        const items = (json.tasks || []).map((task: any) => ({
-          id: task.id,
-          name: task.name,
-          type: task.task_type?.name || "",
-          typeColor: task.task_type?.color || "default",
-          status: task.status || "",
-          occurrenceDate: task.occurrence_date || null,
-          description: task.description || null,
-        }));
-        setOneOffTasks(items);
-      }
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
+            description: task.description || null,
+          }));
+          setOneOffTasks(items);
+        }
     } catch (err) {
       console.error("Failed to create quick task", err);
       setMessage("Unable to create quick task.");
@@ -539,7 +549,76 @@ export default function AdminScheduleEditorPage() {
       const recurringMatch = recurringTasks.find(
         (task) => task.name.toLowerCase() === normalized
       );
-      if (recurringMatch) return { id: recurringMatch.id, name: recurringMatch.name };
+      if (recurringMatch) {
+        if (dateParam && recurringMatch.occurrenceDate !== dateParam && recurringMatch.recurring) {
+          try {
+            const res = await fetch("/api/tasks/occurrence", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                seriesId: recurringMatch.parentTaskId || recurringMatch.id,
+                occurrenceDate: dateParam,
+              }),
+            });
+            const json = await res.json();
+            if (res.ok && json.task?.id) {
+              const created = {
+                id: json.task.id,
+                name: json.task.name,
+                type: json.task.task_type?.name || "",
+                typeColor: json.task.task_type?.color || "default",
+                status: json.task.status || "",
+                occurrenceDate: json.task.occurrence_date || dateParam,
+                recurring: Boolean(json.task.recurring),
+                parentTaskId: json.task.parent_task_id || null,
+                description: json.task.description || null,
+              };
+              setRecurringTasks((prev) => [created, ...prev]);
+              return { id: created.id, name: created.name };
+            }
+          } catch (err) {
+            console.error("Failed to ensure recurring occurrence", err);
+          }
+        }
+        return { id: recurringMatch.id, name: recurringMatch.name };
+      }
+
+      if (dateParam) {
+        try {
+          const seriesRes = await fetch(
+            `/api/tasks?recurring=true&includeOccurrences=false&search=${encodeURIComponent(trimmed)}`
+          );
+          const seriesJson = await seriesRes.json();
+          const series = (seriesJson.tasks || []).find(
+            (task: any) => String(task.name || "").toLowerCase() === normalized
+          );
+          if (series?.id) {
+            const occurrenceRes = await fetch("/api/tasks/occurrence", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ seriesId: series.id, occurrenceDate: dateParam }),
+            });
+            const occurrenceJson = await occurrenceRes.json();
+            if (occurrenceRes.ok && occurrenceJson.task?.id) {
+              const created = {
+                id: occurrenceJson.task.id,
+                name: occurrenceJson.task.name,
+                type: occurrenceJson.task.task_type?.name || "",
+                typeColor: occurrenceJson.task.task_type?.color || "default",
+                status: occurrenceJson.task.status || "",
+                occurrenceDate: occurrenceJson.task.occurrence_date || dateParam,
+                recurring: Boolean(occurrenceJson.task.recurring),
+                parentTaskId: occurrenceJson.task.parent_task_id || null,
+                description: occurrenceJson.task.description || null,
+              };
+              setRecurringTasks((prev) => [created, ...prev]);
+              return { id: created.id, name: created.name };
+            }
+          }
+        } catch (err) {
+          console.error("Failed to resolve recurring series", err);
+        }
+      }
 
       const fallbackOneOff = oneOffTasks.find(
         (task) => task.name.toLowerCase() === normalized
@@ -802,6 +881,7 @@ export default function AdminScheduleEditorPage() {
         id: json.id || taskId,
         name: json.name || fallbackName || "Task",
         description: json.description || "",
+        status: json.status || "",
         taskType: json.taskType,
         properties: json.properties || [],
         recurring: json.recurring || false,
@@ -811,6 +891,7 @@ export default function AdminScheduleEditorPage() {
       setTaskDetail(detail);
       setTaskEditFields(detail.properties || []);
       setTaskEditorExpanded(false);
+      setTaskDetailExpanded(false);
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
@@ -1679,6 +1760,21 @@ export default function AdminScheduleEditorPage() {
                   <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
                 )}
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                {taskDetail.status && (
+                  <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                    {taskDetail.status}
+                  </span>
+                )}
+                <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+                  {taskDetail.recurring ? "Recurring" : "One-off"}
+                </span>
+                {taskDetail.taskType?.name && (
+                  <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                    {taskDetail.taskType.name}
+                  </span>
+                )}
+              </div>
               {(taskDetail.recurring || taskDetail.occurrenceDate) && (
                 <p className="mt-2 text-[11px] text-[#6b6d4b]">
                   {taskDetail.recurring
@@ -1690,42 +1786,59 @@ export default function AdminScheduleEditorPage() {
                 </p>
               )}
               <p className="mt-2 whitespace-pre-line text-sm text-[#4b5133]">{taskDetail.description || "No description yet."}</p>
-              {taskDetail.taskType?.name && (
-                <span className="mt-2 inline-block rounded-full bg-[#f6f1dd] px-3 py-1 text-[11px] font-semibold text-[#4b5133]">
-                  {taskDetail.taskType.name}
-                </span>
-              )}
-              <div className="mt-3 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Attach photo (500kb max)</p>
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                />
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#6b6d4b]">
+                {taskDetail.recurring && (
+                  <span className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold">
+                    Tip: update just this occurrence to avoid changing the full series.
+                  </span>
+                )}
+                <Link
+                  href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
+                >
+                  Open in task editor
+                </Link>
                 <button
                   type="button"
-                  onClick={handlePhotoUpload}
-                  disabled={photoUploading}
-                  className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                  onClick={() => setTaskDetailExpanded((prev) => !prev)}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
                 >
-                  {photoUploading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-                      Uploading…
-                    </span>
-                  ) : (
-                    "Upload photo"
-                  )}
+                  {taskDetailExpanded ? "Hide details" : "Edit details"}
                 </button>
-                {photoMessage && (
-                  <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
-                )}
               </div>
+              {taskDetailExpanded && (
+                <div className="mt-3 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Attach photo (500kb max)</p>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePhotoUpload}
+                    disabled={photoUploading}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                  >
+                    {photoUploading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                        Uploading…
+                      </span>
+                    ) : (
+                      "Upload photo"
+                    )}
+                  </button>
+                  {photoMessage && (
+                    <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {taskDetail && (
+          {taskDetail && taskDetailExpanded && (
             <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div>
