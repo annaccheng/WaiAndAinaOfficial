@@ -42,6 +42,7 @@ type TaskDetail = {
   name: string;
   description: string;
   status?: string;
+  priority?: string;
   taskType?: { name: string; color: string };
   properties?: TaskPropertyField[];
   recurring?: boolean;
@@ -165,6 +166,7 @@ export default function AdminScheduleEditorPage() {
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
   const [taskEditorExpanded, setTaskEditorExpanded] = useState(false);
   const [taskDetailExpanded, setTaskDetailExpanded] = useState(false);
+  const [saveStatusOpen, setSaveStatusOpen] = useState(true);
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
@@ -444,6 +446,12 @@ export default function AdminScheduleEditorPage() {
       const aHandled = isTaskHandled(a).handled;
       const bHandled = isTaskHandled(b).handled;
       if (aHandled !== bHandled) return aHandled ? 1 : -1;
+      const aPriority = priorityRank(a.priority);
+      const bPriority = priorityRank(b.priority);
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      const aStatus = statusRank(a.status);
+      const bStatus = statusRank(b.status);
+      if (aStatus !== bStatus) return aStatus - bStatus;
       const aDate = a.occurrenceDate || "";
       const bDate = b.occurrenceDate || "";
       if (aDate !== bDate) {
@@ -451,12 +459,6 @@ export default function AdminScheduleEditorPage() {
         if (!bDate) return -1;
         return aDate.localeCompare(bDate);
       }
-      const aPriority = priorityRank(a.priority);
-      const bPriority = priorityRank(b.priority);
-      if (aPriority !== bPriority) return aPriority - bPriority;
-      const aStatus = statusRank(a.status);
-      const bStatus = statusRank(b.status);
-      if (aStatus !== bStatus) return aStatus - bStatus;
       return a.name.localeCompare(b.name);
     },
     [isTaskHandled, priorityRank, statusRank]
@@ -978,6 +980,7 @@ export default function AdminScheduleEditorPage() {
         name: json.name || fallbackName || "Task",
         description: json.description || "",
         status: json.status || "",
+        priority: json.priority || "",
         taskType: json.taskType,
         properties: json.properties || [],
         recurring: json.recurring || false,
@@ -1042,6 +1045,7 @@ export default function AdminScheduleEditorPage() {
         id: json.id || taskDetail.id,
         name: json.name || taskDetail.name,
         description: json.description || "",
+        priority: json.priority ?? taskDetail.priority,
         taskType: json.taskType,
         properties: json.properties || [],
         recurring: json.recurring ?? taskDetail.recurring,
@@ -1187,7 +1191,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-[#fdfbf4]">
+    <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1293,58 +1297,229 @@ export default function AdminScheduleEditorPage() {
           <div className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
             Save status
           </div>
-          <span className="text-[11px] text-[#7a7f54]">
-            {saveLog.lastAttempt ? `Last attempt ${saveLog.lastAttempt}` : "No changes yet"}
-          </span>
-        </div>
-        <div className="mt-2 grid gap-2 text-[11px] md:grid-cols-2">
-          <div>
-            <span className="font-semibold">Mode:</span> {scheduleMode}
-          </div>
-          <div>
-            <span className="font-semibold">Selected date:</span>{" "}
-            {selectedDate || "Not set"}
-          </div>
-          <div>
-            <span className="font-semibold">Loaded schedule date:</span>{" "}
-            {scheduleData?.scheduleDate || "Not loaded"}
-          </div>
-          <div>
-            <span className="font-semibold">Pending saves:</span> {pendingCells.size}
-          </div>
-        </div>
-        <div className="mt-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px]">
-          {saveLog.status === "saving" && "Saving to Supabase…"}
-          {saveLog.status === "success" && saveLog.message}
-          {saveLog.status === "error" && (
-            <span className="font-semibold text-[#8b4b3c]">
-              Save failed: {saveLog.message}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-[#7a7f54]">
+              {saveLog.lastAttempt ? `Last attempt ${saveLog.lastAttempt}` : "No changes yet"}
             </span>
-          )}
-          {saveLog.status === "idle" && "Waiting for changes."}
-          {saveLog.payload && (
-            <div className="mt-1 text-[10px] text-[#6b6d4b]">
-              Person: {saveLog.payload.person} • Shift: {saveLog.payload.slotId} • Date:{" "}
-              {saveLog.payload.dateLabel || "n/a"}
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setSaveStatusOpen((prev) => !prev)}
+              className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+            >
+              {saveStatusOpen ? "Hide" : "Show"}
+            </button>
+          </div>
         </div>
+        {saveStatusOpen && (
+          <>
+            <div className="mt-2 grid gap-2 text-[11px] md:grid-cols-2">
+              <div>
+                <span className="font-semibold">Mode:</span> {scheduleMode}
+              </div>
+              <div>
+                <span className="font-semibold">Selected date:</span>{" "}
+                {selectedDate || "Not set"}
+              </div>
+              <div>
+                <span className="font-semibold">Loaded schedule date:</span>{" "}
+                {scheduleData?.scheduleDate || "Not loaded"}
+              </div>
+              <div>
+                <span className="font-semibold">Pending saves:</span> {pendingCells.size}
+              </div>
+            </div>
+            <div className="mt-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px]">
+              {saveLog.status === "saving" && "Saving to Supabase…"}
+              {saveLog.status === "success" && saveLog.message}
+              {saveLog.status === "error" && (
+                <span className="font-semibold text-[#8b4b3c]">
+                  Save failed: {saveLog.message}
+                </span>
+              )}
+              {saveLog.status === "idle" && "Waiting for changes."}
+              {saveLog.payload && (
+                <div className="mt-1 text-[10px] text-[#6b6d4b]">
+                  Person: {saveLog.payload.person} • Shift: {saveLog.payload.slotId} • Date:{" "}
+                  {saveLog.payload.dateLabel || "n/a"}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
-              <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+              <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                <span>Recurring task dock</span>
+                <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+                  {selectedDate || "Pick a date"}
+                </span>
+              </div>
+              <div className="space-y-2 p-3 text-sm">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <input
+                    value={taskSearch}
+                    onChange={(e) => setTaskSearch(e.target.value)}
+                    placeholder="Search tasks"
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  />
+                  <select
+                    value={taskTypeFilter}
+                    onChange={(e) => setTaskTypeFilter(e.target.value)}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  >
+                    <option value="">All types</option>
+                    {taskTypes.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <select
+                  value={taskStatusFilter}
+                  onChange={(e) => setTaskStatusFilter(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                >
+                  <option value="">All statuses</option>
+                  {statusOptions.map((opt) => (
+                    <option key={opt.name} value={opt.name}>
+                      {opt.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredRecurringTasks.map((task) => {
+                    const taskHandled = isTaskHandled(task);
+                    return (
+                      <button
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggingTask({ taskId: task.id, taskName: task.name });
+                          e.dataTransfer.setData("text/task-name", task.name);
+                          e.dataTransfer.setData("text/plain", task.name);
+                          e.dataTransfer.setData(
+                            DRAG_DATA_TYPE,
+                            JSON.stringify({ taskId: task.id, taskName: task.name })
+                          );
+                          e.dataTransfer.effectAllowed = "copyMove";
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTask(null);
+                          setPendingInsert(null);
+                        }}
+                        onClick={() => loadTaskDetail(task.id, task.name)}
+                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                          task.typeColor
+                        )}`}
+                      >
+                        <div>
+                          <div className="font-semibold">{task.name}</div>
+                          <div className="text-[11px] text-[#5f5a3b]">
+                            {task.type || "Uncategorized"}
+                            {task.status ? ` • ${task.status}` : ""}
+                            {task.priority ? ` • ${task.priority}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
+                          {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!filteredRecurringTasks.length && (
+                    <p className="text-[12px] text-[#7a7f54]">
+                      No recurring tasks for this date.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                {scheduleData?.slots.length || 0} shifts
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#f0f4de] px-3 py-1 font-semibold text-[#4b5133]">
-                {scheduleData?.people.length || 0} teammates
-              </span>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+              <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                One-off task dock
+              </div>
+              <div className="space-y-2 p-3 text-sm">
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredOneOffTasks.map((task) => {
+                    const taskHandled = isTaskHandled(task);
+                    return (
+                      <button
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggingTask({ taskId: task.id, taskName: task.name });
+                          e.dataTransfer.setData("text/task-name", task.name);
+                          e.dataTransfer.setData("text/plain", task.name);
+                          e.dataTransfer.setData(
+                            DRAG_DATA_TYPE,
+                            JSON.stringify({ taskId: task.id, taskName: task.name })
+                          );
+                          e.dataTransfer.effectAllowed = "copyMove";
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTask(null);
+                          setPendingInsert(null);
+                        }}
+                        onClick={() => loadTaskDetail(task.id, task.name)}
+                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                          task.typeColor
+                        )}`}
+                      >
+                        <div>
+                          <div className="font-semibold">{task.name}</div>
+                          <div className="text-[11px] text-[#5f5a3b]">
+                            {task.type || "Uncategorized"}
+                            {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
+                            {task.priority ? ` • ${task.priority}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
+                          {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!filteredOneOffTasks.length && (
+                    <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
+                <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                  {scheduleData?.slots.length || 0} shifts
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#f0f4de] px-3 py-1 font-semibold text-[#4b5133]">
+                  {scheduleData?.people.length || 0} teammates
+                </span>
+              </div>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
@@ -1485,8 +1660,9 @@ export default function AdminScheduleEditorPage() {
 
                               return (
                                 <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
-                                  <button
-                                    type="button"
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
                                     draggable
                                     onDragStart={(e) => {
                                       setDraggingTask({
@@ -1515,16 +1691,37 @@ export default function AdminScheduleEditorPage() {
                                       setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
                                       loadTaskDetail(task.id, task.name);
                                     }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+                                        loadTaskDetail(task.id, task.name);
+                                      }
+                                    }}
                                     className={`flex w-full flex-col gap-2 rounded-lg border p-2 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] ${typeColorClasses(
                                       meta?.typeColor
                                     )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                   >
                                     <div className="flex items-start justify-between gap-2">
-                                      <span className="font-semibold">{task.name}</span>
+                                      <div>
+                                        <span className="font-semibold">{task.name}</span>
+                                        {(meta?.priority || meta?.type) && (
+                                          <div className="text-[10px] text-[#5f5a3b]">
+                                            {meta?.priority ? `${meta.priority} priority` : ""}
+                                            {meta?.priority && meta?.type ? " • " : ""}
+                                            {meta?.type || ""}
+                                          </div>
+                                        )}
+                                      </div>
                                       <div className="flex items-center gap-2">
                                         {meta?.status && (
                                           <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
                                             {meta.status}
+                                          </span>
+                                        )}
+                                        {meta && isTaskHandled(meta).hasEnoughPeople && (
+                                          <span className="text-base text-emerald-600" title="Enough people assigned">
+                                            ✅
                                           </span>
                                         )}
                                         <button
@@ -1542,7 +1739,7 @@ export default function AdminScheduleEditorPage() {
                                     {content.note && (
                                       <p className="text-[11px] text-[#4f4b33] opacity-90">{content.note}</p>
                                     )}
-                                  </button>
+                                  </div>
                                   {dropLine(idx + 1)}
                                 </React.Fragment>
                               );
@@ -1612,161 +1809,7 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
-          <div className="sticky top-40 z-30 space-y-4">
-            <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-              <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                <span>Recurring task dock</span>
-                <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                  {selectedDate || "Pick a date"}
-                </span>
-              </div>
-              <div className="space-y-2 p-3 text-sm">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <input
-                    value={taskSearch}
-                    onChange={(e) => setTaskSearch(e.target.value)}
-                    placeholder="Search tasks"
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  />
-                  <select
-                    value={taskTypeFilter}
-                    onChange={(e) => setTaskTypeFilter(e.target.value)}
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  >
-                    <option value="">All types</option>
-                    {taskTypes.map((opt) => (
-                      <option key={opt.name} value={opt.name}>
-                        {opt.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <select
-                  value={taskStatusFilter}
-                  onChange={(e) => setTaskStatusFilter(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                >
-                  <option value="">All statuses</option>
-                  {statusOptions.map((opt) => (
-                    <option key={opt.name} value={opt.name}>
-                      {opt.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                  {filteredRecurringTasks.map((task) => {
-                    const taskHandled = isTaskHandled(task);
-                    return (
-                      <button
-                        key={task.id}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingTask({ taskId: task.id, taskName: task.name });
-                          e.dataTransfer.setData("text/task-name", task.name);
-                          e.dataTransfer.setData("text/plain", task.name);
-                          e.dataTransfer.setData(
-                            DRAG_DATA_TYPE,
-                            JSON.stringify({ taskId: task.id, taskName: task.name })
-                          );
-                          e.dataTransfer.effectAllowed = "copyMove";
-                        }}
-                        onDragEnd={() => {
-                          setDraggingTask(null);
-                          setPendingInsert(null);
-                        }}
-                        onClick={() => loadTaskDetail(task.id, task.name)}
-                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                          task.typeColor
-                        )}`}
-                      >
-                        <div>
-                          <div className="font-semibold">{task.name}</div>
-                          <div className="text-[11px] text-[#5f5a3b]">
-                            {task.type || "Uncategorized"}
-                            {task.status ? ` • ${task.status}` : ""}
-                          </div>
-                        </div>
-                        <span
-                          className={
-                            taskHandled.hasEnoughPeople
-                              ? "text-3xl text-emerald-600"
-                              : "text-2xl"
-                          }
-                        >
-                          {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {!filteredRecurringTasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">
-                      No recurring tasks for this date.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-              <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                One-off task dock
-              </div>
-              <div className="space-y-2 p-3 text-sm">
-                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                  {filteredOneOffTasks.map((task) => {
-                    const taskHandled = isTaskHandled(task);
-                    return (
-                      <button
-                        key={task.id}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingTask({ taskId: task.id, taskName: task.name });
-                          e.dataTransfer.setData("text/task-name", task.name);
-                          e.dataTransfer.setData("text/plain", task.name);
-                          e.dataTransfer.setData(
-                            DRAG_DATA_TYPE,
-                            JSON.stringify({ taskId: task.id, taskName: task.name })
-                          );
-                          e.dataTransfer.effectAllowed = "copyMove";
-                        }}
-                        onDragEnd={() => {
-                          setDraggingTask(null);
-                          setPendingInsert(null);
-                        }}
-                        onClick={() => loadTaskDetail(task.id, task.name)}
-                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                          task.typeColor
-                        )}`}
-                      >
-                        <div>
-                          <div className="font-semibold">{task.name}</div>
-                          <div className="text-[11px] text-[#5f5a3b]">
-                            {task.type || "Uncategorized"}
-                            {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
-                          </div>
-                        </div>
-                        <span
-                          className={
-                            taskHandled.hasEnoughPeople
-                              ? "text-3xl text-emerald-600"
-                              : "text-2xl"
-                          }
-                        >
-                          {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {!filteredOneOffTasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
             <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
             <p className="mt-1 text-[12px] text-[#6b6d4b]">
               Adds a one-off task for {selectedDate || "the selected date"}.
@@ -1795,7 +1838,7 @@ export default function AdminScheduleEditorPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
             <h3 className="text-sm font-semibold text-[#314123]">Selected slot</h3>
             {selectedCell ? (
               <div className="mt-2 space-y-2 text-sm text-[#4b5133]">
@@ -1853,7 +1896,7 @@ export default function AdminScheduleEditorPage() {
           </div>
 
           {taskDetail && (
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task detail</p>
@@ -1867,6 +1910,11 @@ export default function AdminScheduleEditorPage() {
                 {taskDetail.status && (
                   <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
                     {taskDetail.status}
+                  </span>
+                )}
+                {taskDetail.priority && (
+                  <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+                    {taskDetail.priority} priority
                   </span>
                 )}
                 <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
@@ -1942,7 +1990,7 @@ export default function AdminScheduleEditorPage() {
           )}
 
           {taskDetail && taskDetailExpanded && (
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task editor</p>
