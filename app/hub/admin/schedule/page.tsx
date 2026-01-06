@@ -520,6 +520,72 @@ export default function AdminScheduleEditorPage() {
     }
   }, [quickTaskDescription, quickTaskName, selectedDate]);
 
+  const resolveTaskEntry = useCallback(
+    async (taskName: string): Promise<ScheduledTask | null> => {
+      const trimmed = taskName.trim();
+      if (!trimmed) return null;
+      const normalized = trimmed.toLowerCase();
+      const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+
+      const exactOneOff = oneOffTasks.find(
+        (task) =>
+          task.name.toLowerCase() === normalized &&
+          (!dateParam || task.occurrenceDate === dateParam)
+      );
+      if (exactOneOff) return { id: exactOneOff.id, name: exactOneOff.name };
+
+      const recurringMatch = recurringTasks.find(
+        (task) => task.name.toLowerCase() === normalized
+      );
+      if (recurringMatch) return { id: recurringMatch.id, name: recurringMatch.name };
+
+      const fallbackOneOff = oneOffTasks.find(
+        (task) => task.name.toLowerCase() === normalized
+      );
+      if (fallbackOneOff) return { id: fallbackOneOff.id, name: fallbackOneOff.name };
+
+      if (!dateParam) return null;
+
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: trimmed,
+            description: null,
+            status: "Not Started",
+            priority: "Medium",
+            recurring: false,
+            origin_date: dateParam,
+            occurrence_date: dateParam,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          console.error("Failed to create ad-hoc task", json?.error);
+          return null;
+        }
+        if (json.task?.id) {
+          const created = {
+            id: json.task.id,
+            name: json.task.name,
+            type: "",
+            typeColor: "default",
+            status: json.task.status || "",
+            occurrenceDate: json.task.occurrence_date || dateParam,
+            description: json.task.description || null,
+          };
+          setOneOffTasks((prev) => [created, ...prev]);
+          return { id: created.id, name: created.name };
+        }
+      } catch (err) {
+        console.error("Failed to create ad-hoc task", err);
+      }
+      return null;
+    },
+    [oneOffTasks, recurringTasks, selectedDate]
+  );
+
   const handleTaskMove = useCallback(
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
       if (!payload.taskId || !payload.taskName) return;
@@ -805,72 +871,6 @@ export default function AdminScheduleEditorPage() {
       setTaskEditSaving(false);
     }
   };
-
-  const resolveTaskEntry = useCallback(
-    async (taskName: string): Promise<ScheduledTask | null> => {
-      const trimmed = taskName.trim();
-      if (!trimmed) return null;
-      const normalized = trimmed.toLowerCase();
-      const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
-
-      const exactOneOff = oneOffTasks.find(
-        (task) =>
-          task.name.toLowerCase() === normalized &&
-          (!dateParam || task.occurrenceDate === dateParam)
-      );
-      if (exactOneOff) return { id: exactOneOff.id, name: exactOneOff.name };
-
-      const recurringMatch = recurringTasks.find(
-        (task) => task.name.toLowerCase() === normalized
-      );
-      if (recurringMatch) return { id: recurringMatch.id, name: recurringMatch.name };
-
-      const fallbackOneOff = oneOffTasks.find(
-        (task) => task.name.toLowerCase() === normalized
-      );
-      if (fallbackOneOff) return { id: fallbackOneOff.id, name: fallbackOneOff.name };
-
-      if (!dateParam) return null;
-
-      try {
-        const res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: trimmed,
-            description: null,
-            status: "Not Started",
-            priority: "Medium",
-            recurring: false,
-            origin_date: dateParam,
-            occurrence_date: dateParam,
-          }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          console.error("Failed to create ad-hoc task", json?.error);
-          return null;
-        }
-        if (json.task?.id) {
-          const created = {
-            id: json.task.id,
-            name: json.task.name,
-            type: "",
-            typeColor: "default",
-            status: json.task.status || "",
-            occurrenceDate: json.task.occurrence_date || dateParam,
-            description: json.task.description || null,
-          };
-          setOneOffTasks((prev) => [created, ...prev]);
-          return { id: created.id, name: created.name };
-        }
-      } catch (err) {
-        console.error("Failed to create ad-hoc task", err);
-      }
-      return null;
-    },
-    [oneOffTasks, recurringTasks, selectedDate]
-  );
 
   const addInlineTask = async (
     person: string,
