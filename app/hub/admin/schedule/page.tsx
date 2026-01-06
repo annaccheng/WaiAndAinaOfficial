@@ -21,10 +21,12 @@ type TaskCatalogItem = {
   type?: string;
   typeColor?: string;
   status?: string;
+  priority?: string;
   occurrenceDate?: string | null;
   recurring?: boolean;
   parentTaskId?: string | null;
   description?: string | null;
+  personCount?: number | null;
 };
 type TaskTypeOption = { name: string; color: string };
 type StatusOption = { name: string; color: string };
@@ -291,41 +293,6 @@ export default function AdminScheduleEditorPage() {
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
 
-  const filteredRecurringTasks = useMemo(() => {
-    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
-    return recurringTasks.filter((task) => {
-      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
-      const matchesType = taskTypeFilter
-        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
-        : true;
-      const matchesStatus = taskStatusFilter
-        ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
-        : true;
-      const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
-      return matchesSearch && matchesType && matchesStatus && matchesDate;
-    });
-  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter, selectedDate]);
-
-  const filteredOneOffTasks = useMemo(() => {
-    const filtered = oneOffTasks.filter((task) => {
-      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
-      const matchesType = taskTypeFilter
-        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
-        : true;
-      return matchesSearch && matchesType;
-    });
-
-    return filtered.sort((a, b) => {
-      const aDate = a.occurrenceDate || "";
-      const bDate = b.occurrenceDate || "";
-      if (!aDate && !bDate) return a.name.localeCompare(b.name);
-      if (!aDate) return 1;
-      if (!bDate) return -1;
-      if (aDate === bDate) return a.name.localeCompare(b.name);
-      return aDate.localeCompare(bDate);
-    });
-  }, [oneOffTasks, taskSearch, taskTypeFilter]);
-
   const taskMetaById = useMemo(() => {
     const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
       (task) => [task.id, task]
@@ -375,10 +342,12 @@ export default function AdminScheduleEditorPage() {
             type: task.task_type?.name || "",
             typeColor: task.task_type?.color || "default",
             status: task.status || "",
+            priority: task.priority || "",
             occurrenceDate: task.occurrence_date || null,
             recurring: Boolean(task.recurring),
             parentTaskId: task.parent_task_id || null,
             description: task.description || null,
+            personCount: task.person_count ?? null,
           }));
           setRecurringTasks(items);
         } else if (!cancelled && !selectedDate) {
@@ -392,10 +361,12 @@ export default function AdminScheduleEditorPage() {
             type: task.task_type?.name || "",
             typeColor: task.task_type?.color || "default",
             status: task.status || "",
+            priority: task.priority || "",
             occurrenceDate: task.occurrence_date || null,
             recurring: Boolean(task.recurring),
             parentTaskId: task.parent_task_id || null,
             description: task.description || null,
+            personCount: task.person_count ?? null,
           }));
           setOneOffTasks(items);
         }
@@ -411,6 +382,121 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, selectedDate]);
+
+  const taskPeopleCountById = useMemo(() => {
+    if (!scheduleData) {
+      return { byId: new Map<string, number>(), byName: new Map<string, number>() };
+    }
+    const peopleSets = new Map<string, Set<string>>();
+    const nameSets = new Map<string, Set<string>>();
+    scheduleData.people.forEach((person, rowIdx) => {
+      const row = scheduleData.cells?.[rowIdx] || [];
+      row.forEach((cell) => {
+        (cell?.tasks || []).forEach((task) => {
+          if (!peopleSets.has(task.id)) {
+            peopleSets.set(task.id, new Set<string>());
+          }
+          peopleSets.get(task.id)?.add(person);
+          const nameKey = task.name.trim().toLowerCase();
+          if (!nameSets.has(nameKey)) {
+            nameSets.set(nameKey, new Set<string>());
+          }
+          nameSets.get(nameKey)?.add(person);
+        });
+      });
+    });
+    const counts = new Map<string, number>();
+    const nameCounts = new Map<string, number>();
+    peopleSets.forEach((set, taskId) => counts.set(taskId, set.size));
+    nameSets.forEach((set, name) => nameCounts.set(name, set.size));
+    return { byId: counts, byName: nameCounts };
+  }, [scheduleData]);
+
+  const priorityRank = useCallback((priority?: string) => {
+    const map: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+    if (!priority) return 3;
+    return map[priority] ?? 3;
+  }, []);
+
+  const statusRank = useCallback((status?: string) => {
+    const map: Record<string, number> = { "Not Started": 0, "In Progress": 1, Completed: 2 };
+    if (!status) return 3;
+    return map[status] ?? 3;
+  }, []);
+
+  const isTaskHandled = useCallback(
+    (task: TaskCatalogItem) => {
+      const assigned =
+        taskPeopleCountById.byId.get(task.id) ??
+        taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
+        0;
+      const needed =
+        task.personCount && task.personCount > 0 ? Number(task.personCount) : null;
+      const hasEnoughPeople = needed ? assigned >= needed : false;
+      const isCompleted = (task.status || "").toLowerCase() === "completed";
+      return { handled: hasEnoughPeople || isCompleted, hasEnoughPeople, isCompleted };
+    },
+    [taskPeopleCountById]
+  );
+
+  const sortTasks = useCallback(
+    (a: TaskCatalogItem, b: TaskCatalogItem) => {
+      const aHandled = isTaskHandled(a).handled;
+      const bHandled = isTaskHandled(b).handled;
+      if (aHandled !== bHandled) return aHandled ? 1 : -1;
+      const aDate = a.occurrenceDate || "";
+      const bDate = b.occurrenceDate || "";
+      if (aDate !== bDate) {
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return aDate.localeCompare(bDate);
+      }
+      const aPriority = priorityRank(a.priority);
+      const bPriority = priorityRank(b.priority);
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      const aStatus = statusRank(a.status);
+      const bStatus = statusRank(b.status);
+      if (aStatus !== bStatus) return aStatus - bStatus;
+      return a.name.localeCompare(b.name);
+    },
+    [isTaskHandled, priorityRank, statusRank]
+  );
+
+  const filteredRecurringTasks = useMemo(() => {
+    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+    return recurringTasks
+      .filter((task) => {
+        const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
+        const matchesType = taskTypeFilter
+          ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
+          : true;
+        const matchesStatus = taskStatusFilter
+          ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
+          : true;
+        const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
+        return matchesSearch && matchesType && matchesStatus && matchesDate;
+      })
+      .sort(sortTasks);
+  }, [
+    recurringTasks,
+    selectedDate,
+    taskSearch,
+    taskStatusFilter,
+    taskTypeFilter,
+    sortTasks,
+  ]);
+
+  const filteredOneOffTasks = useMemo(() => {
+    const filtered = oneOffTasks.filter((task) => {
+      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
+      const matchesType = taskTypeFilter
+        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
+        : true;
+      return matchesSearch && matchesType;
+    });
+
+    return filtered.sort(sortTasks);
+  }, [oneOffTasks, taskSearch, taskTypeFilter, sortTasks]);
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
@@ -516,17 +602,19 @@ export default function AdminScheduleEditorPage() {
       setQuickTaskDescription("");
       const oneOffRes = await fetch("/api/tasks?recurring=false&includeOccurrences=true");
       if (oneOffRes.ok) {
-        const json = await oneOffRes.json();
+          const json = await oneOffRes.json();
           const items = (json.tasks || []).map((task: any) => ({
             id: task.id,
             name: task.name,
             type: task.task_type?.name || "",
             typeColor: task.task_type?.color || "default",
             status: task.status || "",
+            priority: task.priority || "",
             occurrenceDate: task.occurrence_date || null,
             recurring: Boolean(task.recurring),
             parentTaskId: task.parent_task_id || null,
             description: task.description || null,
+            personCount: task.person_count ?? null,
           }));
           setOneOffTasks(items);
         }
@@ -572,10 +660,12 @@ export default function AdminScheduleEditorPage() {
                 type: json.task.task_type?.name || "",
                 typeColor: json.task.task_type?.color || "default",
                 status: json.task.status || "",
+                priority: json.task.priority || "",
                 occurrenceDate: json.task.occurrence_date || dateParam,
                 recurring: Boolean(json.task.recurring),
                 parentTaskId: json.task.parent_task_id || null,
                 description: json.task.description || null,
+                personCount: json.task.person_count ?? null,
               };
               setRecurringTasks((prev) => [created, ...prev]);
               return { id: created.id, name: created.name };
@@ -610,10 +700,12 @@ export default function AdminScheduleEditorPage() {
                 type: occurrenceJson.task.task_type?.name || "",
                 typeColor: occurrenceJson.task.task_type?.color || "default",
                 status: occurrenceJson.task.status || "",
+                priority: occurrenceJson.task.priority || "",
                 occurrenceDate: occurrenceJson.task.occurrence_date || dateParam,
                 recurring: Boolean(occurrenceJson.task.recurring),
                 parentTaskId: occurrenceJson.task.parent_task_id || null,
                 description: occurrenceJson.task.description || null,
+                personCount: occurrenceJson.task.person_count ?? null,
               };
               setRecurringTasks((prev) => [created, ...prev]);
               return { id: created.id, name: created.name };
@@ -1519,135 +1611,157 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="relative w-full shrink-0 space-y-4 overflow-y-visible lg:w-[420px]">
-          <div
-            className="z-20 w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur"
-          >
-            <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-              <span>Recurring task dock</span>
-              <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                {selectedDate || "Pick a date"}
-              </span>
-            </div>
-            <div className="space-y-2 p-3 text-sm">
-              <div className="grid gap-2 md:grid-cols-2">
-                <input
-                  value={taskSearch}
-                  onChange={(e) => setTaskSearch(e.target.value)}
-                  placeholder="Search tasks"
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                />
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
+          <div className="sticky top-40 z-30 space-y-4">
+            <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+              <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                <span>Recurring task dock</span>
+                <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+                  {selectedDate || "Pick a date"}
+                </span>
+              </div>
+              <div className="space-y-2 p-3 text-sm">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <input
+                    value={taskSearch}
+                    onChange={(e) => setTaskSearch(e.target.value)}
+                    placeholder="Search tasks"
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  />
+                  <select
+                    value={taskTypeFilter}
+                    onChange={(e) => setTaskTypeFilter(e.target.value)}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  >
+                    <option value="">All types</option>
+                    {taskTypes.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <select
-                  value={taskTypeFilter}
-                  onChange={(e) => setTaskTypeFilter(e.target.value)}
+                  value={taskStatusFilter}
+                  onChange={(e) => setTaskStatusFilter(e.target.value)}
                   className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
                 >
-                  <option value="">All types</option>
-                  {taskTypes.map((opt) => (
+                  <option value="">All statuses</option>
+                  {statusOptions.map((opt) => (
                     <option key={opt.name} value={opt.name}>
                       {opt.name}
                     </option>
                   ))}
                 </select>
-              </div>
-              <select
-                value={taskStatusFilter}
-                onChange={(e) => setTaskStatusFilter(e.target.value)}
-                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-              >
-                <option value="">All statuses</option>
-                {statusOptions.map((opt) => (
-                  <option key={opt.name} value={opt.name}>
-                    {opt.name}
-                  </option>
-                ))}
-              </select>
 
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {filteredRecurringTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    draggable
-                    onDragStart={(e) => {
-                      setDraggingTask({ taskId: task.id, taskName: task.name });
-                      e.dataTransfer.setData("text/task-name", task.name);
-                      e.dataTransfer.setData("text/plain", task.name);
-                      e.dataTransfer.setData(
-                        DRAG_DATA_TYPE,
-                        JSON.stringify({ taskId: task.id, taskName: task.name })
-                      );
-                      e.dataTransfer.effectAllowed = "copyMove";
-                    }}
-                    onDragEnd={() => {
-                      setDraggingTask(null);
-                      setPendingInsert(null);
-                    }}
-                    onClick={() => loadTaskDetail(task.id, task.name)}
-                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                      task.typeColor
-                    )}`}
-                  >
-                    <div>
-                      <div className="font-semibold">{task.name}</div>
-                      <div className="text-[11px] text-[#5f5a3b]">
-                        {task.type || "Uncategorized"}
-                        {task.status ? ` • ${task.status}` : ""}
-                      </div>
-                    </div>
-                    <span className="text-lg">🐐</span>
-                  </button>
-                ))}
-                {!filteredRecurringTasks.length && (
-                  <p className="text-[12px] text-[#7a7f54]">
-                    No recurring tasks for this date.
-                  </p>
-                )}
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredRecurringTasks.map((task) => {
+                    const taskHandled = isTaskHandled(task);
+                    return (
+                      <button
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggingTask({ taskId: task.id, taskName: task.name });
+                          e.dataTransfer.setData("text/task-name", task.name);
+                          e.dataTransfer.setData("text/plain", task.name);
+                          e.dataTransfer.setData(
+                            DRAG_DATA_TYPE,
+                            JSON.stringify({ taskId: task.id, taskName: task.name })
+                          );
+                          e.dataTransfer.effectAllowed = "copyMove";
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTask(null);
+                          setPendingInsert(null);
+                        }}
+                        onClick={() => loadTaskDetail(task.id, task.name)}
+                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                          task.typeColor
+                        )}`}
+                      >
+                        <div>
+                          <div className="font-semibold">{task.name}</div>
+                          <div className="text-[11px] text-[#5f5a3b]">
+                            {task.type || "Uncategorized"}
+                            {task.status ? ` • ${task.status}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
+                          {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!filteredRecurringTasks.length && (
+                    <p className="text-[12px] text-[#7a7f54]">
+                      No recurring tasks for this date.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-            <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-              One-off task dock
-            </div>
-            <div className="space-y-2 p-3 text-sm">
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {filteredOneOffTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    draggable
-                    onDragStart={(e) => {
-                      setDraggingTask({ taskId: task.id, taskName: task.name });
-                      e.dataTransfer.setData("text/task-name", task.name);
-                      e.dataTransfer.setData("text/plain", task.name);
-                      e.dataTransfer.setData(
-                        DRAG_DATA_TYPE,
-                        JSON.stringify({ taskId: task.id, taskName: task.name })
-                      );
-                      e.dataTransfer.effectAllowed = "copyMove";
-                    }}
-                    onDragEnd={() => {
-                      setDraggingTask(null);
-                      setPendingInsert(null);
-                    }}
-                    onClick={() => loadTaskDetail(task.id, task.name)}
-                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                      task.typeColor
-                    )}`}
-                  >
-                    <div>
-                      <div className="font-semibold">{task.name}</div>
-                      <div className="text-[11px] text-[#5f5a3b]">
-                        {task.type || "Uncategorized"}
-                        {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
-                      </div>
-                    </div>
-                    <span className="text-lg">🌿</span>
-                  </button>
-                ))}
-                {!filteredOneOffTasks.length && (
-                  <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
-                )}
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+              <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                One-off task dock
+              </div>
+              <div className="space-y-2 p-3 text-sm">
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredOneOffTasks.map((task) => {
+                    const taskHandled = isTaskHandled(task);
+                    return (
+                      <button
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggingTask({ taskId: task.id, taskName: task.name });
+                          e.dataTransfer.setData("text/task-name", task.name);
+                          e.dataTransfer.setData("text/plain", task.name);
+                          e.dataTransfer.setData(
+                            DRAG_DATA_TYPE,
+                            JSON.stringify({ taskId: task.id, taskName: task.name })
+                          );
+                          e.dataTransfer.effectAllowed = "copyMove";
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTask(null);
+                          setPendingInsert(null);
+                        }}
+                        onClick={() => loadTaskDetail(task.id, task.name)}
+                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                          task.typeColor
+                        )}`}
+                      >
+                        <div>
+                          <div className="font-semibold">{task.name}</div>
+                          <div className="text-[11px] text-[#5f5a3b]">
+                            {task.type || "Uncategorized"}
+                            {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          className={
+                            taskHandled.hasEnoughPeople
+                              ? "text-3xl text-emerald-600"
+                              : "text-2xl"
+                          }
+                        >
+                          {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!filteredOneOffTasks.length && (
+                    <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
