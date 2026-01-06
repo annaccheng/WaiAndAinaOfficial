@@ -62,6 +62,9 @@ export default function TaskEditorPage() {
   const [saving, setSaving] = useState(false);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [occurrenceLoading, setOccurrenceLoading] = useState(false);
+  const [recurringEditDate, setRecurringEditDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
 
   const [filters, setFilters] = useState({
     search: "",
@@ -220,11 +223,15 @@ export default function TaskEditorPage() {
     return () => clearTimeout(timeout);
   }, [filters, authorized]);
 
-  function openEditor(task?: TaskItem) {
+  function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
       const normalized = normalizeTask(task);
       setEditing(normalized);
       setDraft(normalized);
+      const seriesId = task.parent_task_id || task.id;
+      if (task.recurring && occurrenceDate && seriesId) {
+        void loadOccurrence(seriesId, occurrenceDate);
+      }
       if (task.recurring && task.occurrence_date) {
         setFutureFromDate(task.occurrence_date);
       }
@@ -359,11 +366,34 @@ export default function TaskEditorPage() {
     if (!deletePrompt.task) return;
     setSaving(true);
     try {
+      let deleteId = deletePrompt.task.id;
+      const isSingle = deletePrompt.mode === "single";
+      if (isSingle && deletePrompt.task.recurring && deletePrompt.occurrenceDate) {
+        const seriesId = deletePrompt.task.parent_task_id || deletePrompt.task.id;
+        if (seriesId) {
+          try {
+            const res = await fetch("/api/tasks/occurrence", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                seriesId,
+                occurrenceDate: deletePrompt.occurrenceDate,
+              }),
+            });
+            const json = await res.json();
+            if (res.ok && json.task?.id) {
+              deleteId = json.task.id;
+            }
+          } catch (err) {
+            console.error("Failed to resolve occurrence for delete", err);
+          }
+        }
+      }
       await fetch("/api/tasks", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: deletePrompt.task.id,
+          id: deleteId,
           applyTo: deletePrompt.mode,
           occurrenceDate: deletePrompt.occurrenceDate,
         }),
@@ -380,6 +410,14 @@ export default function TaskEditorPage() {
   }
 
   const filteredTasks = useMemo(() => tasks, [tasks]);
+  const recurringTasks = useMemo(
+    () => filteredTasks.filter((task) => task.recurring && !task.parent_task_id),
+    [filteredTasks]
+  );
+  const oneOffTasks = useMemo(
+    () => filteredTasks.filter((task) => !task.recurring),
+    [filteredTasks]
+  );
   const editingDateLabel =
     draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
 
@@ -499,196 +537,419 @@ export default function TaskEditorPage() {
             {loading ? (
               <p className="text-sm text-[#7a7f54]">Loading tasks…</p>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {filteredTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-3 shadow-sm ${
-                      STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-[#314123]">Recurring tasks</h3>
+                      <p className="text-xs text-[#6b6d4b]">
+                        Pick a date to load a specific occurrence before editing.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                        Edit date
+                      </label>
                       <input
-                        value={task.name}
-                        onChange={(e) =>
-                          setTasks((prev) =>
-                            prev.map((t) => (t.id === task.id ? { ...t, name: e.target.value } : t))
-                          )
-                        }
-                        className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
+                        type="date"
+                        value={recurringEditDate}
+                        onChange={(e) => setRecurringEditDate(e.target.value)}
+                        className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
                       />
-                      <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                        {task.status}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
-                      <span className="rounded-full bg-white/70 px-2 py-1">
-                        {task.recurring ? "Recurring" : "One-off"}
-                      </span>
-                      <span className="rounded-full bg-white/70 px-2 py-1">
-                        {task.occurrence_date || task.origin_date || "No date set"}
-                      </span>
-                      <span className="rounded-full bg-white/70 px-2 py-1">
-                        {task.priority || "Priority unset"}
-                      </span>
-                      <span className="rounded-full bg-white/70 px-2 py-1">
-                        {task.task_type?.name || "Unassigned"}
-                      </span>
-                    </div>
-                    {expandedTasks.has(task.id) && (
-                      <div className="mt-3 space-y-3 text-sm">
-                        <textarea
-                          value={task.description || ""}
-                          onChange={(e) =>
-                            setTasks((prev) =>
-                              prev.map((t) =>
-                                t.id === task.id ? { ...t, description: e.target.value } : t
-                              )
-                            )
-                          }
-                          className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                          placeholder="Task description"
-                        />
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                              Instance date
-                            </label>
-                            <input
-                              type="date"
-                              value={task.occurrence_date || ""}
-                              onChange={(e) =>
-                                setTasks((prev) =>
-                                  prev.map((t) =>
-                                    t.id === task.id
-                                      ? { ...t, occurrence_date: e.target.value }
-                                      : t
-                                  )
-                                )
-                              }
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                              Priority
-                            </label>
-                            <select
-                              value={task.priority}
-                              onChange={(e) =>
-                                setTasks((prev) =>
-                                  prev.map((t) =>
-                                    t.id === task.id ? { ...t, priority: e.target.value } : t
-                                  )
-                                )
-                              }
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                            >
-                              {PRIORITY_OPTIONS.map((priority) => (
-                                <option key={priority} value={priority}>
-                                  {priority}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                              Status
-                            </label>
-                            <select
-                              value={task.status}
-                              onChange={(e) =>
-                                setTasks((prev) =>
-                                  prev.map((t) =>
-                                    t.id === task.id ? { ...t, status: e.target.value } : t
-                                  )
-                                )
-                              }
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
-                            >
-                              {STATUS_OPTIONS.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                              Task type
-                            </label>
-                            <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
-                              {task.task_type?.name || "Unassigned"}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => toggleExpanded(task.id)}
-                        className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        {expandedTasks.has(task.id) ? "Collapse" : "Expand"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setSaving(true);
-                          try {
-                            await fetch("/api/tasks", {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                id: task.id,
-                                name: task.name,
-                                description: task.description || null,
-                                occurrence_date: task.occurrence_date || null,
-                                status: task.status,
-                                priority: task.priority,
-                              }),
-                            });
-                            setMessage("Task updated.");
-                          } catch (err) {
-                            console.error("Failed to update task", err);
-                            setMessage("Unable to update task.");
-                          } finally {
-                            setSaving(false);
-                          }
-                        }}
-                        className="rounded-md bg-[#a0b764] px-3 py-1 text-[11px] font-semibold uppercase text-white"
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDeletePrompt({
-                            task,
-                            mode: "single",
-                            occurrenceDate: task.occurrence_date || null,
-                          })
-                        }
-                        className="rounded-md border border-red-200 px-3 py-1 text-[11px] font-semibold uppercase text-red-700"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openEditor(task)}
-                        className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
-                      >
-                        Details
-                      </button>
                     </div>
                   </div>
-                ))}
-                {!filteredTasks.length && (
-                  <p className="text-sm text-[#7a7f54]">No tasks found.</p>
-                )}
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {recurringTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-3 shadow-sm ${
+                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <input
+                            value={task.name}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, name: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
+                          />
+                          <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
+                          <span className="rounded-full bg-white/70 px-2 py-1">Recurring</span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            Edit {recurringEditDate}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.priority || "Priority unset"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.task_type?.name || "Unassigned"}
+                          </span>
+                        </div>
+                        {expandedTasks.has(task.id) && (
+                          <div className="mt-3 space-y-3 text-sm">
+                            <textarea
+                              value={task.description || ""}
+                              onChange={(e) =>
+                                setTasks((prev) =>
+                                  prev.map((t) =>
+                                    t.id === task.id ? { ...t, description: e.target.value } : t
+                                  )
+                                )
+                              }
+                              className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                              placeholder="Task description"
+                            />
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Series start
+                                </label>
+                                <input
+                                  type="date"
+                                  value={task.origin_date || ""}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, origin_date: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Priority
+                                </label>
+                                <select
+                                  value={task.priority}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, priority: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {PRIORITY_OPTIONS.map((priority) => (
+                                    <option key={priority} value={priority}>
+                                      {priority}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Status
+                                </label>
+                                <select
+                                  value={task.status}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, status: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Task type
+                                </label>
+                                <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
+                                  {task.task_type?.name || "Unassigned"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(task.id)}
+                            className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            {expandedTasks.has(task.id) ? "Collapse" : "Expand"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSaving(true);
+                              try {
+                                await fetch("/api/tasks", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    id: task.id,
+                                    name: task.name,
+                                    description: task.description || null,
+                                    origin_date: task.origin_date || null,
+                                    status: task.status,
+                                    priority: task.priority,
+                                  }),
+                                });
+                                setMessage("Task updated.");
+                              } catch (err) {
+                                console.error("Failed to update task", err);
+                                setMessage("Unable to update task.");
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                            className="rounded-md bg-[#a0b764] px-3 py-1 text-[11px] font-semibold uppercase text-white"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeletePrompt({
+                                task,
+                                mode: "single",
+                                occurrenceDate: recurringEditDate,
+                              })
+                            }
+                            className="rounded-md border border-red-200 px-3 py-1 text-[11px] font-semibold uppercase text-red-700"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditor(task, recurringEditDate)}
+                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            Details
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!recurringTasks.length && (
+                      <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-[#314123]">One-off tasks</h3>
+                      <p className="text-xs text-[#6b6d4b]">
+                        Unique tasks with a single instance date.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {oneOffTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={`rounded-2xl border border-[#e2d7b5] border-l-4 p-3 shadow-sm ${
+                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <input
+                            value={task.name}
+                            onChange={(e) =>
+                              setTasks((prev) =>
+                                prev.map((t) =>
+                                  t.id === task.id ? { ...t, name: e.target.value } : t
+                                )
+                              )
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm font-semibold"
+                          />
+                          <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#4b5133]">
+                          <span className="rounded-full bg-white/70 px-2 py-1">One-off</span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.occurrence_date || task.origin_date || "No date set"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.priority || "Priority unset"}
+                          </span>
+                          <span className="rounded-full bg-white/70 px-2 py-1">
+                            {task.task_type?.name || "Unassigned"}
+                          </span>
+                        </div>
+                        {expandedTasks.has(task.id) && (
+                          <div className="mt-3 space-y-3 text-sm">
+                            <textarea
+                              value={task.description || ""}
+                              onChange={(e) =>
+                                setTasks((prev) =>
+                                  prev.map((t) =>
+                                    t.id === task.id ? { ...t, description: e.target.value } : t
+                                  )
+                                )
+                              }
+                              className="min-h-[72px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                              placeholder="Task description"
+                            />
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Instance date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={task.occurrence_date || ""}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id
+                                          ? { ...t, occurrence_date: e.target.value }
+                                          : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Priority
+                                </label>
+                                <select
+                                  value={task.priority}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, priority: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {PRIORITY_OPTIONS.map((priority) => (
+                                    <option key={priority} value={priority}>
+                                      {priority}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Status
+                                </label>
+                                <select
+                                  value={task.status}
+                                  onChange={(e) =>
+                                    setTasks((prev) =>
+                                      prev.map((t) =>
+                                        t.id === task.id ? { ...t, status: e.target.value } : t
+                                      )
+                                    )
+                                  }
+                                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                                >
+                                  {STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                                  Task type
+                                </label>
+                                <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-xs text-[#6b6d4b]">
+                                  {task.task_type?.name || "Unassigned"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(task.id)}
+                            className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            {expandedTasks.has(task.id) ? "Collapse" : "Expand"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSaving(true);
+                              try {
+                                await fetch("/api/tasks", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    id: task.id,
+                                    name: task.name,
+                                    description: task.description || null,
+                                    occurrence_date: task.occurrence_date || null,
+                                    status: task.status,
+                                    priority: task.priority,
+                                  }),
+                                });
+                                setMessage("Task updated.");
+                              } catch (err) {
+                                console.error("Failed to update task", err);
+                                setMessage("Unable to update task.");
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                            className="rounded-md bg-[#a0b764] px-3 py-1 text-[11px] font-semibold uppercase text-white"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeletePrompt({
+                                task,
+                                mode: "single",
+                                occurrenceDate: task.occurrence_date || null,
+                              })
+                            }
+                            className="rounded-md border border-red-200 px-3 py-1 text-[11px] font-semibold uppercase text-red-700"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditor(task)}
+                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                          >
+                            Details
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!oneOffTasks.length && (
+                      <p className="text-sm text-[#7a7f54]">No one-off tasks found.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1222,6 +1483,11 @@ export default function TaskEditorPage() {
               Choose which tasks to delete for{" "}
               <span className="font-semibold">{deletePrompt.task.name}</span>.
             </p>
+            {deletePrompt.task.recurring && deletePrompt.occurrenceDate && (
+              <p className="mt-1 text-[11px] text-[#6f754f]">
+                Occurrence date: {deletePrompt.occurrenceDate}
+              </p>
+            )}
             <div className="mt-4 space-y-2 text-sm">
               {deletePrompt.task.recurring ? (
                 <>
