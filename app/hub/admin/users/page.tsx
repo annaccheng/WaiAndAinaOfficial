@@ -175,6 +175,29 @@ export default function AdminUsersPage() {
     }
   };
 
+  const deleteUser = async (user: UserItem) => {
+    const confirmed = window.confirm(
+      `Delete ${user.name}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch("/api/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: user.id }),
+      });
+      if (!res.ok) throw new Error("Failed to delete user.");
+      const refreshed = await fetch("/api/users");
+      const json = await refreshed.json();
+      setUsers(json.users || []);
+      if (editing?.id === user.id) {
+        setEditing(null);
+      }
+    } catch (err: any) {
+      setMessage(err?.message || "Could not delete user.");
+    }
+  };
+
   if (!authorized) {
     return (
       <div className="mx-auto max-w-4xl p-6 text-sm text-[#7a7f54]">
@@ -299,6 +322,13 @@ export default function AdminUsersPage() {
                       className="rounded-md bg-[#8fae4c] px-3 py-2 font-semibold uppercase text-white shadow-sm"
                     >
                       {user.active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteUser(user)}
+                      className="rounded-md border border-red-200 bg-white px-3 py-2 font-semibold uppercase text-red-700 shadow-sm"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

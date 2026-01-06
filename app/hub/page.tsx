@@ -1564,38 +1564,6 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
           </section>
         )}
 
-        {!isExternalVolunteer && (
-          <section>
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-4">
-              Meal Assignments
-            </h2>
-
-            {loading && (
-              <p className="text-sm text-[#7a7f54]">Loading schedule…</p>
-            )}
-            {error && <p className="text-sm text-red-700">{error}</p>}
-
-            {!loading && !error && visibleMealSlots.length === 0 && (
-              <p className="text-sm text-[#7a7f54]">No meal assignments found.</p>
-            )}
-
-            <div className="space-y-4">
-              {visibleMealSlots.map((slot) => (
-                <MealBlock
-                  key={slot.id}
-                  slot={slot}
-                  assignments={mealAssignments.filter(
-                    (a) => a.slotId === slot.id
-                  )}
-                  currentUserName={currentUserName}
-                  taskMetaMap={taskMetaMap}
-                  onTaskClick={handleTaskClick}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         {showStandardSection && (
           <section className="space-y-3">
             <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">

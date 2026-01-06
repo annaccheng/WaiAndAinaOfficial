@@ -167,6 +167,8 @@ export default function AdminScheduleEditorPage() {
   const [taskEditorExpanded, setTaskEditorExpanded] = useState(false);
   const [taskDetailExpanded, setTaskDetailExpanded] = useState(false);
   const [saveStatusOpen, setSaveStatusOpen] = useState(true);
+  const [mobileDockOpen, setMobileDockOpen] = useState(false);
+  const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
@@ -1348,165 +1350,8 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-              <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                <span>Recurring task dock</span>
-                <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                  {selectedDate || "Pick a date"}
-                </span>
-              </div>
-              <div className="space-y-2 p-3 text-sm">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <input
-                    value={taskSearch}
-                    onChange={(e) => setTaskSearch(e.target.value)}
-                    placeholder="Search tasks"
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  />
-                  <select
-                    value={taskTypeFilter}
-                    onChange={(e) => setTaskTypeFilter(e.target.value)}
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  >
-                    <option value="">All types</option>
-                    {taskTypes.map((opt) => (
-                      <option key={opt.name} value={opt.name}>
-                        {opt.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <select
-                  value={taskStatusFilter}
-                  onChange={(e) => setTaskStatusFilter(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                >
-                  <option value="">All statuses</option>
-                  {statusOptions.map((opt) => (
-                    <option key={opt.name} value={opt.name}>
-                      {opt.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                  {filteredRecurringTasks.map((task) => {
-                    const taskHandled = isTaskHandled(task);
-                    return (
-                      <button
-                        key={task.id}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingTask({ taskId: task.id, taskName: task.name });
-                          e.dataTransfer.setData("text/task-name", task.name);
-                          e.dataTransfer.setData("text/plain", task.name);
-                          e.dataTransfer.setData(
-                            DRAG_DATA_TYPE,
-                            JSON.stringify({ taskId: task.id, taskName: task.name })
-                          );
-                          e.dataTransfer.effectAllowed = "copyMove";
-                        }}
-                        onDragEnd={() => {
-                          setDraggingTask(null);
-                          setPendingInsert(null);
-                        }}
-                        onClick={() => loadTaskDetail(task.id, task.name)}
-                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                          task.typeColor
-                        )}`}
-                      >
-                        <div>
-                          <div className="font-semibold">{task.name}</div>
-                          <div className="text-[11px] text-[#5f5a3b]">
-                            {task.type || "Uncategorized"}
-                            {task.status ? ` • ${task.status}` : ""}
-                            {task.priority ? ` • ${task.priority}` : ""}
-                          </div>
-                        </div>
-                        <span
-                          className={
-                            taskHandled.hasEnoughPeople
-                              ? "text-3xl text-emerald-600"
-                              : "text-2xl"
-                          }
-                        >
-                          {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {!filteredRecurringTasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">
-                      No recurring tasks for this date.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-              <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                One-off task dock
-              </div>
-              <div className="space-y-2 p-3 text-sm">
-                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                  {filteredOneOffTasks.map((task) => {
-                    const taskHandled = isTaskHandled(task);
-                    return (
-                      <button
-                        key={task.id}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingTask({ taskId: task.id, taskName: task.name });
-                          e.dataTransfer.setData("text/task-name", task.name);
-                          e.dataTransfer.setData("text/plain", task.name);
-                          e.dataTransfer.setData(
-                            DRAG_DATA_TYPE,
-                            JSON.stringify({ taskId: task.id, taskName: task.name })
-                          );
-                          e.dataTransfer.effectAllowed = "copyMove";
-                        }}
-                        onDragEnd={() => {
-                          setDraggingTask(null);
-                          setPendingInsert(null);
-                        }}
-                        onClick={() => loadTaskDetail(task.id, task.name)}
-                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                          task.typeColor
-                        )}`}
-                      >
-                        <div>
-                          <div className="font-semibold">{task.name}</div>
-                          <div className="text-[11px] text-[#5f5a3b]">
-                            {task.type || "Uncategorized"}
-                            {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
-                            {task.priority ? ` • ${task.priority}` : ""}
-                          </div>
-                        </div>
-                        <span
-                          className={
-                            taskHandled.hasEnoughPeople
-                              ? "text-3xl text-emerald-600"
-                              : "text-2xl"
-                          }
-                        >
-                          {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {!filteredOneOffTasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
+      <div className="flex flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-4">
+        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -1657,6 +1502,13 @@ export default function AdminScheduleEditorPage() {
                                 draggingTask?.taskId === task.id &&
                                 draggingTask?.fromPerson === person &&
                                 draggingTask?.fromSlotId === slot.id;
+                              const assignedCount =
+                                taskPeopleCountById.byId.get(task.id) ??
+                                taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
+                                0;
+                              const neededCount = meta?.personCount ?? 0;
+                              const hasEnoughPeople =
+                                neededCount > 0 ? assignedCount >= neededCount : false;
 
                               return (
                                 <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
@@ -1703,23 +1555,17 @@ export default function AdminScheduleEditorPage() {
                                     )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                   >
                                     <div className="flex items-start justify-between gap-2">
-                                      <div>
-                                        <span className="font-semibold">{task.name}</span>
-                                        {(meta?.priority || meta?.type) && (
-                                          <div className="text-[10px] text-[#5f5a3b]">
-                                            {meta?.priority ? `${meta.priority} priority` : ""}
-                                            {meta?.priority && meta?.type ? " • " : ""}
-                                            {meta?.type || ""}
-                                          </div>
-                                        )}
-                                      </div>
+                                      <div className="font-semibold">{task.name}</div>
                                       <div className="flex items-center gap-2">
                                         {meta?.status && (
                                           <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
                                             {meta.status}
                                           </span>
                                         )}
-                                        {meta && isTaskHandled(meta).hasEnoughPeople && (
+                                        <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
+                                          {assignedCount}/{neededCount}
+                                        </span>
+                                        {hasEnoughPeople && (
                                           <span className="text-base text-emerald-600" title="Enough people assigned">
                                             ✅
                                           </span>
@@ -1809,396 +1655,692 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-            <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
-            <p className="mt-1 text-[12px] text-[#6b6d4b]">
-              Adds a one-off task for {selectedDate || "the selected date"}.
-            </p>
-            <div className="mt-2 space-y-2">
-              <input
-                value={quickTaskName}
-                onChange={(e) => setQuickTaskName(e.target.value)}
-                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                placeholder="Task name"
-              />
-              <textarea
-                value={quickTaskDescription}
-                onChange={(e) => setQuickTaskDescription(e.target.value)}
-                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                placeholder="Task description"
-                rows={3}
-              />
-              <button
-                type="button"
-                onClick={createQuickTask}
-                className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-              >
-                Add quick task
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-            <h3 className="text-sm font-semibold text-[#314123]">Selected slot</h3>
-            {selectedCell ? (
-              <div className="mt-2 space-y-2 text-sm text-[#4b5133]">
-                <p className="text-[12px] text-[#6b6d4b]">
-                  {selectedCell.person} • {selectedCell.slotLabel}
-                </p>
-                <div className="space-y-1">
-                  {getCellValue(selectedCell)?.content.tasks.map((task, idx) => (
-                    <div
-                      key={`${task.id}-${idx}`}
-                      className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-2 py-1"
+          <div className="space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1">
+            <div className="hidden lg:block">
+              <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                  <span>Recurring task dock</span>
+                  <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+                    {selectedDate || "Pick a date"}
+                  </span>
+                </div>
+                <div className="space-y-2 p-3 text-sm">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      value={taskSearch}
+                      onChange={(e) => setTaskSearch(e.target.value)}
+                      placeholder="Search tasks"
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                    />
+                    <select
+                      value={taskTypeFilter}
+                      onChange={(e) => setTaskTypeFilter(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
                     >
+                      <option value="">All types</option>
+                      {taskTypes.map((opt) => (
+                        <option key={opt.name} value={opt.name}>
+                          {opt.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <select
+                    value={taskStatusFilter}
+                    onChange={(e) => setTaskStatusFilter(e.target.value)}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  >
+                    <option value="">All statuses</option>
+                    {statusOptions.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                    {filteredRecurringTasks.map((task) => {
+                      const taskHandled = isTaskHandled(task);
+                      return (
+                        <button
+                          key={task.id}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggingTask({ taskId: task.id, taskName: task.name });
+                            e.dataTransfer.setData("text/task-name", task.name);
+                            e.dataTransfer.setData("text/plain", task.name);
+                            e.dataTransfer.setData(
+                              DRAG_DATA_TYPE,
+                              JSON.stringify({ taskId: task.id, taskName: task.name })
+                            );
+                            e.dataTransfer.effectAllowed = "copyMove";
+                          }}
+                          onDragEnd={() => {
+                            setDraggingTask(null);
+                            setPendingInsert(null);
+                          }}
+                          onClick={() => loadTaskDetail(task.id, task.name)}
+                          className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            task.typeColor
+                          )}`}
+                        >
+                          <div>
+                            <div className="font-semibold">{task.name}</div>
+                            <div className="text-[11px] text-[#5f5a3b]">
+                              {task.type || "Uncategorized"}
+                              {task.status ? ` • ${task.status}` : ""}
+                              {task.priority ? ` • ${task.priority}` : ""}
+                            </div>
+                          </div>
+                          <span
+                            className={
+                              taskHandled.hasEnoughPeople
+                                ? "text-3xl text-emerald-600"
+                                : "text-2xl"
+                            }
+                          >
+                            {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {!filteredRecurringTasks.length && (
+                      <p className="text-[12px] text-[#7a7f54]">
+                        No recurring tasks for this date.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                  One-off task dock
+                </div>
+                <div className="space-y-2 p-3 text-sm">
+                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                    {filteredOneOffTasks.map((task) => {
+                      const taskHandled = isTaskHandled(task);
+                      return (
+                        <button
+                          key={task.id}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggingTask({ taskId: task.id, taskName: task.name });
+                            e.dataTransfer.setData("text/task-name", task.name);
+                            e.dataTransfer.setData("text/plain", task.name);
+                            e.dataTransfer.setData(
+                              DRAG_DATA_TYPE,
+                              JSON.stringify({ taskId: task.id, taskName: task.name })
+                            );
+                            e.dataTransfer.effectAllowed = "copyMove";
+                          }}
+                          onDragEnd={() => {
+                            setDraggingTask(null);
+                            setPendingInsert(null);
+                          }}
+                          onClick={() => loadTaskDetail(task.id, task.name)}
+                          className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            task.typeColor
+                          )}`}
+                        >
+                          <div>
+                            <div className="font-semibold">{task.name}</div>
+                            <div className="text-[11px] text-[#5f5a3b]">
+                              {task.type || "Uncategorized"}
+                              {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
+                              {task.priority ? ` • ${task.priority}` : ""}
+                            </div>
+                          </div>
+                          <span
+                            className={
+                              taskHandled.hasEnoughPeople
+                                ? "text-3xl text-emerald-600"
+                                : "text-2xl"
+                            }
+                          >
+                            {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {!filteredOneOffTasks.length && (
+                      <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+              <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
+              <p className="mt-1 text-[12px] text-[#6b6d4b]">
+                Adds a one-off task for {selectedDate || "the selected date"}.
+              </p>
+              <div className="mt-2 space-y-2">
+                <input
+                  value={quickTaskName}
+                  onChange={(e) => setQuickTaskName(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                  placeholder="Task name"
+                />
+                <textarea
+                  value={quickTaskDescription}
+                  onChange={(e) => setQuickTaskDescription(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                  placeholder="Task description"
+                  rows={3}
+                />
+                <button
+                  type="button"
+                  onClick={createQuickTask}
+                  className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+                >
+                  Add quick task
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+              <h3 className="text-sm font-semibold text-[#314123]">Selected slot</h3>
+              {selectedCell ? (
+                <div className="mt-2 space-y-2 text-sm text-[#4b5133]">
+                  <p className="text-[12px] text-[#6b6d4b]">
+                    {selectedCell.person} • {selectedCell.slotLabel}
+                  </p>
+                  <div className="space-y-1">
+                    {getCellValue(selectedCell)?.content.tasks.map((task, idx) => (
+                      <div
+                        key={`${task.id}-${idx}`}
+                        className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-2 py-1"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => loadTaskDetail(task.id, task.name)}
+                          className="text-[12px] font-semibold text-[#2f3b21] underline-offset-2 hover:underline"
+                        >
+                          {task.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeTaskFromCell(selectedCell, task, idx)}
+                          className="text-[11px] font-semibold text-[#a05252] hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {!getCellValue(selectedCell)?.content.tasks.length && (
+                      <p className="text-[12px] text-[#7a7f54]">No tasks yet. Add one below.</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[12px] text-[#5f5a3b]">Add a custom task</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={customTask}
+                        onChange={(e) => setCustomTask(e.target.value)}
+                        className="flex-1 rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                        placeholder="e.g., Cow Milking"
+                      />
                       <button
                         type="button"
-                        onClick={() => loadTaskDetail(task.id, task.name)}
-                        className="text-[12px] font-semibold text-[#2f3b21] underline-offset-2 hover:underline"
+                        onClick={handleCustomAdd}
+                        className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
                       >
-                        {task.name}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeTaskFromCell(selectedCell, task, idx)}
-                        className="text-[11px] font-semibold text-[#a05252] hover:underline"
-                      >
-                        Remove
+                        Add
                       </button>
                     </div>
-                  ))}
-                  {!getCellValue(selectedCell)?.content.tasks.length && (
-                    <p className="text-[12px] text-[#7a7f54]">No tasks yet. Add one below.</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
+              )}
+            </div>
+
+            {taskDetail && (
+              <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task detail</p>
+                    <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
+                  </div>
+                  {taskDetailLoading && (
+                    <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
                   )}
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[12px] text-[#5f5a3b]">Add a custom task</label>
-                  <div className="flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  {taskDetail.status && (
+                    <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                      {taskDetail.status}
+                    </span>
+                  )}
+                  {taskDetail.priority && (
+                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+                      {taskDetail.priority} priority
+                    </span>
+                  )}
+                  <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+                    {taskDetail.recurring ? "Recurring" : "One-off"}
+                  </span>
+                  {taskDetail.taskType?.name && (
+                    <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+                      {taskDetail.taskType.name}
+                    </span>
+                  )}
+                </div>
+                {(taskDetail.recurring || taskDetail.occurrenceDate) && (
+                  <p className="mt-2 text-[11px] text-[#6b6d4b]">
+                    {taskDetail.recurring
+                      ? taskDetail.parentTaskId
+                        ? "Recurring series • this occurrence"
+                        : "Recurring series"
+                      : "One-off task"}
+                    {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
+                  </p>
+                )}
+                <p className="mt-2 whitespace-pre-line text-sm text-[#4b5133]">{taskDetail.description || "No description yet."}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#6b6d4b]">
+                  {taskDetail.recurring && (
+                    <span className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold">
+                      Tip: update just this occurrence to avoid changing the full series.
+                    </span>
+                  )}
+                  <Link
+                    href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
+                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
+                  >
+                    Open in task editor
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setTaskDetailExpanded((prev) => !prev)}
+                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
+                  >
+                    {taskDetailExpanded ? "Hide details" : "Edit details"}
+                  </button>
+                </div>
+                {taskDetailExpanded && (
+                  <div className="mt-3 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Attach photo (500kb max)</p>
                     <input
-                      value={customTask}
-                      onChange={(e) => setCustomTask(e.target.value)}
-                      className="flex-1 rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                      placeholder="e.g., Cow Milking"
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
                     />
                     <button
                       type="button"
-                      onClick={handleCustomAdd}
-                      className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
+                      onClick={handlePhotoUpload}
+                      disabled={photoUploading}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
                     >
-                      Add
+                      {photoUploading ? (
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                          Uploading…
+                        </span>
+                      ) : (
+                        "Upload photo"
+                      )}
                     </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
-            )}
-          </div>
-
-          {taskDetail && (
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task detail</p>
-                  <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
-                </div>
-                {taskDetailLoading && (
-                  <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
-                )}
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                {taskDetail.status && (
-                  <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                    {taskDetail.status}
-                  </span>
-                )}
-                {taskDetail.priority && (
-                  <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
-                    {taskDetail.priority} priority
-                  </span>
-                )}
-                <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
-                  {taskDetail.recurring ? "Recurring" : "One-off"}
-                </span>
-                {taskDetail.taskType?.name && (
-                  <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                    {taskDetail.taskType.name}
-                  </span>
-                )}
-              </div>
-              {(taskDetail.recurring || taskDetail.occurrenceDate) && (
-                <p className="mt-2 text-[11px] text-[#6b6d4b]">
-                  {taskDetail.recurring
-                    ? taskDetail.parentTaskId
-                      ? "Recurring series • this occurrence"
-                      : "Recurring series"
-                    : "One-off task"}
-                  {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
-                </p>
-              )}
-              <p className="mt-2 whitespace-pre-line text-sm text-[#4b5133]">{taskDetail.description || "No description yet."}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#6b6d4b]">
-                {taskDetail.recurring && (
-                  <span className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold">
-                    Tip: update just this occurrence to avoid changing the full series.
-                  </span>
-                )}
-                <Link
-                  href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
-                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
-                >
-                  Open in task editor
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setTaskDetailExpanded((prev) => !prev)}
-                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
-                >
-                  {taskDetailExpanded ? "Hide details" : "Edit details"}
-                </button>
-              </div>
-              {taskDetailExpanded && (
-                <div className="mt-3 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Attach photo (500kb max)</p>
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handlePhotoUpload}
-                    disabled={photoUploading}
-                    className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                  >
-                    {photoUploading ? (
-                      <span className="flex items-center gap-2">
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-                        Uploading…
-                      </span>
-                    ) : (
-                      "Upload photo"
+                    {photoMessage && (
+                      <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
                     )}
-                  </button>
-                  {photoMessage && (
-                    <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {taskDetail && taskDetailExpanded && (
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task editor</p>
-                  <h3 className="text-base font-semibold text-[#314123]">Edit task properties</h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  {taskEditSaving && <span className="text-[11px] text-[#6b6d4b]">Saving…</span>}
-                  <button
-                    type="button"
-                    onClick={() => setTaskEditorExpanded((prev) => !prev)}
-                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]"
-                  >
-                    {taskEditorExpanded ? "Collapse" : "Expand"}
-                  </button>
-                </div>
-              </div>
-
-              {!taskEditorExpanded && (
-                <p className="mt-3 text-[12px] text-[#6b6d4b]">
-                  Expand to edit task properties, status, and custom fields.
-                </p>
-              )}
-
-              {taskEditorExpanded && (
-                <>
-                  <div className="mt-3 space-y-3">
-                    {taskEditFields.map((field) => {
-                      const value = field.value;
-                      const isReadOnly = field.readOnly;
-
-                      if (field.type === "checkbox") {
-                        return (
-                          <label
-                            key={field.name}
-                            className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-3 py-2 text-sm text-[#4b5133]"
-                          >
-                            <span className="font-semibold">{field.name}</span>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.checked)}
-                              className="h-4 w-4 accent-[#8fae4c]"
-                            />
-                          </label>
-                        );
-                      }
-
-                      if (field.type === "select" || field.type === "status") {
-                        return (
-                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <select
-                              value={String(value || "")}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.value)}
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                            >
-                              <option value="">None</option>
-                              {field.options?.map((opt) => (
-                                <option key={opt.name} value={opt.name}>
-                                  {opt.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        );
-                      }
-
-                      if (field.type === "multi_select") {
-                        const selected = Array.isArray(value) ? value : [];
-                        const options = field.options || [];
-                        const customValue = multiSelectDrafts[field.name] || "";
-
-                        return (
-                          <div key={field.name} className="space-y-2 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <div className="flex flex-wrap gap-2">
-                              {options.length ? (
-                                options.map((opt) => (
-                                  <label
-                                    key={opt.name}
-                                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] font-semibold ${
-                                      selected.includes(opt.name)
-                                        ? "bg-[#dfeac1] border-[#b9cd7f] text-[#2f3b21]"
-                                        : "bg-white border-[#d0c9a4] text-[#4b5133]"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="accent-[#8fae4c]"
-                                      checked={selected.includes(opt.name)}
-                                      disabled={isReadOnly}
-                                      onChange={() => toggleMultiSelect(field, opt.name)}
-                                    />
-                                    {opt.name}
-                                  </label>
-                                ))
-                              ) : (
-                                <span className="text-[12px] text-[#7a7f54]">No options defined.</span>
-                              )}
-                            </div>
-                            {!isReadOnly && (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  value={customValue}
-                                  onChange={(e) =>
-                                    setMultiSelectDrafts((prev) => ({
-                                      ...prev,
-                                      [field.name]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Add custom option"
-                                  className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    addMultiSelectCustom(field, customValue);
-                                    setMultiSelectDrafts((prev) => ({ ...prev, [field.name]: "" }));
-                                  }}
-                                  className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
-                                >
-                                  Add
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      if (field.type === "rich_text") {
-                        return (
-                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <textarea
-                              value={String(value || "")}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.value)}
-                              className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                            />
-                          </label>
-                        );
-                      }
-
-                      if (field.type === "number") {
-                        return (
-                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <input
-                              type="number"
-                              value={value === null ? "" : String(value)}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.value)}
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                            />
-                          </label>
-                        );
-                      }
-
-                      if (field.type === "date") {
-                        return (
-                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <input
-                              type="date"
-                              value={String(value || "")}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.value)}
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                            />
-                          </label>
-                        );
-                      }
-
-                      return (
-                        <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                          <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                          <input
-                            type="text"
-                            value={String(value || "")}
-                            disabled={isReadOnly}
-                            onChange={(e) => updateTaskField(field.name, e.target.value)}
-                            className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                          />
-                        </label>
-                      );
-                    })}
                   </div>
+                )}
+              </div>
+            )}
 
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            {taskDetail && taskDetailExpanded && (
+              <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task editor</p>
+                    <h3 className="text-base font-semibold text-[#314123]">Edit task properties</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {taskEditSaving && <span className="text-[11px] text-[#6b6d4b]">Saving…</span>}
                     <button
                       type="button"
-                      onClick={saveTaskEdits}
-                      disabled={taskEditSaving}
-                      className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                      onClick={() => setTaskEditorExpanded((prev) => !prev)}
+                      className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]"
                     >
-                      Save task updates
+                      {taskEditorExpanded ? "Collapse" : "Expand"}
                     </button>
-                    {taskEditMessage && (
-                      <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
-                    )}
                   </div>
-                </>
+                </div>
+
+                {!taskEditorExpanded && (
+                  <p className="mt-3 text-[12px] text-[#6b6d4b]">
+                    Expand to edit task properties, status, and custom fields.
+                  </p>
+                )}
+
+                {taskEditorExpanded && (
+                  <>
+                    <div className="mt-3 space-y-3">
+                      {taskEditFields.map((field) => {
+                        const value = field.value;
+                        const isReadOnly = field.readOnly;
+
+                        if (field.type === "checkbox") {
+                          return (
+                            <label
+                              key={field.name}
+                              className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-3 py-2 text-sm text-[#4b5133]"
+                            >
+                              <span className="font-semibold">{field.name}</span>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(value)}
+                                disabled={isReadOnly}
+                                onChange={(e) => updateTaskField(field.name, e.target.checked)}
+                                className="h-4 w-4 accent-[#8fae4c]"
+                              />
+                            </label>
+                          );
+                        }
+
+                        if (field.type === "select" || field.type === "status") {
+                          return (
+                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                              <select
+                                value={String(value || "")}
+                                disabled={isReadOnly}
+                                onChange={(e) => updateTaskField(field.name, e.target.value)}
+                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                              >
+                                <option value="">None</option>
+                                {field.options?.map((opt) => (
+                                  <option key={opt.name} value={opt.name}>
+                                    {opt.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        }
+
+                        if (field.type === "multi_select") {
+                          const selected = Array.isArray(value) ? value : [];
+                          const options = field.options || [];
+                          const customValue = multiSelectDrafts[field.name] || "";
+
+                          return (
+                            <div key={field.name} className="space-y-2 text-sm text-[#4b5133]">
+                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                              <div className="flex flex-wrap gap-2">
+                                {options.length ? (
+                                  options.map((opt) => (
+                                    <label
+                                      key={opt.name}
+                                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] font-semibold ${
+                                        selected.includes(opt.name)
+                                          ? "bg-[#dfeac1] border-[#b9cd7f] text-[#2f3b21]"
+                                          : "bg-white border-[#d0c9a4] text-[#4b5133]"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="accent-[#8fae4c]"
+                                        checked={selected.includes(opt.name)}
+                                        disabled={isReadOnly}
+                                        onChange={() => toggleMultiSelect(field, opt.name)}
+                                      />
+                                      {opt.name}
+                                    </label>
+                                  ))
+                                ) : (
+                                  <span className="text-[12px] text-[#7a7f54]">No options defined.</span>
+                                )}
+                              </div>
+                              {!isReadOnly && (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    value={customValue}
+                                    onChange={(e) =>
+                                      setMultiSelectDrafts((prev) => ({
+                                        ...prev,
+                                        [field.name]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="Add custom option"
+                                    className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      addMultiSelectCustom(field, customValue);
+                                      setMultiSelectDrafts((prev) => ({ ...prev, [field.name]: "" }));
+                                    }}
+                                    className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.type === "rich_text") {
+                          return (
+                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                              <textarea
+                                value={String(value || "")}
+                                disabled={isReadOnly}
+                                onChange={(e) => updateTaskField(field.name, e.target.value)}
+                                className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                              />
+                            </label>
+                          );
+                        }
+
+                        if (field.type === "number") {
+                          return (
+                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                              <input
+                                type="number"
+                                value={value === null ? "" : String(value)}
+                                disabled={isReadOnly}
+                                onChange={(e) => updateTaskField(field.name, e.target.value)}
+                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                              />
+                            </label>
+                          );
+                        }
+
+                        if (field.type === "date") {
+                          return (
+                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                              <input
+                                type="date"
+                                value={String(value || "")}
+                                disabled={isReadOnly}
+                                onChange={(e) => updateTaskField(field.name, e.target.value)}
+                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                              />
+                            </label>
+                          );
+                        }
+
+                        return (
+                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
+                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
+                            <input
+                              type="text"
+                              value={String(value || "")}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateTaskField(field.name, e.target.value)}
+                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={saveTaskEdits}
+                        disabled={taskEditSaving}
+                        className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                      >
+                        Save task updates
+                      </button>
+                      {taskEditMessage && (
+                        <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:hidden">
+        {mobileDockOpen ? (
+          <div className="fixed inset-x-0 bottom-0 z-40 rounded-t-3xl border border-[#d0c9a4] bg-white/95 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#e2d7b5] px-4 py-3">
+              <div className="text-sm font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                Task dock
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileDockOpen(false)}
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-xs font-semibold uppercase text-[#4b5133]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="px-4 pt-3">
+              <div className="grid gap-2">
+                <input
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                  placeholder="Search tasks"
+                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <select
+                    value={taskTypeFilter}
+                    onChange={(e) => setTaskTypeFilter(e.target.value)}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  >
+                    <option value="">All types</option>
+                    {taskTypes.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={taskStatusFilter}
+                    onChange={(e) => setTaskStatusFilter(e.target.value)}
+                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  >
+                    <option value="">All statuses</option>
+                    {statusOptions.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2 rounded-full bg-[#f6f1dd] p-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                <button
+                  type="button"
+                  onClick={() => setMobileDockTab("recurring")}
+                  className={`flex-1 rounded-full px-3 py-2 transition ${
+                    mobileDockTab === "recurring" ? "bg-white shadow" : ""
+                  }`}
+                >
+                  Recurring
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileDockTab("oneOff")}
+                  className={`flex-1 rounded-full px-3 py-2 transition ${
+                    mobileDockTab === "oneOff" ? "bg-white shadow" : ""
+                  }`}
+                >
+                  One-off
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto px-4 py-3 pb-6">
+              {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
+                (task) => {
+                  const taskHandled = isTaskHandled(task);
+                  return (
+                    <button
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggingTask({ taskId: task.id, taskName: task.name });
+                        e.dataTransfer.setData("text/task-name", task.name);
+                        e.dataTransfer.setData("text/plain", task.name);
+                        e.dataTransfer.setData(
+                          DRAG_DATA_TYPE,
+                          JSON.stringify({ taskId: task.id, taskName: task.name })
+                        );
+                        e.dataTransfer.effectAllowed = "copyMove";
+                      }}
+                      onDragEnd={() => {
+                        setDraggingTask(null);
+                        setPendingInsert(null);
+                      }}
+                      onClick={() => loadTaskDetail(task.id, task.name)}
+                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                        task.typeColor
+                      )}`}
+                    >
+                      <div>
+                        <div className="font-semibold">{task.name}</div>
+                        <div className="text-[11px] text-[#5f5a3b]">
+                          {task.type || "Uncategorized"}
+                          {task.status ? ` • ${task.status}` : ""}
+                          {task.priority ? ` • ${task.priority}` : ""}
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          taskHandled.hasEnoughPeople
+                            ? "text-2xl text-emerald-600"
+                            : "text-xl"
+                        }
+                      >
+                        {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                      </span>
+                    </button>
+                  );
+                }
+              )}
+              {mobileDockTab === "recurring" && !filteredRecurringTasks.length && (
+                <p className="text-[12px] text-[#7a7f54]">No recurring tasks for this date.</p>
+              )}
+              {mobileDockTab === "oneOff" && !filteredOneOffTasks.length && (
+                <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMobileDockOpen(true)}
+            className="fixed inset-x-4 bottom-4 z-40 rounded-full bg-[#8fae4c] px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-white shadow-lg"
+          >
+            Open task dock
+          </button>
+        )}
       </div>
     </div>
   );
