@@ -18,6 +18,7 @@ type TaskItem = {
   recurrence_until?: string | null;
   origin_date?: string | null;
   occurrence_date?: string | null;
+  parent_task_id?: string | null;
   person_count?: number | null;
   links?: string[] | null;
   comments?: string[] | null;
@@ -74,6 +75,7 @@ export default function TaskEditorPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [applyTo, setApplyTo] = useState<"single" | "future" | "all">("single");
   const [futureFromDate, setFutureFromDate] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deletePrompt, setDeletePrompt] = useState<{
     task: TaskItem | null;
     mode: "single" | "future" | "all";
@@ -168,6 +170,9 @@ export default function TaskEditorPage() {
         recurrence_interval: task.recurrence_interval ?? null,
         recurrence_unit: task.recurrence_unit ?? "day",
       });
+      if (task.recurring && task.occurrence_date) {
+        setFutureFromDate(task.occurrence_date);
+      }
     } else {
       setEditing(null);
       setDraft({
@@ -193,8 +198,11 @@ export default function TaskEditorPage() {
       });
     }
     setApplyTo("single");
-    setFutureFromDate("");
+    if (!task?.recurring) {
+      setFutureFromDate("");
+    }
     setDeleteOccurrences(false);
+    setAdvancedOpen(false);
     setEditorOpen(true);
   }
 
@@ -205,6 +213,11 @@ export default function TaskEditorPage() {
     }
     setSaving(true);
     setMessage(null);
+
+    const resolvedOccurrence = draft.occurrence_date || draft.origin_date || null;
+    const resolvedOrigin = draft.recurring
+      ? draft.origin_date || resolvedOccurrence
+      : resolvedOccurrence;
 
     const payload: Record<string, unknown> = {
       name: draft.name.trim(),
@@ -217,8 +230,8 @@ export default function TaskEditorPage() {
       recurrence_interval: draft.recurring ? Number(draft.recurrence_interval || 1) : null,
       recurrence_unit: draft.recurring ? draft.recurrence_unit || "day" : null,
       recurrence_until: draft.recurring ? draft.recurrence_until || null : null,
-      origin_date: draft.origin_date || null,
-      occurrence_date: draft.occurrence_date || null,
+      origin_date: resolvedOrigin,
+      occurrence_date: resolvedOccurrence,
       person_count: draft.person_count ?? null,
       links: draft.links || [],
       comments: draft.comments || [],
@@ -753,53 +766,12 @@ export default function TaskEditorPage() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Estimated time</label>
-                <input
-                  value={draft.estimated_time || ""}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, estimated_time: e.target.value }))}
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">People needed</label>
-                <input
-                  type="number"
-                  value={draft.person_count ?? ""}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      person_count: e.target.value ? Number(e.target.value) : null,
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                />
-              </div>
             </div>
 
-            <div className="mt-4 space-y-2">
-              <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Description</label>
-              <textarea
-                value={draft.description || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                rows={3}
-              />
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Origin date</label>
-                <input
-                  type="date"
-                  value={draft.origin_date || ""}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, origin_date: e.target.value }))}
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
+            {!draft.recurring && (
+              <div className="mt-4 space-y-2">
                 <label className="text-xs font-semibold uppercase text-[#6b6f4c]">
-                  Instance date (this task)
+                  Target date
                 </label>
                 <input
                   type="date"
@@ -809,8 +781,11 @@ export default function TaskEditorPage() {
                   }
                   className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                 />
+                <p className="text-[11px] text-[#6f754f]">
+                  One-off tasks with a target date rise to the top in the task dock.
+                </p>
               </div>
-            </div>
+            )}
 
             <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] p-4">
               <div className="flex items-center justify-between">
@@ -830,50 +805,78 @@ export default function TaskEditorPage() {
                 </label>
               </div>
               {draft.recurring && (
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] uppercase text-[#6b6f4c]">Every</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={draft.recurrence_interval ?? 1}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          recurrence_interval: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                    />
+                <>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase text-[#6b6f4c]">Every</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={draft.recurrence_interval ?? 1}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            recurrence_interval: Number(e.target.value),
+                          }))
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase text-[#6b6f4c]">Unit</label>
+                      <select
+                        value={draft.recurrence_unit || "day"}
+                        onChange={(e) =>
+                          setDraft((prev) => ({ ...prev, recurrence_unit: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      >
+                        {RECURRENCE_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {unit}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase text-[#6b6f4c]">Until</label>
+                      <input
+                        type="date"
+                        value={draft.recurrence_until || ""}
+                        onChange={(e) =>
+                          setDraft((prev) => ({ ...prev, recurrence_until: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] uppercase text-[#6b6f4c]">Unit</label>
-                    <select
-                      value={draft.recurrence_unit || "day"}
-                      onChange={(e) =>
-                        setDraft((prev) => ({ ...prev, recurrence_unit: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                    >
-                      {RECURRENCE_UNITS.map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase text-[#6b6f4c]">Series start</label>
+                      <input
+                        type="date"
+                        value={draft.origin_date || ""}
+                        onChange={(e) =>
+                          setDraft((prev) => ({ ...prev, origin_date: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] uppercase text-[#6b6f4c]">
+                        Occurrence date (this task)
+                      </label>
+                      <input
+                        type="date"
+                        value={draft.occurrence_date || ""}
+                        onChange={(e) =>
+                          setDraft((prev) => ({ ...prev, occurrence_date: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] uppercase text-[#6b6f4c]">Until</label>
-                    <input
-                      type="date"
-                      value={draft.recurrence_until || ""}
-                      onChange={(e) =>
-                        setDraft((prev) => ({ ...prev, recurrence_until: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
+                </>
               )}
             </div>
 
@@ -882,6 +885,11 @@ export default function TaskEditorPage() {
                 <p className="text-xs font-semibold uppercase text-[#6b6f4c]">
                   Apply edits to
                 </p>
+                {editing?.parent_task_id && (
+                  <p className="mt-1 text-[11px] text-[#6f754f]">
+                    You are editing a single occurrence from a recurring series.
+                  </p>
+                )}
                 <div className="mt-2">
                   <label className="text-[11px] uppercase text-[#6b6f4c]">
                     Future edits start from
@@ -926,93 +934,144 @@ export default function TaskEditorPage() {
               </div>
             )}
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Time slots</label>
-                <input
-                  value={(draft.time_slots || []).join(", ")}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      time_slots: e.target.value
-                        .split(",")
-                        .map((slot) => slot.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  placeholder="Morning, Afternoon"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Links</label>
-                <input
-                  value={(draft.links || []).join(", ")}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      links: e.target.value
-                        .split(",")
-                        .map((link) => link.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  placeholder="https://example.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Comments</label>
-                <input
-                  value={(draft.comments || []).join(", ")}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      comments: e.target.value
-                        .split(",")
-                        .map((comment) => comment.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  placeholder="Internal notes, follow ups"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Extra notes</label>
-                <input
-                  value={(draft.extra_notes || []).join(", ")}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      extra_notes: e.target.value
-                        .split(",")
-                        .map((note) => note.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  placeholder="Bring gloves, water"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Photos</label>
-                <input
-                  value={(draft.photos || []).join(", ")}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      photos: e.target.value
-                        .split(",")
-                        .map((photo) => photo.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  placeholder="Image URLs"
-                />
-              </div>
+            <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-white px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between text-xs font-semibold uppercase text-[#4b5133]"
+              >
+                <span>More details</span>
+                <span>{advancedOpen ? "−" : "+"}</span>
+              </button>
+              <p className="mt-1 text-[11px] text-[#6f754f]">
+                Add supporting notes, staffing, and links.
+              </p>
             </div>
+
+            {advancedOpen && (
+              <div className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Description</label>
+                  <textarea
+                    value={draft.description || ""}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                    rows={3}
+                  />
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Estimated time</label>
+                    <input
+                      value={draft.estimated_time || ""}
+                      onChange={(e) =>
+                        setDraft((prev) => ({ ...prev, estimated_time: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">People needed</label>
+                    <input
+                      type="number"
+                      value={draft.person_count ?? ""}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          person_count: e.target.value ? Number(e.target.value) : null,
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Time slots</label>
+                    <input
+                      value={(draft.time_slots || []).join(", ")}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          time_slots: e.target.value
+                            .split(",")
+                            .map((slot) => slot.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="Morning, Afternoon"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Links</label>
+                    <input
+                      value={(draft.links || []).join(", ")}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          links: e.target.value
+                            .split(",")
+                            .map((link) => link.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="https://example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Comments</label>
+                    <input
+                      value={(draft.comments || []).join(", ")}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          comments: e.target.value
+                            .split(",")
+                            .map((comment) => comment.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="Internal notes, follow ups"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Extra notes</label>
+                    <input
+                      value={(draft.extra_notes || []).join(", ")}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          extra_notes: e.target.value
+                            .split(",")
+                            .map((note) => note.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="Bring gloves, water"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Photos</label>
+                    <input
+                      value={(draft.photos || []).join(", ")}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          photos: e.target.value
+                            .split(",")
+                            .map((photo) => photo.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="Image URLs"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
               <div className="mt-5 flex items-center justify-end gap-2">
                 {editing && (

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
   const query: Record<string, string> = {
     select:
-      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color)",
+      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color)",
     order: "created_at.desc",
     ...buildRangeFilter(start, end),
   };

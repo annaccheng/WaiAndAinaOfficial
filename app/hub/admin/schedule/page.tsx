@@ -9,11 +9,12 @@ type Slot = { id: string; label: string; timeRange?: string; isMeal?: boolean };
 type ScheduleResponse = {
   people: string[];
   slots: Slot[];
-  cells: string[][];
+  cells: CellContent[][];
   cellExists?: boolean[][];
   scheduleDate?: string;
   message?: string;
 };
+type ScheduledTask = { id: string; name: string };
 type TaskCatalogItem = {
   id: string;
   name: string;
@@ -33,44 +34,25 @@ type TaskPropertyField = {
   readOnly?: boolean;
 };
 type TaskDetail = {
+  id: string;
   name: string;
   description: string;
   taskType?: { name: string; color: string };
   properties?: TaskPropertyField[];
+  recurring?: boolean;
+  occurrenceDate?: string | null;
+  parentTaskId?: string | null;
 };
 type DragPayload = {
+  taskId: string;
   taskName: string;
   fromPerson?: string;
   fromSlotId?: string;
   fromIndex?: number;
 };
-type CellContent = { tasks: string[]; note: string };
+type CellContent = { tasks: ScheduledTask[]; note: string };
 
 const DRAG_DATA_TYPE = "application/json/task";
-
-function parseCell(value: string): CellContent {
-  if (!value?.trim()) return { tasks: [], note: "" };
-  const [firstLine, ...rest] = value.split("\n");
-  const note = rest.join("\n").trim();
-  const tasks = firstLine
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-  return { tasks, note };
-}
-
-function serializeCell(content: CellContent): string {
-  const line = content.tasks.join(", ").trim();
-  const note = content.note.trim();
-  const parts = [] as string[];
-  if (line) parts.push(line);
-  if (note) parts.push(note);
-  return parts.join("\n");
-}
-
-function taskBaseName(task: string): string {
-  return task.split("\n")[0].trim();
-}
 
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
@@ -315,14 +297,35 @@ export default function AdminScheduleEditorPage() {
   }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter]);
 
   const filteredOneOffTasks = useMemo(() => {
-    return oneOffTasks.filter((task) => {
+    const filtered = oneOffTasks.filter((task) => {
       const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
       const matchesType = taskTypeFilter
         ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
         : true;
       return matchesSearch && matchesType;
     });
+
+    return filtered.sort((a, b) => {
+      const aDate = a.occurrenceDate || "";
+      const bDate = b.occurrenceDate || "";
+      if (!aDate && !bDate) return a.name.localeCompare(b.name);
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      if (aDate === bDate) return a.name.localeCompare(b.name);
+      return aDate.localeCompare(bDate);
+    });
   }, [oneOffTasks, taskSearch, taskTypeFilter]);
+
+  const taskMetaById = useMemo(() => {
+    const entries = [...recurringTasks, ...oneOffTasks].map((task) => [task.id, task]);
+    return new Map(entries);
+  }, [oneOffTasks, recurringTasks]);
+
+  const taskNameOptions = useMemo(() => {
+    const names = new Set<string>();
+    [...recurringTasks, ...oneOffTasks].forEach((task) => names.add(task.name));
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [oneOffTasks, recurringTasks]);
 
   const scheduleTitle = useMemo(() => {
     if (!selectedDate) return "Schedule editor";
@@ -433,7 +436,8 @@ export default function AdminScheduleEditorPage() {
           body: JSON.stringify({
             person,
             slotId,
-            replaceValue: serializeCell(content),
+            tasks: content.tasks.map((task) => task.id),
+            note: content.note,
             dateLabel: scheduleMode === "page" ? activeDate : undefined,
             staging: scheduleMode === "page",
           }),
@@ -516,13 +520,14 @@ export default function AdminScheduleEditorPage() {
 
   const handleTaskMove = useCallback(
     (payload: DragPayload, target: { person: string; slotId: string; slotLabel: string; targetIndex?: number }) => {
-      if (!payload.taskName) return;
+      if (!payload.taskId || !payload.taskName) return;
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
       let usedDirectPersist = false;
+      const taskEntry = { id: payload.taskId, name: payload.taskName };
 
       const directPersist = async () => {
         usedDirectPersist = true;
-        const content: CellContent = { tasks: [payload.taskName], note: "" };
+        const content: CellContent = { tasks: [taskEntry], note: "" };
         setSaveLog({
           status: "saving",
           message: "Target cell not loaded; saving directly to Supabase.",
@@ -535,39 +540,54 @@ export default function AdminScheduleEditorPage() {
 
       setScheduleData((prev) => {
         if (!prev) return prev;
-        const nextCells = prev.cells.map((row) => [...row]);
+        const nextCells = prev.cells.map((row) => row.map((cell) => ({ ...cell, tasks: [...cell.tasks] })));
 
         const targetCoord = findCoord(target.person, target.slotId, prev);
         if (!targetCoord) {
           void directPersist();
           return prev;
         }
-        let targetContent = parseCell(nextCells[targetCoord.row][targetCoord.col]);
+        let targetContent = nextCells[targetCoord.row][targetCoord.col];
 
         let insertionIndex = safeIndex(targetContent.tasks.length, target.targetIndex);
 
         if (payload.fromPerson && payload.fromSlotId) {
           const sourceCoord = findCoord(payload.fromPerson, payload.fromSlotId, prev);
           if (sourceCoord) {
-            const sourceContent = parseCell(nextCells[sourceCoord.row][sourceCoord.col]);
-            const idx = payload.fromIndex ?? sourceContent.tasks.findIndex((t) => taskBaseName(t) === payload.taskName);
+            const sourceContent = nextCells[sourceCoord.row][sourceCoord.col];
+            const idx =
+              payload.fromIndex ??
+              sourceContent.tasks.findIndex((t) => t.id === payload.taskId);
             if (idx > -1) {
               sourceContent.tasks.splice(idx, 1);
-              if (sourceCoord.row === targetCoord.row && sourceCoord.col === targetCoord.col && insertionIndex > idx) {
+              if (
+                sourceCoord.row === targetCoord.row &&
+                sourceCoord.col === targetCoord.col &&
+                insertionIndex > idx
+              ) {
                 insertionIndex -= 1;
               }
-              nextCells[sourceCoord.row][sourceCoord.col] = serializeCell(sourceContent);
-              updates.push({ person: payload.fromPerson, slotId: payload.fromSlotId, content: sourceContent });
-              if (sourceCoord.row === targetCoord.row && sourceCoord.col === targetCoord.col) {
+              updates.push({
+                person: payload.fromPerson,
+                slotId: payload.fromSlotId,
+                content: sourceContent,
+              });
+              if (
+                sourceCoord.row === targetCoord.row &&
+                sourceCoord.col === targetCoord.col
+              ) {
                 targetContent = sourceContent;
               }
             }
           }
         }
 
-        targetContent.tasks.splice(insertionIndex, 0, payload.taskName);
-        nextCells[targetCoord.row][targetCoord.col] = serializeCell(targetContent);
-        updates.push({ person: target.person, slotId: target.slotId, content: targetContent });
+        targetContent.tasks.splice(insertionIndex, 0, taskEntry);
+        updates.push({
+          person: target.person,
+          slotId: target.slotId,
+          content: targetContent,
+        });
 
         return { ...prev, cells: nextCells };
       });
@@ -589,20 +609,19 @@ export default function AdminScheduleEditorPage() {
   );
 
   const removeTaskFromCell = useCallback(
-    (cell: { person: string; slotId: string }, task: string, index?: number) => {
+    (cell: { person: string; slotId: string }, task: ScheduledTask, index?: number) => {
       const updates: { person: string; slotId: string; content: CellContent }[] = [];
 
       setScheduleData((prev) => {
         if (!prev) return prev;
         const coord = findCoord(cell.person, cell.slotId, prev);
         if (!coord) return prev;
-        const nextCells = prev.cells.map((row) => [...row]);
-        const content = parseCell(nextCells[coord.row][coord.col]);
-        const idx = index ?? content.tasks.findIndex((t) => taskBaseName(t) === taskBaseName(task));
+        const nextCells = prev.cells.map((row) => row.map((entry) => ({ ...entry, tasks: [...entry.tasks] })));
+        const content = nextCells[coord.row][coord.col];
+        const idx = index ?? content.tasks.findIndex((t) => t.id === task.id);
         if (idx < 0) return prev;
 
         content.tasks.splice(idx, 1);
-        nextCells[coord.row][coord.col] = serializeCell(content);
         updates.push({ person: cell.person, slotId: cell.slotId, content });
 
         return { ...prev, cells: nextCells };
@@ -629,21 +648,35 @@ export default function AdminScheduleEditorPage() {
       e.dataTransfer.dropEffect = "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
-      let parsed: DragPayload = { taskName: textPayload };
+      let parsed: DragPayload = { taskId: "", taskName: textPayload };
 
-      if (jsonPayload) {
-        try {
-          parsed = { ...parsed, ...JSON.parse(jsonPayload) };
-        } catch (err) {
-          console.error("Failed to parse drag payload", err);
+      const finalizeDrop = async () => {
+        if (jsonPayload) {
+          try {
+            parsed = { ...parsed, ...JSON.parse(jsonPayload) };
+          } catch (err) {
+            console.error("Failed to parse drag payload", err);
+          }
         }
-      }
 
-      if (!parsed.taskName) return;
-      handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
-      setPendingInsert(null);
+        if (!parsed.taskId && parsed.taskName) {
+          const resolved = await resolveTaskEntry(parsed.taskName);
+          if (!resolved) return;
+          parsed = {
+            ...parsed,
+            taskId: resolved.id,
+            taskName: resolved.name,
+          };
+        }
+
+        if (!parsed.taskId || !parsed.taskName) return;
+        handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
+        setPendingInsert(null);
+      };
+
+      void finalizeDrop();
     },
-    [handleTaskMove, scheduleData]
+    [handleTaskMove, resolveTaskEntry, scheduleData]
   );
 
   const handleDragOverEvent = useCallback(
@@ -660,34 +693,43 @@ export default function AdminScheduleEditorPage() {
     if (!cell || !scheduleData) return null;
     const coord = findCoord(cell.person, cell.slotId, scheduleData);
     if (!coord) return null;
-    const value = scheduleData.cells?.[coord.row]?.[coord.col] || "";
-    return { value, content: parseCell(value) };
+    const content = scheduleData.cells?.[coord.row]?.[coord.col];
+    if (!content) return null;
+    return { content };
   };
 
-  const handleCustomAdd = () => {
+  const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
     const existing = getCellValue(selectedCell)?.content.tasks.length || 0;
+    const taskEntry = await resolveTaskEntry(customTask.trim());
+    if (!taskEntry) {
+      setMessage("Couldn't find or create that task yet.");
+      return;
+    }
     handleTaskMove(
-      { taskName: customTask.trim() },
+      { taskId: taskEntry.id, taskName: taskEntry.name },
       { ...selectedCell, targetIndex: existing }
     );
     setCustomTask("");
   };
 
-  const loadTaskDetail = async (taskName: string) => {
-    const base = taskBaseName(taskName);
-    if (!base) return;
+  const loadTaskDetail = async (taskId: string, fallbackName?: string) => {
+    if (!taskId) return;
     setTaskDetailLoading(true);
     setTaskEditMessage(null);
     try {
-      const res = await fetch(`/api/task?name=${encodeURIComponent(base)}`);
+      const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load task details");
       const detail = {
-        name: json.name || base,
+        id: json.id || taskId,
+        name: json.name || fallbackName || "Task",
         description: json.description || "",
         taskType: json.taskType,
         properties: json.properties || [],
+        recurring: json.recurring || false,
+        occurrenceDate: json.occurrenceDate || null,
+        parentTaskId: json.parentTaskId || null,
       };
       setTaskDetail(detail);
       setTaskEditFields(detail.properties || []);
@@ -726,7 +768,7 @@ export default function AdminScheduleEditorPage() {
   };
 
   const saveTaskEdits = async () => {
-    if (!taskDetail?.name) return;
+    if (!taskDetail?.id) return;
     setTaskEditSaving(true);
     setTaskEditMessage(null);
     try {
@@ -734,6 +776,7 @@ export default function AdminScheduleEditorPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: taskDetail.id,
           name: taskDetail.name,
           properties: taskEditFields,
         }),
@@ -741,10 +784,14 @@ export default function AdminScheduleEditorPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to update task");
       setTaskDetail({
+        id: json.id || taskDetail.id,
         name: json.name || taskDetail.name,
         description: json.description || "",
         taskType: json.taskType,
         properties: json.properties || [],
+        recurring: json.recurring ?? taskDetail.recurring,
+        occurrenceDate: json.occurrenceDate ?? taskDetail.occurrenceDate,
+        parentTaskId: json.parentTaskId ?? taskDetail.parentTaskId,
       });
       setTaskEditFields(json.properties || []);
       setTaskEditMessage("Task updated.");
@@ -757,7 +804,78 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
-  const addInlineTask = (person: string, slot: Slot, taskName: string, existingCount: number) => {
+  const resolveTaskEntry = useCallback(
+    async (taskName: string): Promise<ScheduledTask | null> => {
+      const trimmed = taskName.trim();
+      if (!trimmed) return null;
+      const normalized = trimmed.toLowerCase();
+      const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+
+      const exactOneOff = oneOffTasks.find(
+        (task) =>
+          task.name.toLowerCase() === normalized &&
+          (!dateParam || task.occurrenceDate === dateParam)
+      );
+      if (exactOneOff) return { id: exactOneOff.id, name: exactOneOff.name };
+
+      const recurringMatch = recurringTasks.find(
+        (task) => task.name.toLowerCase() === normalized
+      );
+      if (recurringMatch) return { id: recurringMatch.id, name: recurringMatch.name };
+
+      const fallbackOneOff = oneOffTasks.find(
+        (task) => task.name.toLowerCase() === normalized
+      );
+      if (fallbackOneOff) return { id: fallbackOneOff.id, name: fallbackOneOff.name };
+
+      if (!dateParam) return null;
+
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: trimmed,
+            description: null,
+            status: "Not Started",
+            priority: "Medium",
+            recurring: false,
+            origin_date: dateParam,
+            occurrence_date: dateParam,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          console.error("Failed to create ad-hoc task", json?.error);
+          return null;
+        }
+        if (json.task?.id) {
+          const created = {
+            id: json.task.id,
+            name: json.task.name,
+            type: "",
+            typeColor: "default",
+            status: json.task.status || "",
+            occurrenceDate: json.task.occurrence_date || dateParam,
+            description: json.task.description || null,
+          };
+          setOneOffTasks((prev) => [created, ...prev]);
+          return { id: created.id, name: created.name };
+        }
+      } catch (err) {
+        console.error("Failed to create ad-hoc task", err);
+      }
+      return null;
+    },
+    [oneOffTasks, recurringTasks, selectedDate]
+  );
+
+  const addInlineTask = async (
+    person: string,
+    slot: Slot,
+    taskName: string,
+    existingCount: number
+  ) => {
     const trimmed = taskName.trim();
     if (!trimmed) return;
     const key = `${person}-${slot.id}`;
@@ -770,8 +888,13 @@ export default function AdminScheduleEditorPage() {
         delete lastInlineAddRef.current[key];
       }
     }, 300);
+    const taskEntry = await resolveTaskEntry(trimmed);
+    if (!taskEntry) {
+      setMessage("Couldn't find or create that task yet.");
+      return;
+    }
     handleTaskMove(
-      { taskName: trimmed },
+      { taskId: taskEntry.id, taskName: taskEntry.name },
       { person, slotId: slot.id, slotLabel: slot.label, targetIndex: existingCount }
     );
     setInlineTaskDrafts((prev) => ({ ...prev, [`${person}-${slot.id}`]: "" }));
@@ -856,7 +979,7 @@ export default function AdminScheduleEditorPage() {
       if (photoInputRef.current) {
         photoInputRef.current.value = "";
       }
-      await loadTaskDetail(taskDetail.name);
+      await loadTaskDetail(taskDetail.id, taskDetail.name);
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Upload failed";
@@ -1091,8 +1214,8 @@ export default function AdminScheduleEditorPage() {
                       </div>
                     </td>
                     {scheduleData.slots.map((slot, colIdx) => {
-                      const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || "";
-                      const content = parseCell(cell);
+                      const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || { tasks: [], note: "" };
+                      const content = cell;
                       const isSelected =
                         selectedCell?.person === person && selectedCell?.slotId === slot.id;
                       const saving = pendingCells.has(`${person}-${slot.id}`);
@@ -1168,24 +1291,30 @@ export default function AdminScheduleEditorPage() {
                             )}
                             {dropLine(0)}
                             {content.tasks.map((task, idx) => {
-                              const base = taskBaseName(task);
-                              const meta = recurringTasks.find((t) => t.name === base);
+                              const meta = taskMetaById.get(task.id);
                               const isDraggingThis =
-                                draggingTask?.taskName === base &&
+                                draggingTask?.taskId === task.id &&
                                 draggingTask?.fromPerson === person &&
                                 draggingTask?.fromSlotId === slot.id;
 
                               return (
-                                <React.Fragment key={`${person}-${slot.id}-${task}-${idx}`}>
+                                <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
                                   <button
                                     type="button"
                                     draggable
                                     onDragStart={(e) => {
-                                      setDraggingTask({ taskName: base, fromPerson: person, fromSlotId: slot.id, fromIndex: idx });
-                                      e.dataTransfer.setData("text/task-name", base);
-                                      e.dataTransfer.setData("text/plain", base);
+                                      setDraggingTask({
+                                        taskId: task.id,
+                                        taskName: task.name,
+                                        fromPerson: person,
+                                        fromSlotId: slot.id,
+                                        fromIndex: idx,
+                                      });
+                                      e.dataTransfer.setData("text/task-name", task.name);
+                                      e.dataTransfer.setData("text/plain", task.name);
                                       e.dataTransfer.setData(DRAG_DATA_TYPE, JSON.stringify({
-                                        taskName: base,
+                                        taskId: task.id,
+                                        taskName: task.name,
                                         fromPerson: person,
                                         fromSlotId: slot.id,
                                         fromIndex: idx,
@@ -1198,14 +1327,14 @@ export default function AdminScheduleEditorPage() {
                                     }}
                                     onClick={() => {
                                       setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
-                                      loadTaskDetail(base);
+                                      loadTaskDetail(task.id, task.name);
                                     }}
                                     className={`flex w-full flex-col gap-2 rounded-lg border p-2 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] ${typeColorClasses(
                                       meta?.typeColor
                                     )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                   >
                                     <div className="flex items-start justify-between gap-2">
-                                      <span className="font-semibold">{base}</span>
+                                      <span className="font-semibold">{task.name}</span>
                                       <div className="flex items-center gap-2">
                                         {meta?.status && (
                                           <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
@@ -1262,11 +1391,16 @@ export default function AdminScheduleEditorPage() {
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
-                                    addInlineTask(person, slot, inlineTaskDrafts[`${person}-${slot.id}`] || "", content.tasks.length);
+                                    void addInlineTask(
+                                      person,
+                                      slot,
+                                      inlineTaskDrafts[`${person}-${slot.id}`] || "",
+                                      content.tasks.length
+                                    );
                                   }
                                 }}
                                 onBlur={() =>
-                                  addInlineTask(
+                                  void addInlineTask(
                                     person,
                                     slot,
                                     inlineTaskDrafts[`${person}-${slot.id}`] || "",
@@ -1297,8 +1431,8 @@ export default function AdminScheduleEditorPage() {
             </table>
           </div>
           <datalist id="task-options">
-            {recurringTasks.map((task) => (
-              <option key={task.id} value={task.name} />
+            {taskNameOptions.map((name) => (
+              <option key={name} value={name} />
             ))}
           </datalist>
         </div>
@@ -1353,17 +1487,20 @@ export default function AdminScheduleEditorPage() {
                     key={task.id}
                     draggable
                     onDragStart={(e) => {
-                      setDraggingTask({ taskName: task.name });
+                      setDraggingTask({ taskId: task.id, taskName: task.name });
                       e.dataTransfer.setData("text/task-name", task.name);
                       e.dataTransfer.setData("text/plain", task.name);
-                      e.dataTransfer.setData(DRAG_DATA_TYPE, JSON.stringify({ taskName: task.name }));
+                      e.dataTransfer.setData(
+                        DRAG_DATA_TYPE,
+                        JSON.stringify({ taskId: task.id, taskName: task.name })
+                      );
                       e.dataTransfer.effectAllowed = "copyMove";
                     }}
                     onDragEnd={() => {
                       setDraggingTask(null);
                       setPendingInsert(null);
                     }}
-                    onClick={() => loadTaskDetail(task.name)}
+                    onClick={() => loadTaskDetail(task.id, task.name)}
                     className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
                       task.typeColor
                     )}`}
@@ -1398,17 +1535,20 @@ export default function AdminScheduleEditorPage() {
                     key={task.id}
                     draggable
                     onDragStart={(e) => {
-                      setDraggingTask({ taskName: task.name });
+                      setDraggingTask({ taskId: task.id, taskName: task.name });
                       e.dataTransfer.setData("text/task-name", task.name);
                       e.dataTransfer.setData("text/plain", task.name);
-                      e.dataTransfer.setData(DRAG_DATA_TYPE, JSON.stringify({ taskName: task.name }));
+                      e.dataTransfer.setData(
+                        DRAG_DATA_TYPE,
+                        JSON.stringify({ taskId: task.id, taskName: task.name })
+                      );
                       e.dataTransfer.effectAllowed = "copyMove";
                     }}
                     onDragEnd={() => {
                       setDraggingTask(null);
                       setPendingInsert(null);
                     }}
-                    onClick={() => loadTaskDetail(task.name)}
+                    onClick={() => loadTaskDetail(task.id, task.name)}
                     className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
                       task.typeColor
                     )}`}
@@ -1417,7 +1557,7 @@ export default function AdminScheduleEditorPage() {
                       <div className="font-semibold">{task.name}</div>
                       <div className="text-[11px] text-[#5f5a3b]">
                         {task.type || "Uncategorized"}
-                        {task.occurrenceDate ? ` • ${task.occurrenceDate}` : ""}
+                        {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
                       </div>
                     </div>
                     <span className="text-lg">🌿</span>
@@ -1469,15 +1609,15 @@ export default function AdminScheduleEditorPage() {
                 <div className="space-y-1">
                   {getCellValue(selectedCell)?.content.tasks.map((task, idx) => (
                     <div
-                      key={`${task}-${idx}`}
+                      key={`${task.id}-${idx}`}
                       className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-2 py-1"
                     >
                       <button
                         type="button"
-                        onClick={() => loadTaskDetail(task)}
+                        onClick={() => loadTaskDetail(task.id, task.name)}
                         className="text-[12px] font-semibold text-[#2f3b21] underline-offset-2 hover:underline"
                       >
-                        {task}
+                        {task.name}
                       </button>
                       <button
                         type="button"
@@ -1527,6 +1667,16 @@ export default function AdminScheduleEditorPage() {
                   <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
                 )}
               </div>
+              {(taskDetail.recurring || taskDetail.occurrenceDate) && (
+                <p className="mt-2 text-[11px] text-[#6b6d4b]">
+                  {taskDetail.recurring
+                    ? taskDetail.parentTaskId
+                      ? "Recurring series • this occurrence"
+                      : "Recurring series"
+                    : "One-off task"}
+                  {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
+                </p>
+              )}
               <p className="mt-2 whitespace-pre-line text-sm text-[#4b5133]">{taskDetail.description || "No description yet."}</p>
               {taskDetail.taskType?.name && (
                 <span className="mt-2 inline-block rounded-full bg-[#f6f1dd] px-3 py-1 text-[11px] font-semibold text-[#4b5133]">

@@ -25,6 +25,11 @@ type ScheduleCellRow = {
   note: string | null;
 };
 
+type TaskRow = {
+  id: string;
+  name: string;
+};
+
 type UserRow = {
   display_name: string;
   active: boolean;
@@ -45,12 +50,6 @@ function toLabel(date: string) {
   const [year, month, day] = date.split("-");
   if (!year || !month || !day) return date;
   return `${month}/${day}/${year}`;
-}
-
-function serializeCell(tasks: string[], note?: string | null) {
-  const line = tasks.join(", ").trim();
-  const cleanedNote = (note || "").trim();
-  return [line, cleanedNote].filter(Boolean).join("\n");
 }
 
 function isMealShift(label: string) {
@@ -260,7 +259,9 @@ export async function GET(req: Request) {
     const scheduleId = scheduleRows?.[0]?.id || null;
 
     if (!scheduleId) {
-      const emptyCells = volunteers.map(() => slots.map(() => ""));
+      const emptyCells = volunteers.map(() =>
+        slots.map(() => ({ tasks: [], note: "" }))
+      );
       return NextResponse.json({
         people: volunteers,
         slots,
@@ -283,11 +284,30 @@ export async function GET(req: Request) {
       cellMap.set(`${cell.person_id}-${cell.shift_id}`, cell);
     });
 
+    const taskIds = Array.from(
+      new Set(cells.flatMap((cell) => cell.tasks || []))
+    );
+    const taskRows = taskIds.length
+      ? await supabaseRequest<TaskRow[]>("tasks", {
+          query: {
+            select: "id,name",
+            id: `in.(${taskIds.join(",")})`,
+          },
+        })
+      : [];
+    const taskMap = new Map(taskRows.map((task) => [task.id, task.name]));
+
     const matrix = schedulePeople.map((person) =>
       slots.map((slot) => {
         const cell = cellMap.get(`${person.id}-${slot.id}`);
-        if (!cell) return "";
-        return serializeCell(cell.tasks || [], cell.note);
+        if (!cell) return { tasks: [], note: "" };
+        return {
+          tasks: (cell.tasks || []).map((taskId) => ({
+            id: taskId,
+            name: taskMap.get(taskId) || "Unknown task",
+          })),
+          note: (cell.note || "").trim(),
+        };
       })
     );
     const existsMatrix = schedulePeople.map((person) =>
