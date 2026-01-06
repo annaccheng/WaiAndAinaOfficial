@@ -4,6 +4,7 @@ import { supabaseRequest } from "@/lib/supabase";
 type ScheduleRow = { id: string };
 type SchedulePersonRow = { id: string; name: string };
 type ScheduleCellRow = { id: string };
+type TaskRow = { id: string; name: string; occurrence_date?: string | null };
 type UserRow = {
   display_name: string;
   active: boolean;
@@ -27,6 +28,63 @@ function parseCell(value?: string | null) {
     .filter(Boolean);
   const note = rest.join("\n").trim();
   return { tasks, note };
+}
+
+async function resolveTaskIds(
+  names: string[],
+  occurrenceDate: string
+): Promise<string[]> {
+  const resolved: string[] = [];
+  for (const name of names) {
+    if (!name.trim()) continue;
+    const byDate = await supabaseRequest<TaskRow[]>("tasks", {
+      query: {
+        select: "id,name,occurrence_date",
+        name: `eq.${name}`,
+        occurrence_date: `eq.${occurrenceDate}`,
+        limit: 1,
+        order: "created_at.desc",
+      },
+    });
+
+    if (byDate?.[0]?.id) {
+      resolved.push(byDate[0].id);
+      continue;
+    }
+
+    const fallback = await supabaseRequest<TaskRow[]>("tasks", {
+      query: {
+        select: "id,name,occurrence_date",
+        name: `eq.${name}`,
+        limit: 1,
+        order: "created_at.desc",
+      },
+    });
+
+    if (fallback?.[0]?.id) {
+      resolved.push(fallback[0].id);
+      continue;
+    }
+
+    const created = await supabaseRequest<TaskRow[]>("tasks", {
+      method: "POST",
+      prefer: "return=representation",
+      query: { select: "id,name,occurrence_date" },
+      body: {
+        name,
+        status: "Not Started",
+        priority: "Medium",
+        recurring: false,
+        origin_date: occurrenceDate,
+        occurrence_date: occurrenceDate,
+      },
+    });
+
+    if (created?.[0]?.id) {
+      resolved.push(created[0].id);
+    }
+  }
+  return resolved;
 }
 
 async function fetchVolunteers() {
@@ -136,7 +194,7 @@ async function upsertScheduleCell(params: {
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
-  const { person, slotId, replaceValue, dateLabel } = body || {};
+  const { person, slotId, replaceValue, dateLabel, tasks, note } = body || {};
 
   if (!person || !slotId) {
     return NextResponse.json(
@@ -154,14 +212,30 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { tasks, note } = parseCell(replaceValue || "");
-    const hasContent = tasks.length > 0 || note.trim().length > 0;
+    let resolvedTasks: string[] = [];
+    let resolvedNote = typeof note === "string" ? note : "";
+
+    if (Array.isArray(tasks)) {
+      resolvedTasks = tasks
+        .map((task) => {
+          if (typeof task === "string") return task;
+          if (task && typeof task.id === "string") return task.id;
+          return "";
+        })
+        .filter(Boolean);
+    } else if (typeof replaceValue === "string") {
+      const parsed = parseCell(replaceValue);
+      resolvedTasks = await resolveTaskIds(parsed.tasks, isoDate);
+      resolvedNote = parsed.note;
+    }
+
+    const hasContent = resolvedTasks.length > 0 || resolvedNote.trim().length > 0;
     console.log("schedule.update payload", {
       isoDate,
       person: String(person).trim(),
       slotId,
-      taskCount: tasks.length,
-      hasNote: Boolean(note.trim()),
+      taskCount: resolvedTasks.length,
+      hasNote: Boolean(resolvedNote.trim()),
     });
 
     let scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
@@ -286,8 +360,8 @@ export async function POST(req: Request) {
       scheduleId,
       personId: resolvedPerson.id,
       slotId,
-      tasks,
-      note: note.trim() || null,
+      tasks: resolvedTasks,
+      note: resolvedNote.trim() || null,
     });
     console.log("schedule.update cell upserted", {
       scheduleId,
