@@ -293,43 +293,6 @@ export default function AdminScheduleEditorPage() {
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
 
-  const filteredRecurringTasks = useMemo(() => {
-    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
-    return recurringTasks
-      .filter((task) => {
-        const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
-        const matchesType = taskTypeFilter
-          ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
-          : true;
-        const matchesStatus = taskStatusFilter
-          ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
-          : true;
-        const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
-        return matchesSearch && matchesType && matchesStatus && matchesDate;
-      })
-      .sort(sortTasks);
-  }, [
-    recurringTasks,
-    selectedDate,
-    taskSearch,
-    taskStatusFilter,
-    taskTypeFilter,
-    sortTasks,
-  ]);
-
-  const filteredOneOffTasks = useMemo(() => {
-    const filtered = oneOffTasks.filter((task) => {
-      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
-      const matchesType = taskTypeFilter
-        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
-        : true;
-      return matchesSearch && matchesType;
-    });
-
-    return filtered.sort(sortTasks);
-  }, [oneOffTasks, taskSearch, taskTypeFilter, sortTasks]);
-
-
   const taskMetaById = useMemo(() => {
     const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
       (task) => [task.id, task]
@@ -485,6 +448,42 @@ export default function AdminScheduleEditorPage() {
     },
     [isTaskHandled, priorityRank, statusRank]
   );
+
+  const filteredRecurringTasks = useMemo(() => {
+    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+    return recurringTasks
+      .filter((task) => {
+        const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
+        const matchesType = taskTypeFilter
+          ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
+          : true;
+        const matchesStatus = taskStatusFilter
+          ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
+          : true;
+        const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
+        return matchesSearch && matchesType && matchesStatus && matchesDate;
+      })
+      .sort(sortTasks);
+  }, [
+    recurringTasks,
+    selectedDate,
+    taskSearch,
+    taskStatusFilter,
+    taskTypeFilter,
+    sortTasks,
+  ]);
+
+  const filteredOneOffTasks = useMemo(() => {
+    const filtered = oneOffTasks.filter((task) => {
+      const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
+      const matchesType = taskTypeFilter
+        ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
+        : true;
+      return matchesSearch && matchesType;
+    });
+
+    return filtered.sort(sortTasks);
+  }, [oneOffTasks, taskSearch, taskTypeFilter, sortTasks]);
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
