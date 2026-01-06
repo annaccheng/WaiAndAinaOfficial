@@ -129,10 +129,7 @@ export default function AdminScheduleEditorPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [currentUserName, setCurrentUserName] = useState("");
   const [scheduleData, setScheduleData] = useState<ScheduleResponse | null>(null);
-  const [todaySchedule, setTodaySchedule] = useState<ScheduleResponse | null>(null);
-  const [todayScheduleLoading, setTodayScheduleLoading] = useState(false);
   const [recurringTasks, setRecurringTasks] = useState<TaskCatalogItem[]>([]);
   const [oneOffTasks, setOneOffTasks] = useState<TaskCatalogItem[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
@@ -199,7 +196,6 @@ export default function AdminScheduleEditorPage() {
       router.replace("/");
       return;
     }
-    setCurrentUserName(session.name);
 
     const userType = (session.userType || "").toLowerCase();
     if (userType === "admin") {
@@ -238,29 +234,6 @@ export default function AdminScheduleEditorPage() {
     loadStatic();
   }, [authorized]);
 
-  useEffect(() => {
-    if (!authorized) return;
-    const loadTodaySchedule = async () => {
-      setTodayScheduleLoading(true);
-      try {
-        const url =
-          scheduleMode === "page"
-            ? `/api/schedule?date=${encodeURIComponent(todayLabel)}&staging=1`
-            : "/api/schedule";
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          setTodaySchedule(json);
-        }
-      } catch (err) {
-        console.error("Failed to load today's schedule", err);
-      } finally {
-        setTodayScheduleLoading(false);
-      }
-    };
-
-    loadTodaySchedule();
-  }, [authorized, scheduleMode, todayLabel]);
 
   useEffect(() => {
     if (!selectedDate) {
@@ -273,24 +246,6 @@ export default function AdminScheduleEditorPage() {
     [availableSchedules, selectedDate]
   );
 
-  const todayAssignments = useMemo(() => {
-    if (!todaySchedule || !currentUserName) return [];
-    const personIndex = todaySchedule.people.findIndex(
-      (person) => person.toLowerCase() === currentUserName.toLowerCase()
-    );
-    if (personIndex === -1) return [];
-    return todaySchedule.slots
-      .map((slot, slotIdx) => {
-        const cell = todaySchedule.cells?.[personIndex]?.[slotIdx] || { tasks: [], note: "" };
-        const names = (cell.tasks || []).map((task) => task.name).filter(Boolean);
-        return {
-          slot,
-          tasks: names,
-          note: cell.note || "",
-        };
-      })
-      .filter((entry) => entry.tasks.length > 0 || entry.note);
-  }, [todaySchedule, currentUserName]);
 
   useEffect(() => {
     if (!authorized) return;
@@ -337,6 +292,7 @@ export default function AdminScheduleEditorPage() {
   }, [scheduleMode, selectedDate]);
 
   const filteredRecurringTasks = useMemo(() => {
+    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
     return recurringTasks.filter((task) => {
       const matchesSearch = task.name.toLowerCase().includes(taskSearch.toLowerCase());
       const matchesType = taskTypeFilter
@@ -345,9 +301,10 @@ export default function AdminScheduleEditorPage() {
       const matchesStatus = taskStatusFilter
         ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
         : true;
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesDate = dateParam ? task.occurrenceDate === dateParam : true;
+      return matchesSearch && matchesType && matchesStatus && matchesDate;
     });
-  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter]);
+  }, [recurringTasks, taskSearch, taskStatusFilter, taskTypeFilter, selectedDate]);
 
   const filteredOneOffTasks = useMemo(() => {
     const filtered = oneOffTasks.filter((task) => {
@@ -1280,46 +1237,6 @@ export default function AdminScheduleEditorPage() {
             </div>
           )}
         </div>
-      </div>
-
-      <div className="rounded-xl border border-[#d0c9a4] bg-white/90 px-4 py-3 text-sm text-[#4b5133] shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
-              Today&apos;s schedule
-            </p>
-            <p className="text-sm font-semibold text-[#314123]">
-              {currentUserName || "Your shifts"} • {todayLabel}
-            </p>
-          </div>
-          {todayScheduleLoading && (
-            <span className="text-[11px] text-[#7a7f54]">Loading…</span>
-          )}
-        </div>
-        {!todayScheduleLoading && (
-          <div className="mt-3 space-y-2">
-            {todayAssignments.length ? (
-              todayAssignments.map((entry) => (
-                <div
-                  key={entry.slot.id}
-                  className="rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] px-3 py-2 text-[12px]"
-                >
-                  <div className="font-semibold text-[#314123]">{entry.slot.label}</div>
-                  <div className="text-[#5f5a3b]">
-                    {entry.tasks.join(", ") || "No tasks yet."}
-                  </div>
-                  {entry.note && (
-                    <div className="mt-1 text-[11px] text-[#6b6d4b]">{entry.note}</div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <p className="text-[12px] text-[#7a7f54]">
-                No tasks listed for you yet today.
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4 lg:flex-row">

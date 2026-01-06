@@ -273,10 +273,16 @@ export default function TaskEditorPage() {
       setMessage("Task name is required.");
       return;
     }
+    if (draft.recurring && !draft.recurrence_until) {
+      setMessage("Set an end date so recurring tasks create all occurrences.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
 
-    const resolvedOccurrence = draft.occurrence_date || draft.origin_date || null;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const resolvedOccurrence =
+      draft.occurrence_date || draft.origin_date || (draft.recurring ? todayIso : null);
     const resolvedOrigin = draft.recurring
       ? draft.origin_date || resolvedOccurrence
       : resolvedOccurrence;
@@ -1202,6 +1208,9 @@ export default function TaskEditorPage() {
                         }
                         className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                       />
+                      <p className="text-[10px] text-[#6f754f]">
+                        Required to generate each recurring occurrence.
+                      </p>
                     </div>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
