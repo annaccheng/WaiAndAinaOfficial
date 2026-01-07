@@ -1552,6 +1552,38 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
   return (
     <>
       <div className="space-y-8">
+        {isAdmin && (
+          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
+                Admin debug console
+              </p>
+              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                Admin only
+              </span>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
+              {JSON.stringify(
+                {
+                  user: currentUserName,
+                  scheduleDateLabel,
+                  loading,
+                  error,
+                  scheduleMessage: data?.message || null,
+                  peopleCount: data?.people?.length ?? 0,
+                  slotCount: data?.slots?.length ?? 0,
+                  hasData: Boolean(data),
+                  fetchInFlight: scheduleFetchInFlight.current,
+                  lastFetchAt: scheduleLastFetchAt.current
+                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
+                    : null,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </section>
+        )}
         {!loading &&
           data?.message &&
           !isExternalVolunteer &&
