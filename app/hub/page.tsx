@@ -1562,6 +1562,46 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                 Admin only
               </span>
             </div>
+            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
+                Diagnostics
+              </p>
+              <ul className="list-disc space-y-1 pl-4">
+                {!currentUserName && (
+                  <li>No session detected. Schedule requests will be anonymous.</li>
+                )}
+                {loading && !data && !error && (
+                  <li>Initial schedule load is still in flight.</li>
+                )}
+                {error && (
+                  <li>Schedule request failed: {error}</li>
+                )}
+                {data?.message && (
+                  <li>{data.message}</li>
+                )}
+                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
+                  <li>
+                    Schedule response is empty. This typically means the schedule date has no
+                    entries or Supabase access is blocked.
+                  </li>
+                )}
+                {scheduleFetchInFlight.current && (
+                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
+                )}
+                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
+                  <li>
+                    Last fetch completed at{" "}
+                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
+                  </li>
+                )}
+                {!scheduleLastFetchAt.current && (
+                  <li>No successful schedule fetch recorded yet.</li>
+                )}
+                {scheduleDateLabel && (
+                  <li>Active schedule date: {scheduleDateLabel}.</li>
+                )}
+              </ul>
+            </div>
             <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
               {JSON.stringify(
                 {
