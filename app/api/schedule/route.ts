@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseRequest } from "@/lib/supabase";
+import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
 type SlotRow = {
   id: string;
@@ -251,6 +251,15 @@ export async function GET(req: Request) {
     const dateLabel = url.searchParams.get("date") || "";
     const isStaging = url.searchParams.get("staging") === "1";
     const isoDate = toIsoDate(dateLabel) || getTodayIsoDate();
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({
+        people: [],
+        slots: [],
+        cells: [],
+        scheduleDate: toLabel(isoDate),
+        message: "Supabase is not configured for schedules yet.",
+      });
+    }
 
     const [slots, volunteers] = await Promise.all([
       fetchSlots(),

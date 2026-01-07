@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
-import { supabaseRequest } from "@/lib/supabase";
+import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const listOnly = searchParams.get("list");
   const id = searchParams.get("id") || "";
   const name = searchParams.get("name") || "";
+
+  if (!isSupabaseConfigured()) {
+    if (listOnly) {
+      return NextResponse.json({ tasks: [] });
+    }
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
 
   if (listOnly) {
     try {

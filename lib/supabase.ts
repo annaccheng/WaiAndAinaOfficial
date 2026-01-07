@@ -10,6 +10,12 @@ type SupabaseConfig = {
   serviceRoleKey: string;
 };
 
+export function isSupabaseConfigured() {
+  return Boolean(
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
+
 function getSupabaseConfig(): SupabaseConfig {
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
