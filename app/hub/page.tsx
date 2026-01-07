@@ -700,7 +700,7 @@ export default function HubSchedulePage() {
         );
       } finally {
         scheduleFetchInFlight.current = false;
-        if (showLoading) setLoading(false);
+        setLoading(false);
       }
     },
     [data, scheduleRefreshIntervalMs]
@@ -823,8 +823,7 @@ export default function HubSchedulePage() {
     );
   }, [data, weekdayWorkSlots]);
 
-  const showStandardSection =
-    !isExternalVolunteer && (loading || error || hasWeekdayScheduleContent);
+  const showStandardSection = true;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -1624,16 +1623,13 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
             </pre>
           </section>
         )}
-        {!loading &&
-          data?.message &&
-          !isExternalVolunteer &&
-          !hasWeekdayScheduleContent && (
+        {!loading && data?.message && !hasWeekdayScheduleContent && (
             <div className="rounded-lg border border-[#e4dcb8] bg-white/80 px-4 py-3 text-sm text-[#6a6748]">
               {data.message}
             </div>
           )}
 
-        {!isExternalVolunteer && taskTypes.length > 0 && (
+        {taskTypes.length > 0 && (
           <section className="rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
