@@ -259,7 +259,7 @@ export default function WorkDashboardPage() {
         ]);
 
         const taskListJson = taskListRes.ok ? await taskListRes.json() : { tasks: [] };
-        const statusMap = new Map(
+        const statusMap = new Map<string, string>(
           (taskListJson.tasks || []).map((task: { name: string; status?: string }) => [
             task.name,
             task.status || "",
