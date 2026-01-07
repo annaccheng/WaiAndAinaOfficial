@@ -148,7 +148,6 @@ export default function AdminScheduleEditorPage() {
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
-  const [inlineTaskDrafts, setInlineTaskDrafts] = useState<Record<string, string>>({});
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
@@ -180,7 +179,6 @@ export default function AdminScheduleEditorPage() {
     payload?: { person: string; slotId: string; dateLabel?: string };
   }>({ status: "idle" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const lastInlineAddRef = useRef<Record<string, string>>({});
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -955,6 +953,13 @@ export default function AdminScheduleEditorPage() {
     return { content };
   };
 
+  const selectCell = (person: string, slot: Slot) => {
+    if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
+      setCustomTask("");
+    }
+    setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+  };
+
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
     const existing = getCellValue(selectedCell)?.content.tasks.length || 0;
@@ -1064,36 +1069,6 @@ export default function AdminScheduleEditorPage() {
     } finally {
       setTaskEditSaving(false);
     }
-  };
-
-  const addInlineTask = async (
-    person: string,
-    slot: Slot,
-    taskName: string,
-    existingCount: number
-  ) => {
-    const trimmed = taskName.trim();
-    if (!trimmed) return;
-    const key = `${person}-${slot.id}`;
-    if (lastInlineAddRef.current[key] === trimmed) {
-      return;
-    }
-    lastInlineAddRef.current[key] = trimmed;
-    window.setTimeout(() => {
-      if (lastInlineAddRef.current[key] === trimmed) {
-        delete lastInlineAddRef.current[key];
-      }
-    }, 300);
-    const taskEntry = await resolveTaskEntry(trimmed);
-    if (!taskEntry) {
-      setMessage("Couldn't find or create that task yet.");
-      return;
-    }
-    handleTaskMove(
-      { taskId: taskEntry.id, taskName: taskEntry.name },
-      { person, slotId: slot.id, slotLabel: slot.label, targetIndex: existingCount }
-    );
-    setInlineTaskDrafts((prev) => ({ ...prev, [`${person}-${slot.id}`]: "" }));
   };
 
   const refreshSchedule = async () => {
@@ -1351,8 +1326,8 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
-        <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -1386,22 +1361,22 @@ export default function AdminScheduleEditorPage() {
                 {scheduleLoading ? "Loading schedule…" : "Saving…"}
               </div>
             )}
-            <table className="min-w-full border-collapse text-[11px] sm:text-sm">
+            <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
               <thead className="bg-[#e5e7c5]">
                 <tr>
-                  <th className="min-w-[120px] sm:min-w-[160px] border border-[#d1d4aa] px-2 sm:px-3 py-2 text-left text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
+                  <th className="w-[90px] sm:w-[120px] border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
                     Person
                   </th>
                   {scheduleData?.slots.map((slot) => (
                     <th
                       key={slot.id}
-                      className="border border-[#d1d4aa] px-2 sm:px-3 py-2 text-left text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+                      className="w-[110px] sm:w-[130px] border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <div>{slot.label}</div>
                           {slot.timeRange && (
-                            <div className="text-[10px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
+                            <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
                           )}
                         </div>
                         {slot.isMeal && <span className="text-lg">🍽️</span>}
@@ -1413,7 +1388,7 @@ export default function AdminScheduleEditorPage() {
               <tbody>
                 {scheduleData?.people.map((person, rowIdx) => (
                     <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
-                    <td className="border border-[#d1d4aa] px-2 sm:px-3 py-2 align-top text-xs sm:text-sm font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
+                    <td className="border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 align-top text-[10px] sm:text-[11px] font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
                       <div className="flex items-center justify-between gap-2">
                         <span>{person}</span>
                         <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
@@ -1453,12 +1428,12 @@ export default function AdminScheduleEditorPage() {
                       return (
                         <td
                           key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] p-1 sm:p-2 align-top transition-colors duration-150 ${
+                          className={`border border-[#d1d4aa] p-1 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
                           } ${saving ? "animate-pulse" : ""} ${
                             cellExists ? "" : "opacity-60"
                           }`}
-                          onClick={() => setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label })}
+                          onClick={() => selectCell(person, slot)}
                           onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                           onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                           onDragLeave={(e) => {
@@ -1469,7 +1444,7 @@ export default function AdminScheduleEditorPage() {
                           }}
                         >
                           <div
-                            className="flex h-full w-full flex-col gap-2"
+                            className="flex h-full w-full flex-col gap-1"
                             onDragOver={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, content.tasks.length)}
                             onDrop={(e) => {
@@ -1540,98 +1515,78 @@ export default function AdminScheduleEditorPage() {
                                       setPendingInsert(null);
                                     }}
                                     onClick={() => {
-                                      setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+                                      selectCell(person, slot);
                                       loadTaskDetail(task.id, task.name);
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" || e.key === " ") {
                                         e.preventDefault();
-                                        setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+                                        selectCell(person, slot);
                                         loadTaskDetail(task.id, task.name);
                                       }
                                     }}
-                                    className={`flex w-full flex-col gap-2 rounded-lg border p-2 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] ${typeColorClasses(
+                                    className={`flex w-full items-center justify-between gap-2 rounded-full border px-2 py-1 text-left text-[10px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] ${typeColorClasses(
                                       meta?.typeColor
                                     )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                   >
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="font-semibold">{task.name}</div>
-                                      <div className="flex items-center gap-2">
-                                        {meta?.status && (
-                                          <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
-                                            {meta.status}
-                                          </span>
-                                        )}
-                                        <span className="rounded-full bg-white/80 px-2 py-[1px] text-[9px] font-semibold text-[#4f4f31]">
-                                          {assignedCount}/{neededCount}
+                                    <span className="truncate font-semibold">{task.name}</span>
+                                    <span className="flex items-center gap-1 text-[9px] text-[#4f4f31]">
+                                      <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
+                                        {assignedCount}/{neededCount}
+                                      </span>
+                                      {hasEnoughPeople && (
+                                        <span className="text-sm text-emerald-600" title="Enough people assigned">
+                                          ✅
                                         </span>
-                                        {hasEnoughPeople && (
-                                          <span className="text-base text-emerald-600" title="Enough people assigned">
-                                            ✅
-                                          </span>
-                                        )}
-                                        <button
-                                          type="button"
-                                          draggable={false}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeTaskFromCell({ person, slotId: slot.id }, task, idx);
-                                          }}
-                                          onMouseDown={(e) => {
-                                            e.stopPropagation();
-                                          }}
-                                          className="rounded-full border border-[#d1d4aa] bg-white/80 px-2 py-[1px] text-[10px] font-semibold text-[#a05252] hover:bg-[#f7e3e3]"
-                                        >
-                                          ✕
-                                        </button>
-                                      </div>
-                                    </div>
-                                    {content.note && (
-                                      <p className="text-[11px] text-[#4f4b33] opacity-90">{content.note}</p>
-                                    )}
+                                      )}
+                                      <button
+                                        type="button"
+                                        draggable={false}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removeTaskFromCell({ person, slotId: slot.id }, task, idx);
+                                        }}
+                                        onMouseDown={(e) => {
+                                          e.stopPropagation();
+                                        }}
+                                        className="rounded-full border border-[#d1d4aa] bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#a05252] hover:bg-[#f7e3e3]"
+                                      >
+                                        ✕
+                                      </button>
+                                    </span>
                                   </div>
                                   {dropLine(idx + 1)}
                                 </React.Fragment>
                               );
                             })}
 
-                            <div className="rounded-md border border-[#d0c9a4] bg-white/80 p-2">
-                              <label className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                                Add task
-                              </label>
+                            {content.note && (
+                              <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
+                            )}
+                            {isSelected && cellExists && (
                               <input
                                 list="task-options"
-                                value={inlineTaskDrafts[`${person}-${slot.id}`] || ""}
-                                onFocus={() => setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label })}
-                                onChange={(e) =>
-                                  setInlineTaskDrafts((prev) => ({
-                                    ...prev,
-                                    [`${person}-${slot.id}`]: e.target.value,
-                                  }))
-                                }
+                                value={customTask}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => setCustomTask(e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
-                                    void addInlineTask(
-                                      person,
-                                      slot,
-                                      inlineTaskDrafts[`${person}-${slot.id}`] || "",
-                                      content.tasks.length
-                                    );
+                                    void handleCustomAdd();
+                                  }
+                                  if (e.key === "Escape") {
+                                    setCustomTask("");
                                   }
                                 }}
-                                onBlur={() =>
-                                  void addInlineTask(
-                                    person,
-                                    slot,
-                                    inlineTaskDrafts[`${person}-${slot.id}`] || "",
-                                    content.tasks.length
-                                  )
-                                }
-                                placeholder="Type to add a task"
-                                className="mt-1 w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[12px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
+                                onBlur={() => {
+                                  if (customTask.trim()) {
+                                    void handleCustomAdd();
+                                  }
+                                }}
+                                placeholder="Type task + Enter"
+                                className="w-full rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
                               />
-                            </div>
+                            )}
                           </div>
                         </td>
                       );
@@ -1658,7 +1613,7 @@ export default function AdminScheduleEditorPage() {
           </datalist>
         </div>
 
-        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[360px] lg:shrink-0">
           <div className="space-y-4 lg:sticky lg:top-24 lg:flex lg:h-[calc(100vh-6rem)] lg:flex-col lg:overflow-y-auto lg:pr-1">
             <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
               <span>Task dock</span>
@@ -1671,196 +1626,192 @@ export default function AdminScheduleEditorPage() {
               </button>
             </div>
 
-            {desktopDockOpen && (
-              <>
-                <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:overflow-hidden">
-              <div className="flex-1 rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                  <span>Recurring task dock</span>
-                  <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                    {selectedDate || "Pick a date"}
-                  </span>
-                </div>
-                <div className="space-y-2 p-3 text-sm">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <input
-                      value={taskSearch}
-                      onChange={(e) => setTaskSearch(e.target.value)}
-                      placeholder="Search tasks"
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                    />
+            {desktopDockOpen ? (
+              <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:gap-4">
+                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                  <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                    <span>Recurring task dock</span>
+                    <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+                      {selectedDate || "Pick a date"}
+                    </span>
+                  </div>
+                  <div className="space-y-2 p-3 text-sm">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <input
+                        value={taskSearch}
+                        onChange={(e) => setTaskSearch(e.target.value)}
+                        placeholder="Search tasks"
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      />
+                      <select
+                        value={taskTypeFilter}
+                        onChange={(e) => setTaskTypeFilter(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      >
+                        <option value="">All types</option>
+                        {taskTypes.map((opt) => (
+                          <option key={opt.name} value={opt.name}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <select
-                      value={taskTypeFilter}
-                      onChange={(e) => setTaskTypeFilter(e.target.value)}
+                      value={taskStatusFilter}
+                      onChange={(e) => setTaskStatusFilter(e.target.value)}
                       className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
                     >
-                      <option value="">All types</option>
-                      {taskTypes.map((opt) => (
+                      <option value="">All statuses</option>
+                      {statusOptions.map((opt) => (
                         <option key={opt.name} value={opt.name}>
                           {opt.name}
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <select
-                    value={taskStatusFilter}
-                    onChange={(e) => setTaskStatusFilter(e.target.value)}
-                    className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  >
-                    <option value="">All statuses</option>
-                    {statusOptions.map((opt) => (
-                      <option key={opt.name} value={opt.name}>
-                        {opt.name}
-                      </option>
-                    ))}
-                  </select>
 
-                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
-                    {filteredRecurringTasks.map((task) => {
-                      const taskHandled = isTaskHandled(task);
-                      return (
-                        <button
-                          key={task.id}
-                          draggable
-                          onDragStart={(e) => {
-                            setDraggingTask({ taskId: task.id, taskName: task.name });
-                            e.dataTransfer.setData("text/task-name", task.name);
-                            e.dataTransfer.setData("text/plain", task.name);
-                            e.dataTransfer.setData(
-                              DRAG_DATA_TYPE,
-                              JSON.stringify({ taskId: task.id, taskName: task.name })
-                            );
-                            e.dataTransfer.effectAllowed = "copyMove";
-                          }}
-                          onDragEnd={() => {
-                            setDraggingTask(null);
-                            setPendingInsert(null);
-                          }}
-                          onClick={() => loadTaskDetail(task.id, task.name)}
-                          className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                            task.typeColor
-                          )}`}
-                        >
-                          <div>
-                            <div className="font-semibold">{task.name}</div>
-                            <div className="text-[11px] text-[#5f5a3b]">
-                              {task.type || "Uncategorized"}
-                              {task.status ? ` • ${task.status}` : ""}
-                              {task.priority ? ` • ${task.priority}` : ""}
-                            </div>
-                          </div>
-                          <span
-                            className={
-                              taskHandled.hasEnoughPeople
-                                ? "text-3xl text-emerald-600"
-                                : "text-2xl"
-                            }
+                    <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                      {filteredRecurringTasks.map((task) => {
+                        const taskHandled = isTaskHandled(task);
+                        return (
+                          <button
+                            key={task.id}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggingTask({ taskId: task.id, taskName: task.name });
+                              e.dataTransfer.setData("text/task-name", task.name);
+                              e.dataTransfer.setData("text/plain", task.name);
+                              e.dataTransfer.setData(
+                                DRAG_DATA_TYPE,
+                                JSON.stringify({ taskId: task.id, taskName: task.name })
+                              );
+                              e.dataTransfer.effectAllowed = "copyMove";
+                            }}
+                            onDragEnd={() => {
+                              setDraggingTask(null);
+                              setPendingInsert(null);
+                            }}
+                            onClick={() => loadTaskDetail(task.id, task.name)}
+                            className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                              task.typeColor
+                            )}`}
                           >
-                            {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!filteredRecurringTasks.length && (
-                      <p className="text-[12px] text-[#7a7f54]">
-                        No recurring tasks for this date.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                  One-off task dock
-                </div>
-                <div className="space-y-2 p-3 text-sm">
-                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
-                    {filteredOneOffTasks.map((task) => {
-                      const taskHandled = isTaskHandled(task);
-                      return (
-                        <button
-                          key={task.id}
-                          draggable
-                          onDragStart={(e) => {
-                            setDraggingTask({ taskId: task.id, taskName: task.name });
-                            e.dataTransfer.setData("text/task-name", task.name);
-                            e.dataTransfer.setData("text/plain", task.name);
-                            e.dataTransfer.setData(
-                              DRAG_DATA_TYPE,
-                              JSON.stringify({ taskId: task.id, taskName: task.name })
-                            );
-                            e.dataTransfer.effectAllowed = "copyMove";
-                          }}
-                          onDragEnd={() => {
-                            setDraggingTask(null);
-                            setPendingInsert(null);
-                          }}
-                          onClick={() => loadTaskDetail(task.id, task.name)}
-                          className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                            task.typeColor
-                          )}`}
-                        >
-                          <div>
-                            <div className="font-semibold">{task.name}</div>
-                            <div className="text-[11px] text-[#5f5a3b]">
-                              {task.type || "Uncategorized"}
-                              {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
-                              {task.priority ? ` • ${task.priority}` : ""}
+                            <div>
+                              <div className="font-semibold">{task.name}</div>
+                              <div className="text-[11px] text-[#5f5a3b]">
+                                {task.type || "Uncategorized"}
+                                {task.status ? ` • ${task.status}` : ""}
+                                {task.priority ? ` • ${task.priority}` : ""}
+                              </div>
                             </div>
-                          </div>
-                          <span
-                            className={
-                              taskHandled.hasEnoughPeople
-                                ? "text-3xl text-emerald-600"
-                                : "text-2xl"
-                            }
+                            <span
+                              className={
+                                taskHandled.hasEnoughPeople
+                                  ? "text-2xl text-emerald-600"
+                                  : "text-xl"
+                              }
+                            >
+                              {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {!filteredRecurringTasks.length && (
+                        <p className="text-[12px] text-[#7a7f54]">
+                          No recurring tasks for this date.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                  <div className="rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
+                    One-off task dock
+                  </div>
+                  <div className="space-y-2 p-3 text-sm">
+                    <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                      {filteredOneOffTasks.map((task) => {
+                        const taskHandled = isTaskHandled(task);
+                        return (
+                          <button
+                            key={task.id}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggingTask({ taskId: task.id, taskName: task.name });
+                              e.dataTransfer.setData("text/task-name", task.name);
+                              e.dataTransfer.setData("text/plain", task.name);
+                              e.dataTransfer.setData(
+                                DRAG_DATA_TYPE,
+                                JSON.stringify({ taskId: task.id, taskName: task.name })
+                              );
+                              e.dataTransfer.effectAllowed = "copyMove";
+                            }}
+                            onDragEnd={() => {
+                              setDraggingTask(null);
+                              setPendingInsert(null);
+                            }}
+                            onClick={() => loadTaskDetail(task.id, task.name)}
+                            className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                              task.typeColor
+                            )}`}
                           >
-                            {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!filteredOneOffTasks.length && (
-                      <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
-                    )}
+                            <div>
+                              <div className="font-semibold">{task.name}</div>
+                              <div className="text-[11px] text-[#5f5a3b]">
+                                {task.type || "Uncategorized"}
+                                {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
+                                {task.priority ? ` • ${task.priority}` : ""}
+                              </div>
+                            </div>
+                            <span
+                              className={
+                                taskHandled.hasEnoughPeople
+                                  ? "text-2xl text-emerald-600"
+                                  : "text-xl"
+                              }
+                            >
+                              {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {!filteredOneOffTasks.length && (
+                        <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+                  <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
+                  <p className="mt-1 text-[12px] text-[#6b6d4b]">
+                    Adds a one-off task for {selectedDate || "the selected date"}.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      value={quickTaskName}
+                      onChange={(e) => setQuickTaskName(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                      placeholder="Task name"
+                    />
+                    <textarea
+                      value={quickTaskDescription}
+                      onChange={(e) => setQuickTaskDescription(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                      placeholder="Task description"
+                      rows={3}
+                    />
+                    <button
+                      type="button"
+                      onClick={createQuickTask}
+                      className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+                    >
+                      Add quick task
+                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className="hidden lg:flex lg:flex-1 lg:flex-col rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-              <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
-              <p className="mt-1 text-[12px] text-[#6b6d4b]">
-                Adds a one-off task for {selectedDate || "the selected date"}.
-              </p>
-              <div className="mt-2 space-y-2">
-                <input
-                  value={quickTaskName}
-                  onChange={(e) => setQuickTaskName(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                  placeholder="Task name"
-                />
-                <textarea
-                  value={quickTaskDescription}
-                  onChange={(e) => setQuickTaskDescription(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                  placeholder="Task description"
-                  rows={3}
-                />
-                <button
-                  type="button"
-                  onClick={createQuickTask}
-                  className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-                >
-                  Add quick task
-                </button>
-              </div>
-            </div>
-              </>
-            )}
-
-            {!desktopDockOpen && (
+            ) : (
               <button
                 type="button"
                 onClick={() => setDesktopDockOpen(true)}
