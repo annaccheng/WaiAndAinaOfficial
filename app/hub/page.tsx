@@ -827,7 +827,7 @@ export default function HubSchedulePage() {
   }, [data, weekdayWorkSlots]);
 
   const showStandardSection = true;
-  const basicOnly = true;
+  const basicOnly = false;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
