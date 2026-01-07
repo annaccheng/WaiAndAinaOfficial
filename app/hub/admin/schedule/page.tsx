@@ -169,6 +169,7 @@ export default function AdminScheduleEditorPage() {
   const [saveStatusOpen, setSaveStatusOpen] = useState(true);
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
+  const [desktopDockOpen, setDesktopDockOpen] = useState(true);
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
@@ -1571,9 +1572,13 @@ export default function AdminScheduleEditorPage() {
                                         )}
                                         <button
                                           type="button"
+                                          draggable={false}
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             removeTaskFromCell({ person, slotId: slot.id }, task, idx);
+                                          }}
+                                          onMouseDown={(e) => {
+                                            e.stopPropagation();
                                           }}
                                           className="rounded-full border border-[#d1d4aa] bg-white/80 px-2 py-[1px] text-[10px] font-semibold text-[#a05252] hover:bg-[#f7e3e3]"
                                         >
@@ -1654,9 +1659,22 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:w-[420px]">
-          <div className="space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1">
-            <div className="hidden lg:block">
-              <div className="w-full rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+          <div className="space-y-4 lg:sticky lg:top-24 lg:flex lg:h-[calc(100vh-6rem)] lg:flex-col lg:overflow-y-auto lg:pr-1">
+            <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
+              <span>Task dock</span>
+              <button
+                type="button"
+                onClick={() => setDesktopDockOpen((prev) => !prev)}
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+              >
+                {desktopDockOpen ? "Collapse" : "Expand"}
+              </button>
+            </div>
+
+            {desktopDockOpen && (
+              <>
+                <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:overflow-hidden">
+              <div className="flex-1 rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
                 <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
                   <span>Recurring task dock</span>
                   <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
@@ -1697,7 +1715,7 @@ export default function AdminScheduleEditorPage() {
                     ))}
                   </select>
 
-                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
                     {filteredRecurringTasks.map((task) => {
                       const taskHandled = isTaskHandled(task);
                       return (
@@ -1757,7 +1775,7 @@ export default function AdminScheduleEditorPage() {
                   One-off task dock
                 </div>
                 <div className="space-y-2 p-3 text-sm">
-                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
                     {filteredOneOffTasks.map((task) => {
                       const taskHandled = isTaskHandled(task);
                       return (
@@ -1811,7 +1829,7 @@ export default function AdminScheduleEditorPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
+            <div className="hidden lg:flex lg:flex-1 lg:flex-col rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
               <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
               <p className="mt-1 text-[12px] text-[#6b6d4b]">
                 Adds a one-off task for {selectedDate || "the selected date"}.
@@ -1839,62 +1857,46 @@ export default function AdminScheduleEditorPage() {
                 </button>
               </div>
             </div>
+              </>
+            )}
 
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-              <h3 className="text-sm font-semibold text-[#314123]">Selected slot</h3>
-              {selectedCell ? (
-                <div className="mt-2 space-y-2 text-sm text-[#4b5133]">
-                  <p className="text-[12px] text-[#6b6d4b]">
-                    {selectedCell.person} • {selectedCell.slotLabel}
-                  </p>
-                  <div className="space-y-1">
-                    {getCellValue(selectedCell)?.content.tasks.map((task, idx) => (
-                      <div
-                        key={`${task.id}-${idx}`}
-                        className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-2 py-1"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => loadTaskDetail(task.id, task.name)}
-                          className="text-[12px] font-semibold text-[#2f3b21] underline-offset-2 hover:underline"
-                        >
-                          {task.name}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeTaskFromCell(selectedCell, task, idx)}
-                          className="text-[11px] font-semibold text-[#a05252] hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                    {!getCellValue(selectedCell)?.content.tasks.length && (
-                      <p className="text-[12px] text-[#7a7f54]">No tasks yet. Add one below.</p>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[12px] text-[#5f5a3b]">Add a custom task</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={customTask}
-                        onChange={(e) => setCustomTask(e.target.value)}
-                        className="flex-1 rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                        placeholder="e.g., Cow Milking"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleCustomAdd}
-                        className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-2 text-[12px] text-[#7a7f54]">Select a cell to edit tasks.</p>
-              )}
+            {!desktopDockOpen && (
+              <button
+                type="button"
+                onClick={() => setDesktopDockOpen(true)}
+                className="hidden w-full rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm lg:block"
+              >
+                Open task dock
+              </button>
+            )}
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md lg:hidden">
+              <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
+              <p className="mt-1 text-[12px] text-[#6b6d4b]">
+                Adds a one-off task for {selectedDate || "the selected date"}.
+              </p>
+              <div className="mt-2 space-y-2">
+                <input
+                  value={quickTaskName}
+                  onChange={(e) => setQuickTaskName(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                  placeholder="Task name"
+                />
+                <textarea
+                  value={quickTaskDescription}
+                  onChange={(e) => setQuickTaskDescription(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                  placeholder="Task description"
+                  rows={3}
+                />
+                <button
+                  type="button"
+                  onClick={createQuickTask}
+                  className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+                >
+                  Add quick task
+                </button>
+              </div>
             </div>
 
             {taskDetail && (
@@ -2342,92 +2344,6 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
-      <div className="hidden lg:block">
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d0c9a4] bg-white/95 shadow-[0_-8px_20px_rgba(0,0,0,0.08)]">
-          <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-3">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
-                Task dock
-              </div>
-              <div className="flex gap-2 rounded-full bg-[#f6f1dd] p-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
-                <button
-                  type="button"
-                  onClick={() => setMobileDockTab("recurring")}
-                  className={`rounded-full px-3 py-1 transition ${
-                    mobileDockTab === "recurring" ? "bg-white shadow" : ""
-                  }`}
-                >
-                  Recurring
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMobileDockTab("oneOff")}
-                  className={`rounded-full px-3 py-1 transition ${
-                    mobileDockTab === "oneOff" ? "bg-white shadow" : ""
-                  }`}
-                >
-                  One-off
-                </button>
-              </div>
-            </div>
-            <div className="max-h-40 overflow-y-auto pr-1 text-sm">
-              {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
-                (task) => {
-                  const taskHandled = isTaskHandled(task);
-                  return (
-                    <button
-                      key={`bottom-${task.id}`}
-                      draggable
-                      onDragStart={(e) => {
-                        setDraggingTask({ taskId: task.id, taskName: task.name });
-                        e.dataTransfer.setData("text/task-name", task.name);
-                        e.dataTransfer.setData("text/plain", task.name);
-                        e.dataTransfer.setData(
-                          DRAG_DATA_TYPE,
-                          JSON.stringify({ taskId: task.id, taskName: task.name })
-                        );
-                        e.dataTransfer.effectAllowed = "copyMove";
-                      }}
-                      onDragEnd={() => {
-                        setDraggingTask(null);
-                        setPendingInsert(null);
-                      }}
-                      onClick={() => loadTaskDetail(task.id, task.name)}
-                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                        task.typeColor
-                      )}`}
-                    >
-                      <div>
-                        <div className="font-semibold">{task.name}</div>
-                        <div className="text-[11px] text-[#5f5a3b]">
-                          {task.type || "Uncategorized"}
-                          {task.status ? ` • ${task.status}` : ""}
-                          {task.priority ? ` • ${task.priority}` : ""}
-                        </div>
-                      </div>
-                      <span
-                        className={
-                          taskHandled.hasEnoughPeople
-                            ? "text-2xl text-emerald-600"
-                            : "text-xl"
-                        }
-                      >
-                        {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                      </span>
-                    </button>
-                  );
-                }
-              )}
-              {mobileDockTab === "recurring" && !filteredRecurringTasks.length && (
-                <p className="text-[12px] text-[#7a7f54]">No recurring tasks for this date.</p>
-              )}
-              {mobileDockTab === "oneOff" && !filteredOneOffTasks.length && (
-                <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
