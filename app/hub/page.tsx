@@ -157,10 +157,6 @@ export default function HubSchedulePage() {
   const [knownUsers, setKnownUsers] = useState<string[]>([]);
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
-  const [activeView, setActiveView] = useState<"schedule" | "myTasks">(
-    "myTasks"
-  );
-  const [showMineOnly, setShowMineOnly] = useState(false);
 
   const [taskMetaMap, setTaskMetaMap] = useState<Record<string, TaskMeta>>({});
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
@@ -695,16 +691,18 @@ export default function HubSchedulePage() {
         }
         const json = await res.json();
         setData(json);
-        setError(json.message || null);
+        setError(null);
       } catch (e) {
         console.error(e);
-        setError("Unable to load schedule. Please refresh when online.");
+        setError(
+          data ? null : "Unable to load schedule. Please refresh when online."
+        );
       } finally {
         scheduleFetchInFlight.current = false;
         if (showLoading) setLoading(false);
       }
     },
-    [scheduleRefreshIntervalMs]
+    [data, scheduleRefreshIntervalMs]
   );
 
   useEffect(() => {
@@ -829,7 +827,7 @@ export default function HubSchedulePage() {
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
-    if (!showMineOnly || !currentUserName) return data;
+    if (!currentUserName) return data;
 
     const matchIndex = data.people.findIndex(
       (p) => p.toLowerCase() === currentUserName.toLowerCase()
@@ -839,12 +837,21 @@ export default function HubSchedulePage() {
       return data;
     }
 
+    const reorderedPeople = [
+      data.people[matchIndex],
+      ...data.people.filter((_, idx) => idx !== matchIndex),
+    ];
+    const reorderedCells = [
+      data.cells[matchIndex],
+      ...data.cells.filter((_, idx) => idx !== matchIndex),
+    ];
+
     return {
       ...data,
-      people: [data.people[matchIndex]],
-      cells: [data.cells[matchIndex]],
+      people: reorderedPeople,
+      cells: reorderedCells,
     };
-  }, [data, showMineOnly, currentUserName]);
+  }, [data, currentUserName]);
 
   const scheduleDataToRender = scheduleDataForView || data;
 
@@ -1564,45 +1571,13 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
           </section>
         )}
 
-        {!isExternalVolunteer && (
-          <section>
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-4">
-              Meal Assignments
-            </h2>
-
-            {loading && (
-              <p className="text-sm text-[#7a7f54]">Loading schedule…</p>
-            )}
-            {error && <p className="text-sm text-red-700">{error}</p>}
-
-            {!loading && !error && visibleMealSlots.length === 0 && (
-              <p className="text-sm text-[#7a7f54]">No meal assignments found.</p>
-            )}
-
-            <div className="space-y-4">
-              {visibleMealSlots.map((slot) => (
-                <MealBlock
-                  key={slot.id}
-                  slot={slot}
-                  assignments={mealAssignments.filter(
-                    (a) => a.slotId === slot.id
-                  )}
-                  currentUserName={currentUserName}
-                  taskMetaMap={taskMetaMap}
-                  onTaskClick={handleTaskClick}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         {showStandardSection && (
           <section className="space-y-3">
             <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
-              Today&apos;s Schedule Snapshot
+              My Tasks
             </h2>
             <p className="text-sm text-[#7a7f54]">
-              Quick view for {currentUserName || "you"} on {scheduleDateLabel || "today"}.
+              Your assigned tasks for {scheduleDateLabel || "today"}.
             </p>
             {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
               <p className="mt-1 text-xs font-semibold text-red-700">
@@ -1611,29 +1586,19 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
             ) : null}
             <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
               {loading && (
-                <p className="text-sm text-[#7a7f54]">Loading today&apos;s assignments…</p>
+                <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
               )}
-              {!loading && !error && todayAssignments.length === 0 && (
-                <p className="text-sm text-[#7a7f54]">
-                  No tasks assigned to you yet today.
-                </p>
+              {!loading && !error && (
+                <MyTasksList
+                  tasks={myTasks}
+                  onTaskClick={handleTaskClick}
+                  statusMap={taskMetaMap}
+                  statusColors={statusColorLookup}
+                  currentUserName={currentUserName}
+                />
               )}
-              {!loading && !error && todayAssignments.length > 0 && (
-                <div className="space-y-2">
-                  {todayAssignments.map((entry) => (
-                    <div
-                      key={entry.slot.id}
-                      className="rounded-md border border-[#e2d7b5] bg-[#f9f6e7] px-3 py-2 text-sm"
-                    >
-                      <div className="font-semibold text-[#314123]">
-                        {entry.slot.label}
-                      </div>
-                      <div className="text-[#5f5a3b]">
-                        {entry.tasks.join(", ")}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {!loading && error && (
+                <p className="text-sm text-red-700">{error}</p>
               )}
             </div>
           </section>
@@ -1660,64 +1625,28 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setActiveView("schedule")}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] border transition ${
-                  activeView === "schedule"
-                    ? "bg-[#a0b764] text-white border-[#8fae4c]"
-                    : "bg-white text-[#5d7f3b] border-[#d0c9a4]"
-                }`}
-              >
-                Schedule
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView("myTasks")}
-                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] border transition ${
-                  activeView === "myTasks"
-                    ? "bg-[#a0b764] text-white border-[#8fae4c]"
-                    : "bg-white text-[#5d7f3b] border-[#d0c9a4]"
-                }`}
+                  onClick={() => scrollSchedule("left")}
+                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
+                  aria-label="Scroll schedule left"
                 >
-                  My Tasks
+                  ←
                 </button>
-                <label className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm">
-                  <input
-                    type="checkbox"
-                    checked={showMineOnly}
-                    onChange={(e) => setShowMineOnly(e.target.checked)}
-                    className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
-                  />
-                  Only me
-                </label>
+                <button
+                  type="button"
+                  onClick={() => scrollSchedule("right")}
+                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
+                  aria-label="Scroll schedule right"
+                >
+                  →
+                </button>
                 <button
                   type="button"
                   onClick={() => loadSchedule({ showLoading: true, force: true })}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
                 >
                   Refresh
                 </button>
               </div>
-
-              {activeView === "schedule" && (
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => scrollSchedule("left")}
-                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
-                    aria-label="Scroll schedule left"
-                  >
-                    ←
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => scrollSchedule("right")}
-                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
-                    aria-label="Scroll schedule right"
-                  >
-                    →
-                  </button>
-                </div>
-              )}
 
               <div className="mt-3 rounded-lg bg-[#a0b764] px-3 py-3">
                 <div className="rounded-md bg-[#f8f4e3]">
@@ -1735,8 +1664,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                 {!loading &&
                   !error &&
                   scheduleDataToRender &&
-                  weekdayWorkSlots.length > 0 &&
-                  activeView === "schedule" && (
+                  weekdayWorkSlots.length > 0 && (
                     <>
                       <div className="relative">
                         <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-2 sm:hidden">
@@ -1778,23 +1706,8 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                 {!loading &&
                   !error &&
                   data &&
-                  activeView === "myTasks" && (
-                    <div className="px-4 py-4">
-                      <MyTasksList
-                        tasks={myTasks}
-                        onTaskClick={handleTaskClick}
-                        statusMap={taskMetaMap}
-                        statusColors={statusColorLookup}
-                        currentUserName={currentUserName}
-                      />
-                    </div>
-                  )}
-
-                {!loading &&
-                  !error &&
-                  data &&
                   weekdayWorkSlots.length === 0 &&
-                  activeView === "schedule" && (
+                  (
                   <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
                     No work slots defined in this schedule.
                   </div>

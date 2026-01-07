@@ -97,6 +97,18 @@ export default function HomePage() {
     loadUsersList();
   }, []);
 
+  function handleNameChange(value: string) {
+    setSelectedName(value);
+    if (value) setNumber("");
+    if (loginError) setLoginError(null);
+  }
+
+  function handleNumberChange(value: string) {
+    setNumber(value);
+    if (value) setSelectedName("");
+    if (loginError) setLoginError(null);
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if ((!selectedName && !number) || !password) {
@@ -524,7 +536,7 @@ export default function HomePage() {
                 <select
                   id="name"
                   value={selectedName}
-                  onChange={(e) => setSelectedName(e.target.value)}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   disabled={usersLoading || !!usersError || users.length === 0}
                   className="w-full rounded-md border border-[#c8cba0] bg-white px-4 py-3 text-sm font-medium text-[#3b4224] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c] focus:border-[#8fae4c] disabled:cursor-not-allowed disabled:opacity-70"
                 >
@@ -553,7 +565,7 @@ export default function HomePage() {
                 <input
                   id="number"
                   value={number}
-                  onChange={(e) => setNumber(e.target.value)}
+                  onChange={(e) => handleNumberChange(e.target.value)}
                   className="w-full rounded-md border border-[#c8cba0] bg-white px-4 py-3 text-sm font-medium text-[#3b4224] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c] focus:border-[#8fae4c]"
                   placeholder="Phone or member number"
                 />

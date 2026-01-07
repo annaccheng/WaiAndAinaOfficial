@@ -551,59 +551,56 @@ export default function TaskEditorPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="mt-3 space-y-3">
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 p-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-4 py-3 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[#4b5133]">
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                Recurring
+                            <p className="mt-1 text-xs text-[#6b6d4b]">
+                              {task.description || "No description provided."}
+                            </p>
+                          </div>
+                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                            <div className="flex flex-col items-end gap-1 text-right">
+                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                                {task.status}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                Edit {recurringEditDate}
-                              </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                {task.priority || "Priority unset"}
-                              </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                {task.task_type?.name || "Unassigned"}
-                              </span>
+                              <div className="text-[10px] text-[#4b5133]">
+                                <div>{task.priority || "Priority unset"}</div>
+                                <div>{task.task_type?.name || "Unassigned"}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeletePrompt({
+                                    task,
+                                    mode: "single",
+                                    occurrenceDate: recurringEditDate,
+                                  })
+                                }
+                                className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
+                              >
+                                ✕
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditor(task, recurringEditDate)}
+                                className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                              >
+                                Edit
+                              </button>
                             </div>
                           </div>
-                          <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                            {task.status}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeletePrompt({
-                                task,
-                                mode: "single",
-                                occurrenceDate: recurringEditDate,
-                              })
-                            }
-                            className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
-                          >
-                            ✕
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditor(task, recurringEditDate)}
-                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
-                          >
-                            Edit
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -622,59 +619,56 @@ export default function TaskEditorPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="mt-3 space-y-3">
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 p-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-4 py-3 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[#4b5133]">
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                One-off
+                            <p className="mt-1 text-xs text-[#6b6d4b]">
+                              {task.description || "No description provided."}
+                            </p>
+                          </div>
+                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                            <div className="flex flex-col items-end gap-1 text-right">
+                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                                {task.status}
                               </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                {task.occurrence_date || task.origin_date || "No date set"}
-                              </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                {task.priority || "Priority unset"}
-                              </span>
-                              <span className="rounded-full bg-white/70 px-2 py-[2px]">
-                                {task.task_type?.name || "Unassigned"}
-                              </span>
+                              <div className="text-[10px] text-[#4b5133]">
+                                <div>{task.priority || "Priority unset"}</div>
+                                <div>{task.task_type?.name || "Unassigned"}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeletePrompt({
+                                    task,
+                                    mode: "single",
+                                    occurrenceDate: task.occurrence_date || null,
+                                  })
+                                }
+                                className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
+                              >
+                                ✕
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditor(task)}
+                                className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                              >
+                                Edit
+                              </button>
                             </div>
                           </div>
-                          <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                            {task.status}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeletePrompt({
-                                task,
-                                mode: "single",
-                                occurrenceDate: task.occurrence_date || null,
-                              })
-                            }
-                            className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
-                          >
-                            ✕
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditor(task)}
-                            className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
-                          >
-                            Edit
-                          </button>
                         </div>
                       </div>
                     ))}

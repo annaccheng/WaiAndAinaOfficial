@@ -114,3 +114,24 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Unable to update user" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => null);
+  const { id } = body || {};
+
+  if (!id) {
+    return NextResponse.json({ error: "Missing user id" }, { status: 400 });
+  }
+
+  try {
+    await supabaseRequest("users", {
+      method: "DELETE",
+      query: { id: `eq.${id}` },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Failed to delete user:", err);
+    return NextResponse.json({ error: "Unable to delete user" }, { status: 500 });
+  }
+}
