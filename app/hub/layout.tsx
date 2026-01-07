@@ -36,6 +36,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
   const [mobileWorkOpen, setMobileWorkOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [newlyOnline, setNewlyOnline] = useState<Record<string, boolean>>({});
+  const heartbeatEnabled = false;
 
   const normalizedType = (userType || "").toLowerCase();
   const isExternalVolunteer = normalizedType === "external volunteer";
@@ -126,6 +127,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
   // Heartbeat to keep users marked online across all hub pages
   useEffect(() => {
+    if (!heartbeatEnabled) return undefined;
     if (!name) return undefined;
 
     let cancelled = false;
@@ -187,6 +189,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
   // Poll online roster using heartbeat timestamps
   useEffect(() => {
+    if (!heartbeatEnabled) return undefined;
     let cancelled = false;
 
     const loadOnline = async () => {
@@ -242,7 +245,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [heartbeatEnabled]);
 
   const showOnlineRibbon =
     canAccessWork &&
