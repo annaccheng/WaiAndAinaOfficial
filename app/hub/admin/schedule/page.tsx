@@ -1353,12 +1353,12 @@ export default function AdminScheduleEditorPage() {
           )}
           <div
             className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
-              scheduleLoading || pendingCells.size ? "pointer-events-none opacity-80" : ""
+              scheduleLoading ? "pointer-events-none opacity-80" : ""
             }`}
           >
-            {(scheduleLoading || pendingCells.size) && (
+            {scheduleLoading && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
-                {scheduleLoading ? "Loading schedule…" : "Saving…"}
+                Loading schedule…
               </div>
             )}
             <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
@@ -1428,7 +1428,7 @@ export default function AdminScheduleEditorPage() {
                       return (
                         <td
                           key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] p-1 align-top transition-colors duration-150 ${
+                          className={`border border-[#d1d4aa] min-h-[44px] p-1 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
                           } ${saving ? "animate-pulse" : ""} ${
                             cellExists ? "" : "opacity-60"
@@ -1441,6 +1441,10 @@ export default function AdminScheduleEditorPage() {
                             if (pendingInsert?.person === person && pendingInsert.slotId === slot.id) {
                               setPendingInsert(null);
                             }
+                          }}
+                          onDrop={(e) => {
+                            handleDropEvent(e, person, slot, content.tasks.length);
+                            setPendingInsert(null);
                           }}
                         >
                           <div
