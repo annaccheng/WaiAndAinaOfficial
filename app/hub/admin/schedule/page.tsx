@@ -855,26 +855,20 @@ export default function AdminScheduleEditorPage() {
 
   const removeTaskFromCell = useCallback(
     (cell: { person: string; slotId: string }, task: ScheduledTask, index?: number) => {
-      const updates: { person: string; slotId: string; content: CellContent }[] = [];
-
-      setScheduleData((prev) => {
-        if (!prev) return prev;
-        const coord = findCoord(cell.person, cell.slotId, prev);
-        if (!coord) return prev;
-        const nextCells = prev.cells.map((row) => row.map((entry) => ({ ...entry, tasks: [...entry.tasks] })));
-        const content = nextCells[coord.row][coord.col];
-        const idx = index ?? content.tasks.findIndex((t) => t.id === task.id);
-        if (idx < 0) return prev;
-
-        content.tasks.splice(idx, 1);
-        updates.push({ person: cell.person, slotId: cell.slotId, content });
-
-        return { ...prev, cells: nextCells };
-      });
-
-      updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
+      if (!scheduleData) return;
+      const coord = findCoord(cell.person, cell.slotId, scheduleData);
+      if (!coord) return;
+      const nextCells = scheduleData.cells.map((row) =>
+        row.map((entry) => ({ ...entry, tasks: [...entry.tasks] }))
+      );
+      const content = nextCells[coord.row][coord.col];
+      const idx = index ?? content.tasks.findIndex((t) => t.id === task.id);
+      if (idx < 0) return;
+      content.tasks.splice(idx, 1);
+      setScheduleData({ ...scheduleData, cells: nextCells });
+      persistCell(cell.person, cell.slotId, content);
     },
-    [findCoord, persistCell]
+    [findCoord, persistCell, scheduleData]
   );
 
   const handleDropEvent = useCallback(
