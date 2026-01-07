@@ -161,6 +161,7 @@ export default function HubSchedulePage() {
   const [taskMetaMap, setTaskMetaMap] = useState<Record<string, TaskMeta>>({});
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
   const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
+  const [viewMode, setViewMode] = useState<"tasks" | "schedule">("tasks");
   const scheduleFetchInFlight = useRef(false);
   const scheduleLastFetchAt = useRef(0);
   const scheduleRefreshIntervalMs = 120_000;
@@ -1425,14 +1426,24 @@ export default function HubSchedulePage() {
       }
 
       const json = await res.json();
+      const rawLinks = Array.isArray(json.links) ? json.links : [];
+      const normalizedLinks = rawLinks.map((link: string | { label?: string; url?: string }) => {
+        if (typeof link === "string") {
+          return { label: link, url: link };
+        }
+        return { label: link.label || link.url || "", url: link.url || link.label || "" };
+      });
+      const extraNotesValue = Array.isArray(json.extraNotes)
+        ? json.extraNotes.join("\n")
+        : json.extraNotes || "";
       const detail: TaskDetails = {
         name: json.name || taskName,
         description: json.description || "",
-        extraNotes: json.extraNotes || "",
+        extraNotes: extraNotesValue,
         status: json.status || "",
         comments: json.comments || [],
         media: json.media || json.photos || [],
-        links: json.links || [],
+        links: normalizedLinks,
         taskType: json.taskType || { name: "", color: "default" },
         estimatedTime: json.estimatedTime || "",
       };
@@ -1853,46 +1864,42 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
 
         {showStandardSection && (
           <section className="space-y-3">
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
-              My Tasks
-            </h2>
-            <p className="text-sm text-[#7a7f54]">
-              Your assigned tasks for {scheduleDateLabel || "today"}.
-            </p>
-            {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
-              <p className="mt-1 text-xs font-semibold text-red-700">
-                {scheduleOutdatedMessage}
-              </p>
-            ) : null}
-            <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-              {loading && (
-                <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
-              )}
-              {!loading && !error && (
-                <MyTasksList
-                  tasks={myTasks}
-                  onTaskClick={handleTaskClick}
-                  statusMap={taskMetaMap}
-                  statusColors={statusColorLookup}
-                  currentUserName={currentUserName}
-                />
-              )}
-              {!loading && error && (
-                <p className="text-sm text-red-700">{error}</p>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
+                  {viewMode === "tasks" ? "My Tasks" : "Today's Schedule"}
+                </h2>
+                <p className="text-sm text-[#7a7f54]">
+                  {viewMode === "tasks"
+                    ? `Your assigned tasks for ${scheduleDateLabel || "today"}.`
+                    : "Click any task to see its details and who you are assigned with."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("tasks")}
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] shadow-sm ${
+                    viewMode === "tasks"
+                      ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+                      : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+                  }`}
+                >
+                  My Tasks
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("schedule")}
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] shadow-sm ${
+                    viewMode === "schedule"
+                      ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+                      : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+                  }`}
+                >
+                  Today&apos;s Schedule
+                </button>
+              </div>
             </div>
-          </section>
-        )}
-
-        {showStandardSection && (
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
-              {scheduleTitle}
-            </h2>
-            <p className="text-sm text-[#7a7f54]">
-              Click any task to see its details, description, and who you are
-              assigned with. Evening shift columns now sit beside the daytime schedule for a single view.
-            </p>
             {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
               <p className="mt-1 text-xs font-semibold text-red-700">
                 {scheduleOutdatedMessage}
@@ -1901,151 +1908,119 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
             {data?.message && !loading && (
               <p className="mt-1 text-xs text-[#7a7f54]">{data.message}</p>
             )}
-
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => scrollSchedule("left")}
-                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
-                  aria-label="Scroll schedule left"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollSchedule("right")}
-                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
-                  aria-label="Scroll schedule right"
-                >
-                  →
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadSchedule({ showLoading: true, force: true })}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
-                >
-                  Refresh
-                </button>
+            {viewMode === "tasks" ? (
+              <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                {loading && (
+                  <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+                )}
+                {!loading && !error && (
+                  <MyTasksList
+                    tasks={myTasks}
+                    onTaskClick={handleTaskClick}
+                    statusMap={taskMetaMap}
+                    statusColors={statusColorLookup}
+                    currentUserName={currentUserName}
+                  />
+                )}
+                {!loading && error && (
+                  <p className="text-sm text-red-700">{error}</p>
+                )}
               </div>
-
-              <div className="mt-3 rounded-lg bg-[#a0b764] px-3 py-3">
-                <div className="rounded-md bg-[#f8f4e3]">
-                  {loading && (
-                  <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
-                    Loading schedule…
-                  </div>
-                )}
-                {error && (
-                  <div className="px-4 py-6 text-sm text-center text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {!loading &&
-                  !error &&
-                  scheduleDataToRender &&
-                  weekdayWorkSlots.length > 0 && (
-                    <>
-                      <div className="relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-2 sm:hidden">
-                          <button
-                            type="button"
-                            onClick={() => scrollSchedule("left")}
-                            className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:-translate-x-0.5 transition"
-                            aria-label="Scroll schedule left"
-                          >
-                            ←
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => scrollSchedule("right")}
-                            className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:translate-x-0.5 transition"
-                            aria-label="Scroll schedule right"
-                          >
-                            →
-                          </button>
-                        </div>
-                        <div
-                          ref={scheduleScrollRef}
-                          className="overflow-x-auto scroll-smooth pb-2"
-                        >
-                          <ScheduleGrid
-                            data={scheduleDataToRender}
-                            workSlots={weekdayWorkSlots}
-                            currentUserName={currentUserName}
-                            currentSlotId={currentSlotId}
-                            onTaskClick={handleTaskClick}
-                            statusMap={taskMetaMap}
-                            statusColors={statusColorLookup}
-                          />
-                        </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollSchedule("left")}
+                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
+                    aria-label="Scroll schedule left"
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollSchedule("right")}
+                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
+                    aria-label="Scroll schedule right"
+                  >
+                    →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadSchedule({ showLoading: true, force: true })}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="mt-3 rounded-lg bg-[#a0b764] px-3 py-3">
+                  <div className="rounded-md bg-[#f8f4e3]">
+                    {loading && (
+                      <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
+                        Loading schedule…
                       </div>
-                    </>
-                  )}
-
-                {!loading &&
-                  !error &&
-                  data &&
-                  weekdayWorkSlots.length === 0 &&
-                  (
-                  <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
-                    No work slots defined in this schedule.
+                    )}
+                    {error && (
+                      <div className="px-4 py-6 text-sm text-center text-red-700">
+                        {error}
+                      </div>
+                    )}
+                    {!loading &&
+                      !error &&
+                      scheduleDataToRender &&
+                      weekdayWorkSlots.length > 0 && (
+                        <>
+                          <div className="relative">
+                            <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-2 sm:hidden">
+                              <button
+                                type="button"
+                                onClick={() => scrollSchedule("left")}
+                                className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:-translate-x-0.5 transition"
+                                aria-label="Scroll schedule left"
+                              >
+                                ←
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => scrollSchedule("right")}
+                                className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:translate-x-0.5 transition"
+                                aria-label="Scroll schedule right"
+                              >
+                                →
+                              </button>
+                            </div>
+                            <div
+                              ref={scheduleScrollRef}
+                              className="overflow-x-auto scroll-smooth pb-2"
+                            >
+                              <ScheduleGrid
+                                data={scheduleDataToRender}
+                                workSlots={weekdayWorkSlots}
+                                currentUserName={currentUserName}
+                                currentSlotId={currentSlotId}
+                                onTaskClick={handleTaskClick}
+                                statusMap={taskMetaMap}
+                                statusColors={statusColorLookup}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    {!loading &&
+                      !error &&
+                      data &&
+                      weekdayWorkSlots.length === 0 && (
+                        <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
+                          No work slots defined in this schedule.
+                        </div>
+                      )}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </section>
         )}
 
-        {isExternalVolunteer && (
-          <section className="space-y-3">
-            <div className="rounded-lg bg-[#a0b764] px-3 py-3 text-sm text-[#f8f4e3] shadow">
-              Weekend assignments available for External Volunteers are listed below.
-            </div>
-          </section>
-        )}
-
-        {!loading &&
-          !error &&
-          data &&
-          showEveningSection && (
-            <EveningScheduleTable
-              title="Evening Schedule"
-              description="Evening shift coverage laid out by weekday with a rollup of shared evening tasks."
-              dayRows={eveningScheduleSummary.dayRows}
-              indexTasks={eveningScheduleSummary.indexTasks}
-              onTaskClick={handleTaskClick}
-              taskMetaMap={taskMetaMap}
-              statusColors={statusColorLookup}
-              currentUserName={currentUserName}
-            />
-          )}
-
-        {!loading &&
-          !error &&
-          data &&
-          showWeekendSection && (
-            <WeekendScheduleTable
-              title="Weekend Schedule"
-              description="Weekend shift coverage with assignments by shift."
-              slotRows={weekendScheduleSummary.slotRows}
-              indexTasks={weekendScheduleSummary.indexTasks}
-              onTaskClick={handleTaskClick}
-              taskMetaMap={taskMetaMap}
-              statusColors={statusColorLookup}
-              currentUserName={currentUserName}
-            />
-          )}
-
-        {isExternalVolunteer &&
-          !showWeekendSection &&
-          !loading &&
-          !error &&
-          data && (
-            <p className="text-sm text-[#7a7f54]">
-              No weekend assignments are currently listed for you.
-            </p>
-          )}
       </div>
 
       {/* Task detail modal */}
