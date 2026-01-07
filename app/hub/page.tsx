@@ -197,6 +197,7 @@ export default function HubSchedulePage() {
   const [requestTypeOptions, setRequestTypeOptions] = useState<string[]>([]);
   const [requestType, setRequestType] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const reportEnabled = false;
 
   useEffect(() => {
     if (!animalOverlay) return undefined;
@@ -1235,6 +1236,10 @@ export default function HubSchedulePage() {
   }, [data, currentUserName]);
 
   useEffect(() => {
+    if (!reportEnabled) {
+      setReportOpen(false);
+      return;
+    }
     if (!reportRows.length) return;
     setReportStatus((prev) => {
       const next = { ...prev };
@@ -1249,6 +1254,7 @@ export default function HubSchedulePage() {
   }, [reportRows, taskMetaMap]);
 
   useEffect(() => {
+    if (!reportEnabled) return;
     if (!data || !currentUserName || scheduleReportFlag) return;
     if (!data.scheduleDate) return;
     const now = new Date();
@@ -2140,7 +2146,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
         </div>
       )}
 
-      {reportOpen && (
+      {reportEnabled && reportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#d0c9a4] bg-[#f8f4e3] p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
