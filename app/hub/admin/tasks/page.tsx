@@ -219,8 +219,13 @@ export default function TaskEditorPage() {
       if (task.recurring && occurrenceDate && seriesId) {
         void loadOccurrence(seriesId, occurrenceDate);
       }
-      if (task.recurring && task.occurrence_date) {
-        setFutureFromDate(task.occurrence_date);
+      if (task.recurring) {
+        const nextFuture =
+          occurrenceDate ||
+          task.occurrence_date ||
+          task.origin_date ||
+          recurringEditDate;
+        setFutureFromDate(nextFuture || "");
       }
     } else {
       setEditing(null);
@@ -264,6 +269,19 @@ export default function TaskEditorPage() {
       setMessage("Set an end date so recurring tasks create all occurrences.");
       return;
     }
+    const isEditingRecurringSeries = Boolean(editing?.recurring || editing?.parent_task_id);
+    const effectiveApplyTo = isEditingRecurringSeries ? applyTo : "single";
+    const effectiveOccurrenceDate =
+      futureFromDate ||
+      draft.occurrence_date ||
+      editing?.occurrence_date ||
+      draft.origin_date ||
+      editing?.origin_date ||
+      "";
+    if (isEditingRecurringSeries && applyTo === "future" && !effectiveOccurrenceDate) {
+      setMessage("Choose the start date for future edits.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
 
@@ -302,9 +320,9 @@ export default function TaskEditorPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: editing.id,
-            applyTo,
-            occurrenceDate: futureFromDate || editing.occurrence_date,
-            deleteOccurrences,
+            applyTo: effectiveApplyTo,
+            occurrenceDate: effectiveOccurrenceDate || null,
+            deleteOccurrences: effectiveApplyTo === "single" ? false : deleteOccurrences,
             ...payload,
           }),
         });
@@ -986,6 +1004,9 @@ export default function TaskEditorPage() {
                     You are editing a single occurrence from a recurring series.
                   </p>
                 )}
+                <p className="mt-1 text-[11px] text-[#6f754f]">
+                  Choose how far the edits should propagate across the series.
+                </p>
                 <div className="mt-2">
                   <label className="text-[11px] uppercase text-[#6b6f4c]">
                     Future edits start from
@@ -996,6 +1017,9 @@ export default function TaskEditorPage() {
                     onChange={(e) => setFutureFromDate(e.target.value)}
                     className="mt-1 w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                   />
+                  <p className="mt-1 text-[10px] text-[#6f754f]">
+                    If blank, we use the current occurrence date.
+                  </p>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {["single", "future", "all"].map((option) => (
@@ -1017,6 +1041,15 @@ export default function TaskEditorPage() {
                     </button>
                   ))}
                 </div>
+                <p className="mt-2 text-[11px] text-[#6f754f]">
+                  Current edit scope:{" "}
+                  {applyTo === "single"
+                    ? "only this occurrence"
+                    : applyTo === "future"
+                      ? "this occurrence and all future dates"
+                      : "entire series"}
+                  .
+                </p>
                 {!draft.recurring && (
                   <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#4b5133]">
                     <input

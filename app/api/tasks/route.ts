@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseRequest } from "@/lib/supabase";
+import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
 function buildRangeFilter(start?: string, end?: string) {
   if (!start && !end) return {};
@@ -10,6 +10,12 @@ function buildRangeFilter(start?: string, end?: string) {
 }
 
 export async function GET(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { tasks: [], error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") || "";
   const type = searchParams.get("type") || "";
@@ -55,6 +61,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
   const body = await req.json().catch(() => null);
   if (!body?.name) {
     return NextResponse.json({ error: "Missing name" }, { status: 400 });
@@ -213,6 +225,12 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
   const body = await req.json().catch(() => null);
   const { id, applyTo = "single", occurrenceDate, deleteOccurrences } = body || {};
 
@@ -328,6 +346,12 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
   const body = await req.json().catch(() => null);
   const { id, applyTo = "single", occurrenceDate } = body || {};
 
