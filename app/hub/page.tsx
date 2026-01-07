@@ -164,6 +164,7 @@ export default function HubSchedulePage() {
   const scheduleFetchInFlight = useRef(false);
   const scheduleLastFetchAt = useRef(0);
   const scheduleRefreshIntervalMs = 120_000;
+  const scheduleAutoRefreshEnabled = false;
 
   // Modal state
   const [modalTask, setModalTask] = useState<TaskClickPayload | null>(null);
@@ -707,6 +708,10 @@ export default function HubSchedulePage() {
   );
 
   useEffect(() => {
+    if (!scheduleAutoRefreshEnabled) {
+      loadSchedule({ showLoading: true, force: true });
+      return;
+    }
     loadSchedule({ showLoading: true, force: true });
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -723,7 +728,7 @@ export default function HubSchedulePage() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loadSchedule]);
+  }, [loadSchedule, scheduleAutoRefreshEnabled]);
 
   // Preload task status/description for tagging
   useEffect(() => {
