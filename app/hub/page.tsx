@@ -696,15 +696,13 @@ export default function HubSchedulePage() {
         setError(null);
       } catch (e) {
         console.error(e);
-        setError(
-          data ? null : "Unable to load schedule. Please refresh when online."
-        );
+        setError("Unable to load schedule. Please refresh when online.");
       } finally {
         scheduleFetchInFlight.current = false;
         setLoading(false);
       }
     },
-    [data, scheduleRefreshIntervalMs]
+    [scheduleRefreshIntervalMs]
   );
 
   useEffect(() => {
