@@ -824,6 +824,7 @@ export default function HubSchedulePage() {
   }, [data, weekdayWorkSlots]);
 
   const showStandardSection = true;
+  const basicOnly = true;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -854,6 +855,23 @@ export default function HubSchedulePage() {
   }, [data, currentUserName]);
 
   const scheduleDataToRender = scheduleDataForView || data;
+
+  const basicTasks = useMemo(() => {
+    if (!data || !currentUserName) return [];
+    const rowIndex = data.people.findIndex(
+      (person) => person.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (rowIndex < 0) return [];
+    return data.slots.flatMap((slot, slotIndex) => {
+      const cell = (data.cells[rowIndex]?.[slotIndex] ?? "").trim();
+      if (!cell) return [];
+      return splitCellTasks(cell).map((task) => ({
+        slot: slot.label,
+        timeRange: slot.timeRange,
+        task,
+      }));
+    });
+  }, [currentUserName, data]);
 
   const eveningSlots = useMemo(
     () =>
@@ -1547,6 +1565,191 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
     );
     return () => clearInterval(interval);
   }, [modalIsMeal, modalTask]);
+
+  if (basicOnly) {
+    return (
+      <div className="space-y-8">
+        {isAdmin && (
+          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
+                Admin debug console
+              </p>
+              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                Admin only
+              </span>
+            </div>
+            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
+                Diagnostics
+              </p>
+              <ul className="list-disc space-y-1 pl-4">
+                {!currentUserName && (
+                  <li>No session detected. Schedule requests will be anonymous.</li>
+                )}
+                {loading && !data && !error && (
+                  <li>Initial schedule load is still in flight.</li>
+                )}
+                {error && (
+                  <li>Schedule request failed: {error}</li>
+                )}
+                {data?.message && (
+                  <li>{data.message}</li>
+                )}
+                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
+                  <li>
+                    Schedule response is empty. This typically means the schedule date has no
+                    entries or Supabase access is blocked.
+                  </li>
+                )}
+                {scheduleFetchInFlight.current && (
+                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
+                )}
+                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
+                  <li>
+                    Last fetch completed at{" "}
+                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
+                  </li>
+                )}
+                {!scheduleLastFetchAt.current && (
+                  <li>No successful schedule fetch recorded yet.</li>
+                )}
+                {scheduleDateLabel && (
+                  <li>Active schedule date: {scheduleDateLabel}.</li>
+                )}
+              </ul>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
+              {JSON.stringify(
+                {
+                  user: currentUserName,
+                  scheduleDateLabel,
+                  loading,
+                  error,
+                  scheduleMessage: data?.message || null,
+                  peopleCount: data?.people?.length ?? 0,
+                  slotCount: data?.slots?.length ?? 0,
+                  hasData: Boolean(data),
+                  fetchInFlight: scheduleFetchInFlight.current,
+                  lastFetchAt: scheduleLastFetchAt.current
+                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
+                    : null,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </section>
+        )}
+        <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div>
+            <h2 className="text-xl font-semibold text-[#3b4224]">Basic Schedule</h2>
+            <p className="text-sm text-[#7a7f54]">
+              Simple grid view for {scheduleDateLabel || "today"}.
+            </p>
+          </div>
+          {loading && (
+            <p className="text-sm text-[#7a7f54]">Loading schedule…</p>
+          )}
+          {!loading && error && (
+            <p className="text-sm text-red-700">{error}</p>
+          )}
+          {!loading && !error && data?.message && (
+            <p className="text-sm text-[#6a6748]">{data.message}</p>
+          )}
+          {!loading && !error && data && data.slots.length > 0 && data.people.length > 0 && (
+            <div className="overflow-auto rounded-lg border border-[#e2dbc0] bg-white">
+              <table className="min-w-full border-collapse text-sm">
+                <thead className="bg-[#efe7cf]">
+                  <tr>
+                    <th className="min-w-[160px] border border-[#e0d6b8] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6b7247]">
+                      Person
+                    </th>
+                    {data.slots.map((slot) => (
+                      <th
+                        key={slot.id}
+                        className="min-w-[160px] border border-[#e0d6b8] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
+                      >
+                        <div className="flex flex-col gap-1">
+                          <span>{slot.label}</span>
+                          {slot.timeRange && (
+                            <span className="text-[10px] text-[#7a7f54] normal-case">
+                              {slot.timeRange}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.people.map((person, rowIdx) => (
+                    <tr key={`${person}-${rowIdx}`} className="bg-white">
+                      <td className="border border-[#e0d6b8] px-3 py-2 text-sm font-semibold text-[#3b4224]">
+                        {person}
+                      </td>
+                      {data.slots.map((slot, colIdx) => {
+                        const cell = (data.cells[rowIdx]?.[colIdx] ?? "").trim();
+                        const tasks = splitCellTasks(cell);
+                        return (
+                          <td
+                            key={`${person}-${slot.id}`}
+                            className="border border-[#e0d6b8] px-3 py-2 align-top text-[12px] text-[#4b5133]"
+                          >
+                            {tasks.length ? (
+                              <ul className="space-y-1">
+                                {tasks.map((task, taskIdx) => (
+                                  <li key={`${task}-${taskIdx}`} className="rounded-md bg-white/70 px-2 py-1">
+                                    {taskBaseName(task)}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-[11px] italic text-[#7a7f54]">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading && !error && data && (!data.slots.length || !data.people.length) && (
+            <p className="text-sm text-[#7a7f54]">No schedule data yet.</p>
+          )}
+        </section>
+        <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div>
+            <h2 className="text-xl font-semibold text-[#3b4224]">My Tasks</h2>
+            <p className="text-sm text-[#7a7f54]">
+              Tasks assigned to you for {scheduleDateLabel || "today"}.
+            </p>
+          </div>
+          {loading && (
+            <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+          )}
+          {!loading && !basicTasks.length && (
+            <p className="text-sm text-[#7a7f54]">No tasks assigned yet.</p>
+          )}
+          {!loading && basicTasks.length > 0 && (
+            <ul className="space-y-2">
+              {basicTasks.map((entry, idx) => (
+                <li key={`${entry.slot}-${entry.task}-${idx}`} className="rounded-md border border-[#e2dbc0] bg-white px-3 py-2 text-sm text-[#3b4224]">
+                  <span className="font-semibold">{taskBaseName(entry.task)}</span>
+                  <span className="ml-2 text-xs text-[#7a7f54]">
+                    {entry.slot}
+                    {entry.timeRange ? ` · ${entry.timeRange}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <>
