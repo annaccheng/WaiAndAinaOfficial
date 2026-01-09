@@ -278,7 +278,7 @@ export async function PATCH(req: Request) {
     }
 
     const seriesData = await supabaseRequest<any[]>("tasks", {
-      query: { select: "id,parent_task_id,occurrence_date", id: `eq.${id}`, limit: 1 },
+      query: { select: "id,parent_task_id,occurrence_date,origin_date", id: `eq.${id}`, limit: 1 },
     });
     const target = seriesData?.[0];
     if (!target) {
@@ -286,7 +286,13 @@ export async function PATCH(req: Request) {
     }
 
     const seriesRoot = target.parent_task_id || target.id;
-    const compareDate = occurrenceDate || target.occurrence_date;
+    const compareDate = occurrenceDate || target.occurrence_date || target.origin_date;
+    if (applyTo === "future" && !compareDate) {
+      return NextResponse.json(
+        { error: "Missing occurrence date for future edits." },
+        { status: 400 }
+      );
+    }
 
     const filters: Record<string, string> = {};
     if (applyTo === "all") {

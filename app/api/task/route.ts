@@ -47,7 +47,7 @@ export async function GET(req: Request) {
     const data = await supabaseRequest<any[]>("tasks", {
       query: {
         select:
-          "id,name,description,status,extra_notes,links,estimated_time,recurring,occurrence_date,parent_task_id,task_type:task_types(name,color)",
+          "id,name,description,status,extra_notes,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,task_type:task_types(name,color)",
         ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
         order: "created_at.desc",
         limit: 1,
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
       description: task.description || "",
       extraNotes: task.extra_notes || [],
       status: task.status || "",
-      comments: [],
+      comments: Array.isArray(task.comments) ? task.comments : [],
       media: [],
       links: task.links || [],
       taskType: task.task_type
@@ -125,6 +125,44 @@ export async function PATCH(req: Request) {
   }
 }
 
-export async function POST() {
-  return NextResponse.json({ success: true });
+export async function POST(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
+  const body = await req.json().catch(() => null);
+  const { name, comment } = body || {};
+  if (!name || !comment) {
+    return NextResponse.json({ error: "Missing task name or comment" }, { status: 400 });
+  }
+  try {
+    const tasks = await supabaseRequest<any[]>("tasks", {
+      query: {
+        select: "id,comments",
+        name: `ilike.${name}`,
+        order: "created_at.desc",
+        limit: 1,
+      },
+    });
+    const target = tasks?.[0];
+    if (!target?.id) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+    const existing = Array.isArray(target.comments) ? target.comments : [];
+    const next = [
+      ...existing,
+      { comment: String(comment), time: new Date().toISOString() },
+    ];
+    await supabaseRequest("tasks", {
+      method: "PATCH",
+      query: { id: `eq.${target.id}` },
+      body: { comments: next },
+    });
+    return NextResponse.json({ ok: true, comments: next });
+  } catch (err) {
+    console.error("Failed to add task comment:", err);
+    return NextResponse.json({ error: "Unable to add comment" }, { status: 500 });
+  }
 }

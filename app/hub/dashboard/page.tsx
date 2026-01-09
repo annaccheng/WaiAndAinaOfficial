@@ -125,6 +125,8 @@ export default function WorkDashboardPage() {
   const [statusDraft, setStatusDraft] = useState<string>("");
   const [statusSaving, setStatusSaving] = useState(false);
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
+  const [updateFeed, setUpdateFeed] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<"updates" | "tasks">("updates");
   const previousSnapshotRef = useRef<MiniTask[] | null>(null);
 
   useEffect(() => {
@@ -173,6 +175,18 @@ export default function WorkDashboardPage() {
   useEffect(() => {
     if (!name) {
       return;
+    }
+    try {
+      const cacheKey = `hub-task-cache-${name.toLowerCase()}`;
+      const cached = typeof window !== "undefined" ? localStorage.getItem(cacheKey) : null;
+      if (cached) {
+        const parsed = JSON.parse(cached) as MiniTask[];
+        if (Array.isArray(parsed)) {
+          previousSnapshotRef.current = parsed;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to read cached task snapshot", err);
     }
     const normalizedName = name.toLowerCase();
     async function loadMiniSchedule() {
@@ -294,6 +308,7 @@ export default function WorkDashboardPage() {
 
         const previous = previousSnapshotRef.current;
         const nextAlerts: string[] = [];
+        const nextFeed: string[] = [];
 
         if (previous?.length) {
           const prevMap = new Map(
@@ -308,9 +323,11 @@ export default function WorkDashboardPage() {
             }
             if (prev.status !== task.status) {
               nextAlerts.push(`Status updated: ${task.task} is now "${task.status || "Unassigned"}".`);
+              nextFeed.push(`Status update: ${task.task} → ${task.status || "Unassigned"}.`);
             }
             if (task.commentCount > (prev.commentCount || 0)) {
               nextAlerts.push(`New comments on ${task.task}.`);
+              nextFeed.push(`Comment added on ${task.task}.`);
             }
           });
 
@@ -318,13 +335,23 @@ export default function WorkDashboardPage() {
             const stillAssigned = currentSnapshot.some((entry) => entry.task === task.task);
             if (!stillAssigned) {
               nextAlerts.push(`Task removed: ${task.task}.`);
+              nextFeed.push(`Task removed from schedule: ${task.task}.`);
             }
           });
         }
 
         setAlerts(nextAlerts);
+        setUpdateFeed(nextFeed);
         previousSnapshotRef.current = currentSnapshot;
         setMyTasks(enrichedTasks);
+        try {
+          if (typeof window !== "undefined") {
+            const cacheKey = `hub-task-cache-${normalizedName}`;
+            localStorage.setItem(cacheKey, JSON.stringify(currentSnapshot));
+          }
+        } catch (err) {
+          console.warn("Failed to cache task snapshot", err);
+        }
       } finally {
         setMiniLoading(false);
       }
@@ -382,8 +409,75 @@ export default function WorkDashboardPage() {
           Use the shortcuts below to jump between schedules, requests, guides, and games. The quick toggles above the page also let you swap views instantly.
         </p>
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setViewMode("updates")}
+          className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+            viewMode === "updates"
+              ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+              : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+          }`}
+        >
+          Daily Updates
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("tasks")}
+          className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+            viewMode === "tasks"
+              ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+              : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+          }`}
+        >
+          My Tasks
+        </button>
+      </div>
       <div className="space-y-4">
-        <div className="rounded-3xl border border-[#c8c49c] bg-gradient-to-br from-[#fefcf3] via-[#f7f4e6] to-[#e8eccd] p-6 shadow-md">
+        {viewMode === "updates" && (
+          <div className="rounded-3xl border border-[#c8c49c] bg-gradient-to-br from-[#fefcf3] via-[#f7f4e6] to-[#e8eccd] p-6 shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-3xl">📣</span>
+                <div className="flex flex-col">
+                  <span className="text-2xl font-semibold text-[#3b4224]">Daily updates</span>
+                  <span className="text-xs uppercase tracking-[0.16em] text-[#7a7f54]">
+                    Task activity log
+                  </span>
+                </div>
+              </div>
+              <span className="rounded-full bg-[#eef2d9] text-[#4f5730] px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em]">
+                Today
+              </span>
+            </div>
+            <p className="mt-3 text-sm text-[#4b5133] leading-relaxed">
+              Updates are based on the tasks you are assigned to and recent status or comment changes.
+            </p>
+            <div className="mt-4 rounded-xl border border-[#e2dbc0] bg-white/80 p-4 shadow-inner">
+              {miniLoading && (
+                <p className="text-sm text-[#7a7f54]">Refreshing updates…</p>
+              )}
+              {!miniLoading && updateFeed.length === 0 && (
+                <p className="text-sm text-[#4b5133]">
+                  No new updates yet. Check back after tasks are updated.
+                </p>
+              )}
+              {!miniLoading && updateFeed.length > 0 && (
+                <ul className="space-y-2 text-sm text-[#4b5133]">
+                  {updateFeed.map((item, idx) => (
+                    <li key={`${item}-${idx}`} className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-[#8fae4c]" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {viewMode === "tasks" && (
+          <div className="rounded-3xl border border-[#c8c49c] bg-gradient-to-br from-[#fefcf3] via-[#f7f4e6] to-[#e8eccd] p-6 shadow-md">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <span className="text-3xl">📆</span>
@@ -463,6 +557,7 @@ export default function WorkDashboardPage() {
             )}
           </div>
         </div>
+        )}
 
         <div className="grid md:grid-cols-3 gap-4">
           {quickLinks.map((link) => (
