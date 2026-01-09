@@ -1518,6 +1518,7 @@ export default function HubSchedulePage() {
     setCommentSubmitting(true);
 
     try {
+      const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
       const comment = commentDraft.trim();
       const res = await fetch("/api/task", {
         method: "POST",
@@ -1528,6 +1529,7 @@ export default function HubSchedulePage() {
           name: taskName,
           comment,
           authorName: currentUserName,
+          occurrenceDate: occurrenceParam,
         }),
       });
 

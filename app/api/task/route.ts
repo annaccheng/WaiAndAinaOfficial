@@ -265,21 +265,34 @@ export async function POST(req: Request) {
     );
   }
   const body = await req.json().catch(() => null);
-  const { name, comment, commentText, authorName, authorId } = body || {};
+  const { name, comment, commentText, authorName, authorId, occurrenceDate } = body || {};
   const resolvedText = String(commentText ?? comment ?? "").trim();
   if (!name || !resolvedText) {
     return NextResponse.json({ error: "Missing task name or comment" }, { status: 400 });
   }
   try {
+    const resolvedDate = toIsoDate(occurrenceDate);
     const tasks = await supabaseRequest<any[]>("tasks", {
       query: {
         select: "id,comments",
         name: `ilike.${name}`,
+        ...(resolvedDate ? { occurrence_date: `eq.${resolvedDate}` } : {}),
         order: "created_at.desc",
         limit: 1,
       },
     });
-    const target = tasks?.[0];
+    let target = tasks?.[0];
+    if (!target && resolvedDate) {
+      const fallback = await supabaseRequest<any[]>("tasks", {
+        query: {
+          select: "id,comments",
+          name: `ilike.${name}`,
+          order: "created_at.desc",
+          limit: 1,
+        },
+      });
+      target = fallback?.[0];
+    }
     if (!target?.id) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
