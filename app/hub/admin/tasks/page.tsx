@@ -600,29 +600,29 @@ export default function TaskEditorPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 space-y-1">
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1.5 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#314123]">
+                            <div className="text-[13px] font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
+                            <p className="mt-0.5 truncate text-[10px] text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
-                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                          <div className="flex flex-row items-center gap-2 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
-                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                              <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
                                 {task.status}
                               </span>
-                              <div className="text-[10px] text-[#4b5133]">
+                              <div className="text-[9px] text-[#4b5133]">
                                 <div>{task.priority || "Priority unset"}</div>
                                 <div>{task.task_type?.name || "Unassigned"}</div>
                               </div>
@@ -668,29 +668,29 @@ export default function TaskEditorPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 space-y-1">
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1.5 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#314123]">
+                            <div className="text-[13px] font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
+                            <p className="mt-0.5 truncate text-[10px] text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
-                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                          <div className="flex flex-row items-center gap-2 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
-                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                              <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
                                 {task.status}
                               </span>
-                              <div className="text-[10px] text-[#4b5133]">
+                              <div className="text-[9px] text-[#4b5133]">
                                 <div>{task.priority || "Priority unset"}</div>
                                 <div>{task.task_type?.name || "Unassigned"}</div>
                               </div>
