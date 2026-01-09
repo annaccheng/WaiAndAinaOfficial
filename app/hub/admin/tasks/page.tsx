@@ -600,34 +600,34 @@ export default function TaskEditorPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-1.5 space-y-1">
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#314123]">
+                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
+                            <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
-                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                          <div className="flex flex-row items-center gap-1.5 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
-                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                              <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
                                 {task.status}
                               </span>
-                              <div className="text-[10px] text-[#4b5133]">
+                              <div className="text-[8px] leading-tight text-[#4b5133]">
                                 <div>{task.priority || "Priority unset"}</div>
                                 <div>{task.task_type?.name || "Unassigned"}</div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={() =>
@@ -637,14 +637,14 @@ export default function TaskEditorPage() {
                                     occurrenceDate: recurringEditDate,
                                   })
                                 }
-                                className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
+                                className="rounded-md border border-red-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-700"
                               >
                                 ✕
                               </button>
                               <button
                                 type="button"
                                 onClick={() => openEditor(task, recurringEditDate)}
-                                className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                                className="rounded-md border border-[#d0c9a4] px-2 py-0.5 text-[10px] font-semibold uppercase text-[#4f5730]"
                               >
                                 Edit
                               </button>
@@ -668,34 +668,34 @@ export default function TaskEditorPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-1.5 space-y-1">
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#314123]">
+                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
+                            <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
-                          <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+                          <div className="flex flex-row items-center gap-1.5 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
-                              <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+                              <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
                                 {task.status}
                               </span>
-                              <div className="text-[10px] text-[#4b5133]">
+                              <div className="text-[8px] leading-tight text-[#4b5133]">
                                 <div>{task.priority || "Priority unset"}</div>
                                 <div>{task.task_type?.name || "Unassigned"}</div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={() =>
@@ -705,14 +705,14 @@ export default function TaskEditorPage() {
                                     occurrenceDate: task.occurrence_date || null,
                                   })
                                 }
-                                className="rounded-md border border-red-200 px-2 py-1 text-[12px] font-semibold uppercase text-red-700"
+                                className="rounded-md border border-red-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-700"
                               >
                                 ✕
                               </button>
                               <button
                                 type="button"
                                 onClick={() => openEditor(task)}
-                                className="rounded-md border border-[#d0c9a4] px-3 py-1 text-[11px] font-semibold uppercase text-[#4f5730]"
+                                className="rounded-md border border-[#d0c9a4] px-2 py-0.5 text-[10px] font-semibold uppercase text-[#4f5730]"
                               >
                                 Edit
                               </button>
