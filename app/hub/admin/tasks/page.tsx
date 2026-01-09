@@ -21,7 +21,7 @@ type TaskItem = {
   parent_task_id?: string | null;
   person_count?: number | null;
   links?: string[] | null;
-  comments?: string[] | null;
+  comments?: Array<string | { text?: string; comment?: string }> | null;
   photos?: string[] | null;
   time_slots?: string[] | null;
   extra_notes?: string[] | null;
@@ -112,6 +112,21 @@ export default function TaskEditorPage() {
   const [typeEditor, setTypeEditor] = useState({ name: "", color: "default" });
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
 
+  function normalizeTaskComments(
+    comments: TaskItem["comments"]
+  ): string[] {
+    if (!Array.isArray(comments)) return [];
+    return comments
+      .map((comment) => {
+        if (typeof comment === "string") return comment;
+        if (comment && typeof comment === "object") {
+          return String(comment.text ?? comment.comment ?? "").trim();
+        }
+        return "";
+      })
+      .filter(Boolean);
+  }
+
   function normalizeTask(task: TaskItem): TaskItem {
     return {
       ...task,
@@ -124,7 +139,7 @@ export default function TaskEditorPage() {
       estimated_time: task.estimated_time ?? "",
       description: task.description ?? "",
       links: task.links ?? [],
-      comments: task.comments ?? [],
+      comments: normalizeTaskComments(task.comments),
       photos: task.photos ?? [],
       time_slots: task.time_slots ?? [],
       extra_notes: task.extra_notes ?? [],

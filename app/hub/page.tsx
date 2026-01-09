@@ -105,6 +105,22 @@ function taskBaseName(task: string): string {
   return task.split("\n")[0].trim();
 }
 
+function toIsoDateLabel(dateLabel?: string | null) {
+  if (!dateLabel) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateLabel)) return dateLabel;
+  if (!dateLabel.includes("/")) return null;
+  const [month, day, year] = dateLabel.split("/");
+  if (!month || !day || !year) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function formatCommentTime(value?: string) {
+  if (!value) return "Unknown date";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown date";
+  return parsed.toLocaleString();
+}
+
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
     default: "bg-[#f7f7ef] border-[#e3e6d2] text-[#3f4630]",
@@ -1384,9 +1400,9 @@ export default function HubSchedulePage() {
 
   async function loadTaskDetails(
     taskName: string,
-    opts: { quiet?: boolean } = {}
+    opts: { quiet?: boolean; occurrenceDate?: string | null } = {}
   ) {
-    const { quiet = false } = opts;
+    const { quiet = false, occurrenceDate } = opts;
     const requestId = ++taskDetailsRequestRef.current;
     if (!quiet) setModalLoading(true);
 
@@ -1419,7 +1435,12 @@ export default function HubSchedulePage() {
     };
 
     try {
-      const res = await fetch(`/api/task?name=${encodeURIComponent(taskName)}`);
+      const occurrenceParam = toIsoDateLabel(occurrenceDate) || occurrenceDate;
+      const search = new URLSearchParams({ name: taskName });
+      if (occurrenceParam) {
+        search.set("occurrenceDate", occurrenceParam);
+      }
+      const res = await fetch(`/api/task?${search.toString()}`);
       if (!res.ok) {
         applyDetails(emptyDetails);
         return;
@@ -1461,6 +1482,7 @@ export default function HubSchedulePage() {
   }
 
   async function updateTaskStatus(newStatus: string, taskName: string) {
+    const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
     setModalDetails((prev) =>
       prev ? { ...prev, status: newStatus } : prev
     );
@@ -1480,7 +1502,11 @@ export default function HubSchedulePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: taskName, status: newStatus }),
+        body: JSON.stringify({
+          name: taskName,
+          status: newStatus,
+          occurrenceDate: occurrenceParam,
+        }),
       });
     } catch (e) {
       console.error("Failed to update task status:", e);
@@ -1492,15 +1518,17 @@ export default function HubSchedulePage() {
     setCommentSubmitting(true);
 
     try {
-      const comment = currentUserName
-        ? `${currentUserName} : ${commentDraft.trim()}`
-        : commentDraft.trim();
+      const comment = commentDraft.trim();
       const res = await fetch("/api/task", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: taskName, comment }),
+        body: JSON.stringify({
+          name: taskName,
+          comment,
+          authorName: currentUserName,
+        }),
       });
 
       if (res.ok) {
@@ -1515,7 +1543,7 @@ export default function HubSchedulePage() {
   }
 
   // When a task box is clicked
-async function handleTaskClick(taskPayload: TaskClickPayload) {
+  async function handleTaskClick(taskPayload: TaskClickPayload) {
   // Always recompute group membership from the schedule matrix so the modal
   // never shows "solo" just because boxes didn't merge.
   const schedule = data;
@@ -1554,7 +1582,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
     return;
   }
 
-  await loadTaskDetails(baseTitle);
+  await loadTaskDetails(baseTitle, { occurrenceDate: scheduleDateLabel });
 }
 
 
@@ -1574,7 +1602,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
     if (!taskName) return undefined;
 
     const interval = setInterval(
-      () => loadTaskDetails(taskName, { quiet: true }),
+      () => loadTaskDetails(taskName, { quiet: true, occurrenceDate: scheduleDateLabel }),
       15_000
     );
     return () => clearInterval(interval);
@@ -2234,7 +2262,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                             {comment.text || "(No text)"}
                           </p>
                           <p className="mt-1 text-[10px] text-[#8a8256]">
-                            {comment.author || "Unknown"} • {new Date(comment.createdTime).toLocaleString()}
+                            {comment.author || "Unknown"} • {formatCommentTime(comment.createdTime)}
                           </p>
                         </div>
                       ))}

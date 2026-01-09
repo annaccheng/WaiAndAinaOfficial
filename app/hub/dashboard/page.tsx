@@ -100,6 +100,15 @@ function taskBaseName(task: string) {
   return task.split("\n")[0].trim();
 }
 
+function toIsoDateLabel(dateLabel?: string | null) {
+  if (!dateLabel) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateLabel)) return dateLabel;
+  if (!dateLabel.includes("/")) return null;
+  const [month, day, year] = dateLabel.split("/");
+  if (!month || !day || !year) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
 function splitCellEntries(cell: string) {
   if (!cell.trim()) return [];
   const [firstLine, ...rest] = cell.split("\n");
@@ -198,7 +207,9 @@ export default function WorkDashboardPage() {
         });
         if (!res.ok) return;
         const data: ScheduleResponse = await res.json();
-        setScheduleDateLabel(data.scheduleDate || dateLabel);
+        const scheduleLabel = data.scheduleDate || dateLabel;
+        const occurrenceParam = toIsoDateLabel(scheduleLabel) || scheduleLabel;
+        setScheduleDateLabel(scheduleLabel);
         const rowIndex = data.people.findIndex(
           (p) => p.toLowerCase() === normalizedName
         );
@@ -244,7 +255,11 @@ export default function WorkDashboardPage() {
           fetch("/api/task?list=1"),
           Promise.all(
             uniqueTaskNames.map(async (taskName) => {
-              const detailRes = await fetch(`/api/task?name=${encodeURIComponent(taskName)}`);
+              const search = new URLSearchParams({ name: taskName });
+              if (occurrenceParam) {
+                search.set("occurrenceDate", occurrenceParam);
+              }
+              const detailRes = await fetch(`/api/task?${search.toString()}`);
               if (!detailRes.ok) {
                 return {
                   id: "",
