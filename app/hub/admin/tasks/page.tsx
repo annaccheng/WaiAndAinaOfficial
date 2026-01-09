@@ -32,6 +32,22 @@ type TaskItem = {
 const STATUS_OPTIONS = ["Not Started", "In Progress", "Completed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const RECURRENCE_UNITS = ["day", "month", "year"];
+const TIME_SLOT_OPTIONS = [
+  "Breakfast",
+  "Lunch",
+  "Dinner",
+  "Morning Shift 1",
+  "Morning Shift 2",
+  "Noon Shift 1",
+  "Noon Shift 2",
+  "Afternoon Shift 1",
+  "Afternoon Shift 2",
+  "Evening Shift",
+  "Weekend Saturday Morning",
+  "Weekend Saturday Evening",
+  "Weekend Sunday Morning",
+  "Weekend Sunday Evening",
+];
 const COLOR_OPTIONS = [
   "default",
   "gray",
@@ -100,7 +116,7 @@ export default function TaskEditorPage() {
     recurrence_until: "",
     origin_date: "",
     occurrence_date: "",
-    person_count: null,
+    person_count: 1,
     links: [],
     comments: [],
     photos: [],
@@ -143,7 +159,7 @@ export default function TaskEditorPage() {
       photos: task.photos ?? [],
       time_slots: task.time_slots ?? [],
       extra_notes: task.extra_notes ?? [],
-      person_count: task.person_count ?? null,
+      person_count: task.person_count ?? 1,
     };
   }
 
@@ -257,7 +273,7 @@ export default function TaskEditorPage() {
         recurrence_until: "",
         origin_date: "",
         occurrence_date: "",
-        person_count: null,
+        person_count: 1,
         links: [],
         comments: [],
         photos: [],
@@ -1130,20 +1146,32 @@ export default function TaskEditorPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Time slots</label>
-                    <input
-                      value={(draft.time_slots || []).join(", ")}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          time_slots: e.target.value
-                            .split(",")
-                            .map((slot) => slot.trim())
-                            .filter(Boolean),
-                        }))
-                      }
-                      className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                      placeholder="Morning, Afternoon"
-                    />
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {TIME_SLOT_OPTIONS.map((slot) => {
+                        const selected = (draft.time_slots || []).includes(slot);
+                        return (
+                          <label
+                            key={slot}
+                            className="flex items-center gap-2 rounded-md border border-[#e2d7b5] bg-white px-3 py-2 text-xs text-[#4b5133]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={(event) =>
+                                setDraft((prev) => {
+                                  const current = prev.time_slots || [];
+                                  const next = event.target.checked
+                                    ? Array.from(new Set([...current, slot]))
+                                    : current.filter((item) => item !== slot);
+                                  return { ...prev, time_slots: next };
+                                })
+                              }
+                            />
+                            <span>{slot}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Links</label>
