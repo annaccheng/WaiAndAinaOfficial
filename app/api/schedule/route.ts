@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseRequest } from "@/lib/supabase";
+import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
 type SlotRow = {
   id: string;
@@ -44,6 +44,21 @@ function toIsoDate(label?: string | null) {
   const [month, day, year] = label.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function getTodayIsoDate() {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return new Date().toISOString().slice(0, 10);
+  return `${year}-${month}-${day}`;
 }
 
 function toLabel(date: string) {
@@ -234,12 +249,16 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const dateLabel = url.searchParams.get("date") || "";
-    const isoDate = toIsoDate(dateLabel);
-    if (!isoDate) {
-      return NextResponse.json(
-        { error: "Missing or invalid date." },
-        { status: 400 }
-      );
+    const isStaging = url.searchParams.get("staging") === "1";
+    const isoDate = toIsoDate(dateLabel) || getTodayIsoDate();
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({
+        people: [],
+        slots: [],
+        cells: [],
+        scheduleDate: toLabel(isoDate),
+        message: "Supabase is not configured for schedules yet.",
+      });
     }
 
     const [slots, volunteers] = await Promise.all([
@@ -247,20 +266,33 @@ export async function GET(req: Request) {
       fetchVolunteers(),
     ]);
 
-    const scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+    const scheduleState = isStaging ? "staging" : "live";
+    let scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
       query: {
         select: "id",
         schedule_date: `eq.${isoDate}`,
-        state: "eq.staging",
+        state: `eq.${scheduleState}`,
         limit: 1,
       },
     });
 
-    const scheduleId = scheduleRows?.[0]?.id || null;
+    let scheduleId = scheduleRows?.[0]?.id || null;
+
+    if (!scheduleId && !isStaging) {
+      scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+        query: {
+          select: "id",
+          schedule_date: `eq.${isoDate}`,
+          state: "eq.staging",
+          limit: 1,
+        },
+      });
+      scheduleId = scheduleRows?.[0]?.id || null;
+    }
 
     if (!scheduleId) {
       const emptyCells = volunteers.map(() =>
-        slots.map(() => ({ tasks: [], note: "" }))
+        slots.map(() => (isStaging ? { tasks: [], note: "" } : ""))
       );
       return NextResponse.json({
         people: volunteers,
@@ -297,7 +329,7 @@ export async function GET(req: Request) {
       : [];
     const taskMap = new Map(taskRows.map((task) => [task.id, task.name]));
 
-    const matrix = schedulePeople.map((person) =>
+    const detailedMatrix = schedulePeople.map((person) =>
       slots.map((slot) => {
         const cell = cellMap.get(`${person.id}-${slot.id}`);
         if (!cell) return { tasks: [], note: "" };
@@ -314,6 +346,14 @@ export async function GET(req: Request) {
         };
       })
     );
+    const stringMatrix = detailedMatrix.map((row) =>
+      row.map((cell) => {
+        const names = cell.tasks.map((task) => task.name).filter(Boolean);
+        if (!names.length && !cell.note) return "";
+        if (!cell.note) return names.join(", ");
+        return `${names.join(", ")}\n${cell.note}`.trim();
+      })
+    );
     const existsMatrix = schedulePeople.map((person) =>
       slots.map((slot) => cellMap.has(`${person.id}-${slot.id}`))
     );
@@ -321,8 +361,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       people: schedulePeople.map((person) => person.name),
       slots,
-      cells: matrix,
-      cellExists: existsMatrix,
+      cells: isStaging ? detailedMatrix : stringMatrix,
+      cellExists: isStaging ? existsMatrix : undefined,
       scheduleDate: toLabel(isoDate),
     });
   } catch (err) {

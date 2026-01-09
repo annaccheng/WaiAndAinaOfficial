@@ -83,6 +83,16 @@ type TaskDetails = {
 
 type TaskTypeOption = { name: string; color: string };
 type StatusOption = { name: string; color: string };
+type CommentSnapshot = {
+  task: string;
+  commentCount: number;
+  latestTime: string | null;
+};
+type CommentAlert = {
+  task: string;
+  newCount: number;
+  latestTime: string | null;
+};
 
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
@@ -103,6 +113,22 @@ function splitCellTasks(cell: string): string[] {
 
 function taskBaseName(task: string): string {
   return task.split("\n")[0].trim();
+}
+
+function toIsoDateLabel(dateLabel?: string | null) {
+  if (!dateLabel) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateLabel)) return dateLabel;
+  if (!dateLabel.includes("/")) return null;
+  const [month, day, year] = dateLabel.split("/");
+  if (!month || !day || !year) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function formatCommentTime(value?: string) {
+  if (!value) return "Unknown date";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown date";
+  return parsed.toLocaleString();
 }
 
 function typeColorClasses(color?: string) {
@@ -161,9 +187,11 @@ export default function HubSchedulePage() {
   const [taskMetaMap, setTaskMetaMap] = useState<Record<string, TaskMeta>>({});
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
   const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
+  const [viewMode, setViewMode] = useState<"tasks" | "schedule">("tasks");
   const scheduleFetchInFlight = useRef(false);
   const scheduleLastFetchAt = useRef(0);
   const scheduleRefreshIntervalMs = 120_000;
+  const scheduleAutoRefreshEnabled = false;
 
   // Modal state
   const [modalTask, setModalTask] = useState<TaskClickPayload | null>(null);
@@ -180,6 +208,8 @@ export default function HubSchedulePage() {
   );
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentAlerts, setCommentAlerts] = useState<CommentAlert[]>([]);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -197,6 +227,7 @@ export default function HubSchedulePage() {
   const [requestTypeOptions, setRequestTypeOptions] = useState<string[]>([]);
   const [requestType, setRequestType] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const reportEnabled = false;
 
   useEffect(() => {
     if (!animalOverlay) return undefined;
@@ -694,18 +725,20 @@ export default function HubSchedulePage() {
         setError(null);
       } catch (e) {
         console.error(e);
-        setError(
-          data ? null : "Unable to load schedule. Please refresh when online."
-        );
+        setError("Unable to load schedule. Please refresh when online.");
       } finally {
         scheduleFetchInFlight.current = false;
-        if (showLoading) setLoading(false);
+        setLoading(false);
       }
     },
-    [data, scheduleRefreshIntervalMs]
+    [scheduleRefreshIntervalMs]
   );
 
   useEffect(() => {
+    if (!scheduleAutoRefreshEnabled) {
+      loadSchedule({ showLoading: true, force: true });
+      return;
+    }
     loadSchedule({ showLoading: true, force: true });
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -722,7 +755,7 @@ export default function HubSchedulePage() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loadSchedule]);
+  }, [loadSchedule, scheduleAutoRefreshEnabled]);
 
   // Preload task status/description for tagging
   useEffect(() => {
@@ -822,8 +855,8 @@ export default function HubSchedulePage() {
     );
   }, [data, weekdayWorkSlots]);
 
-  const showStandardSection =
-    !isExternalVolunteer && (loading || error || hasWeekdayScheduleContent);
+  const showStandardSection = true;
+  const basicOnly = false;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -854,6 +887,23 @@ export default function HubSchedulePage() {
   }, [data, currentUserName]);
 
   const scheduleDataToRender = scheduleDataForView || data;
+
+  const basicTasks = useMemo(() => {
+    if (!data || !currentUserName) return [];
+    const rowIndex = data.people.findIndex(
+      (person) => person.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (rowIndex < 0) return [];
+    return data.slots.flatMap((slot, slotIndex) => {
+      const cell = (data.cells[rowIndex]?.[slotIndex] ?? "").trim();
+      if (!cell) return [];
+      return splitCellTasks(cell).map((task) => ({
+        slot: slot.label,
+        timeRange: slot.timeRange,
+        task,
+      }));
+    });
+  }, [currentUserName, data]);
 
   const eveningSlots = useMemo(
     () =>
@@ -1212,6 +1262,97 @@ export default function HubSchedulePage() {
     );
   }, [data, currentUserName, workSlots]);
 
+  useEffect(() => {
+    if (!currentUserName || !scheduleDateLabel || !myTasks.length) {
+      setCommentAlerts([]);
+      return;
+    }
+
+    const cacheKey = `hub-comment-cache-${currentUserName.toLowerCase()}`;
+    let previousSnapshot: CommentSnapshot[] = [];
+    try {
+      const cached =
+        typeof window !== "undefined" ? localStorage.getItem(cacheKey) : null;
+      if (cached) {
+        const parsed = JSON.parse(cached) as CommentSnapshot[];
+        if (Array.isArray(parsed)) {
+          previousSnapshot = parsed;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to read comment snapshot cache", err);
+    }
+
+    const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    const taskNames = Array.from(
+      new Set(
+        myTasks.map((entry) => taskBaseName(entry.task)).filter(Boolean)
+      )
+    );
+
+    if (!taskNames.length) {
+      setCommentAlerts([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const snapshots = await Promise.all(
+          taskNames.map(async (taskName) => {
+            const search = new URLSearchParams({ name: taskName });
+            if (occurrenceParam) {
+              search.set("occurrenceDate", occurrenceParam);
+            }
+            const res = await fetch(`/api/task?${search.toString()}`);
+            if (!res.ok) {
+              return { task: taskName, commentCount: 0, latestTime: null };
+            }
+            const detail = await res.json();
+            const comments = Array.isArray(detail.comments) ? detail.comments : [];
+            const latestTime =
+              comments.length > 0
+                ? String(comments[comments.length - 1]?.createdTime || "")
+                : null;
+            return {
+              task: taskName,
+              commentCount: comments.length,
+              latestTime: latestTime || null,
+            };
+          })
+        );
+
+        const previousMap = new Map(
+          previousSnapshot.map((entry) => [entry.task, entry])
+        );
+        const nextAlerts: CommentAlert[] = [];
+
+        snapshots.forEach((snapshot) => {
+          const prev = previousMap.get(snapshot.task);
+          if (!prev) return;
+          const delta = snapshot.commentCount - prev.commentCount;
+          if (delta > 0) {
+            nextAlerts.push({
+              task: snapshot.task,
+              newCount: delta,
+              latestTime: snapshot.latestTime,
+            });
+          }
+        });
+
+        setCommentAlerts(nextAlerts);
+        try {
+          if (typeof window !== "undefined") {
+            localStorage.setItem(cacheKey, JSON.stringify(snapshots));
+          }
+        } catch (err) {
+          console.warn("Failed to cache comment snapshot", err);
+        }
+      } catch (err) {
+        console.warn("Failed to load comment alerts", err);
+      }
+    })();
+  }, [currentUserName, myTasks, scheduleDateLabel]);
+
   const reportRows = useMemo(() => {
     if (!myTasks.length) return [];
     const unique = new Map<string, { task: string; groupNames: string[] }>();
@@ -1235,6 +1376,10 @@ export default function HubSchedulePage() {
   }, [data, currentUserName]);
 
   useEffect(() => {
+    if (!reportEnabled) {
+      setReportOpen(false);
+      return;
+    }
     if (!reportRows.length) return;
     setReportStatus((prev) => {
       const next = { ...prev };
@@ -1249,6 +1394,7 @@ export default function HubSchedulePage() {
   }, [reportRows, taskMetaMap]);
 
   useEffect(() => {
+    if (!reportEnabled) return;
     if (!data || !currentUserName || scheduleReportFlag) return;
     if (!data.scheduleDate) return;
     const now = new Date();
@@ -1357,9 +1503,9 @@ export default function HubSchedulePage() {
 
   async function loadTaskDetails(
     taskName: string,
-    opts: { quiet?: boolean } = {}
+    opts: { quiet?: boolean; occurrenceDate?: string | null } = {}
   ) {
-    const { quiet = false } = opts;
+    const { quiet = false, occurrenceDate } = opts;
     const requestId = ++taskDetailsRequestRef.current;
     if (!quiet) setModalLoading(true);
 
@@ -1392,21 +1538,36 @@ export default function HubSchedulePage() {
     };
 
     try {
-      const res = await fetch(`/api/task?name=${encodeURIComponent(taskName)}`);
+      const occurrenceParam = toIsoDateLabel(occurrenceDate) || occurrenceDate;
+      const search = new URLSearchParams({ name: taskName });
+      if (occurrenceParam) {
+        search.set("occurrenceDate", occurrenceParam);
+      }
+      const res = await fetch(`/api/task?${search.toString()}`);
       if (!res.ok) {
         applyDetails(emptyDetails);
         return;
       }
 
       const json = await res.json();
+      const rawLinks = Array.isArray(json.links) ? json.links : [];
+      const normalizedLinks = rawLinks.map((link: string | { label?: string; url?: string }) => {
+        if (typeof link === "string") {
+          return { label: link, url: link };
+        }
+        return { label: link.label || link.url || "", url: link.url || link.label || "" };
+      });
+      const extraNotesValue = Array.isArray(json.extraNotes)
+        ? json.extraNotes.join("\n")
+        : json.extraNotes || "";
       const detail: TaskDetails = {
         name: json.name || taskName,
         description: json.description || "",
-        extraNotes: json.extraNotes || "",
+        extraNotes: extraNotesValue,
         status: json.status || "",
         comments: json.comments || [],
         media: json.media || json.photos || [],
-        links: json.links || [],
+        links: normalizedLinks,
         taskType: json.taskType || { name: "", color: "default" },
         estimatedTime: json.estimatedTime || "",
       };
@@ -1424,6 +1585,7 @@ export default function HubSchedulePage() {
   }
 
   async function updateTaskStatus(newStatus: string, taskName: string) {
+    const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
     setModalDetails((prev) =>
       prev ? { ...prev, status: newStatus } : prev
     );
@@ -1443,7 +1605,11 @@ export default function HubSchedulePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: taskName, status: newStatus }),
+        body: JSON.stringify({
+          name: taskName,
+          status: newStatus,
+          occurrenceDate: occurrenceParam,
+        }),
       });
     } catch (e) {
       console.error("Failed to update task status:", e);
@@ -1455,15 +1621,19 @@ export default function HubSchedulePage() {
     setCommentSubmitting(true);
 
     try {
-      const comment = currentUserName
-        ? `${currentUserName} : ${commentDraft.trim()}`
-        : commentDraft.trim();
+      const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+      const comment = commentDraft.trim();
       const res = await fetch("/api/task", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: taskName, comment }),
+        body: JSON.stringify({
+          name: taskName,
+          comment,
+          authorName: currentUserName,
+          occurrenceDate: occurrenceParam,
+        }),
       });
 
       if (res.ok) {
@@ -1478,7 +1648,7 @@ export default function HubSchedulePage() {
   }
 
   // When a task box is clicked
-async function handleTaskClick(taskPayload: TaskClickPayload) {
+  async function handleTaskClick(taskPayload: TaskClickPayload) {
   // Always recompute group membership from the schedule matrix so the modal
   // never shows "solo" just because boxes didn't merge.
   const schedule = data;
@@ -1517,7 +1687,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
     return;
   }
 
-  await loadTaskDetails(baseTitle);
+  await loadTaskDetails(baseTitle, { occurrenceDate: scheduleDateLabel });
 }
 
 
@@ -1537,25 +1707,279 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
     if (!taskName) return undefined;
 
     const interval = setInterval(
-      () => loadTaskDetails(taskName, { quiet: true }),
+      () => loadTaskDetails(taskName, { quiet: true, occurrenceDate: scheduleDateLabel }),
       15_000
     );
     return () => clearInterval(interval);
   }, [modalIsMeal, modalTask]);
 
+  if (basicOnly) {
+    return (
+      <div className="space-y-8">
+        {isAdmin && (
+          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
+                Admin debug console
+              </p>
+              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                Admin only
+              </span>
+            </div>
+            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
+                Diagnostics
+              </p>
+              <ul className="list-disc space-y-1 pl-4">
+                {!currentUserName && (
+                  <li>No session detected. Schedule requests will be anonymous.</li>
+                )}
+                {loading && !data && !error && (
+                  <li>Initial schedule load is still in flight.</li>
+                )}
+                {error && (
+                  <li>Schedule request failed: {error}</li>
+                )}
+                {data?.message && (
+                  <li>{data.message}</li>
+                )}
+                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
+                  <li>
+                    Schedule response is empty. This typically means the schedule date has no
+                    entries or Supabase access is blocked.
+                  </li>
+                )}
+                {scheduleFetchInFlight.current && (
+                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
+                )}
+                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
+                  <li>
+                    Last fetch completed at{" "}
+                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
+                  </li>
+                )}
+                {!scheduleLastFetchAt.current && (
+                  <li>No successful schedule fetch recorded yet.</li>
+                )}
+                {scheduleDateLabel && (
+                  <li>Active schedule date: {scheduleDateLabel}.</li>
+                )}
+              </ul>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
+              {JSON.stringify(
+                {
+                  user: currentUserName,
+                  scheduleDateLabel,
+                  loading,
+                  error,
+                  scheduleMessage: data?.message || null,
+                  peopleCount: data?.people?.length ?? 0,
+                  slotCount: data?.slots?.length ?? 0,
+                  hasData: Boolean(data),
+                  fetchInFlight: scheduleFetchInFlight.current,
+                  lastFetchAt: scheduleLastFetchAt.current
+                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
+                    : null,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </section>
+        )}
+        <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div>
+            <h2 className="text-xl font-semibold text-[#3b4224]">Basic Schedule</h2>
+            <p className="text-sm text-[#7a7f54]">
+              Simple grid view for {scheduleDateLabel || "today"}.
+            </p>
+          </div>
+          {loading && (
+            <p className="text-sm text-[#7a7f54]">Loading schedule…</p>
+          )}
+          {!loading && error && (
+            <p className="text-sm text-red-700">{error}</p>
+          )}
+          {!loading && !error && data?.message && (
+            <p className="text-sm text-[#6a6748]">{data.message}</p>
+          )}
+          {!loading && !error && data && data.slots.length > 0 && data.people.length > 0 && (
+            <div className="overflow-auto rounded-lg border border-[#e2dbc0] bg-white">
+              <table className="min-w-full border-collapse text-sm">
+                <thead className="bg-[#efe7cf]">
+                  <tr>
+                    <th className="min-w-[160px] border border-[#e0d6b8] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6b7247]">
+                      Person
+                    </th>
+                    {data.slots.map((slot) => (
+                      <th
+                        key={slot.id}
+                        className="min-w-[160px] border border-[#e0d6b8] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
+                      >
+                        <div className="flex flex-col gap-1">
+                          <span>{slot.label}</span>
+                          {slot.timeRange && (
+                            <span className="text-[10px] text-[#7a7f54] normal-case">
+                              {slot.timeRange}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.people.map((person, rowIdx) => (
+                    <tr key={`${person}-${rowIdx}`} className="bg-white">
+                      <td className="border border-[#e0d6b8] px-3 py-2 text-sm font-semibold text-[#3b4224]">
+                        {person}
+                      </td>
+                      {data.slots.map((slot, colIdx) => {
+                        const cell = (data.cells[rowIdx]?.[colIdx] ?? "").trim();
+                        const tasks = splitCellTasks(cell);
+                        return (
+                          <td
+                            key={`${person}-${slot.id}`}
+                            className="border border-[#e0d6b8] px-3 py-2 align-top text-[12px] text-[#4b5133]"
+                          >
+                            {tasks.length ? (
+                              <ul className="space-y-1">
+                                {tasks.map((task, taskIdx) => (
+                                  <li key={`${task}-${taskIdx}`} className="rounded-md bg-white/70 px-2 py-1">
+                                    {taskBaseName(task)}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-[11px] italic text-[#7a7f54]">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading && !error && data && (!data.slots.length || !data.people.length) && (
+            <p className="text-sm text-[#7a7f54]">No schedule data yet.</p>
+          )}
+        </section>
+        <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+          <div>
+            <h2 className="text-xl font-semibold text-[#3b4224]">My Tasks</h2>
+            <p className="text-sm text-[#7a7f54]">
+              Tasks assigned to you for {scheduleDateLabel || "today"}.
+            </p>
+          </div>
+          {loading && (
+            <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+          )}
+          {!loading && !basicTasks.length && (
+            <p className="text-sm text-[#7a7f54]">No tasks assigned yet.</p>
+          )}
+          {!loading && basicTasks.length > 0 && (
+            <ul className="space-y-2">
+              {basicTasks.map((entry, idx) => (
+                <li key={`${entry.slot}-${entry.task}-${idx}`} className="rounded-md border border-[#e2dbc0] bg-white px-3 py-2 text-sm text-[#3b4224]">
+                  <span className="font-semibold">{taskBaseName(entry.task)}</span>
+                  <span className="ml-2 text-xs text-[#7a7f54]">
+                    {entry.slot}
+                    {entry.timeRange ? ` · ${entry.timeRange}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="space-y-8">
-        {!loading &&
-          data?.message &&
-          !isExternalVolunteer &&
-          !hasWeekdayScheduleContent && (
+        {isAdmin && (
+          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
+                Admin debug console
+              </p>
+              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                Admin only
+              </span>
+            </div>
+            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
+                Diagnostics
+              </p>
+              <ul className="list-disc space-y-1 pl-4">
+                {!currentUserName && (
+                  <li>No session detected. Schedule requests will be anonymous.</li>
+                )}
+                {loading && !data && !error && (
+                  <li>Initial schedule load is still in flight.</li>
+                )}
+                {error && (
+                  <li>Schedule request failed: {error}</li>
+                )}
+                {data?.message && (
+                  <li>{data.message}</li>
+                )}
+                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
+                  <li>
+                    Schedule response is empty. This typically means the schedule date has no
+                    entries or Supabase access is blocked.
+                  </li>
+                )}
+                {scheduleFetchInFlight.current && (
+                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
+                )}
+                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
+                  <li>
+                    Last fetch completed at{" "}
+                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
+                  </li>
+                )}
+                {!scheduleLastFetchAt.current && (
+                  <li>No successful schedule fetch recorded yet.</li>
+                )}
+                {scheduleDateLabel && (
+                  <li>Active schedule date: {scheduleDateLabel}.</li>
+                )}
+              </ul>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
+              {JSON.stringify(
+                {
+                  user: currentUserName,
+                  scheduleDateLabel,
+                  loading,
+                  error,
+                  scheduleMessage: data?.message || null,
+                  peopleCount: data?.people?.length ?? 0,
+                  slotCount: data?.slots?.length ?? 0,
+                  hasData: Boolean(data),
+                  fetchInFlight: scheduleFetchInFlight.current,
+                  lastFetchAt: scheduleLastFetchAt.current
+                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
+                    : null,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </section>
+        )}
+        {!loading && data?.message && !hasWeekdayScheduleContent && (
             <div className="rounded-lg border border-[#e4dcb8] bg-white/80 px-4 py-3 text-sm text-[#6a6748]">
               {data.message}
             </div>
           )}
 
-        {!isExternalVolunteer && taskTypes.length > 0 && (
+        {taskTypes.length > 0 && (
           <section className="rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1573,46 +1997,100 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
 
         {showStandardSection && (
           <section className="space-y-3">
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
-              My Tasks
-            </h2>
-            <p className="text-sm text-[#7a7f54]">
-              Your assigned tasks for {scheduleDateLabel || "today"}.
-            </p>
-            {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
-              <p className="mt-1 text-xs font-semibold text-red-700">
-                {scheduleOutdatedMessage}
-              </p>
-            ) : null}
-            <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-              {loading && (
-                <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
-              )}
-              {!loading && !error && (
-                <MyTasksList
-                  tasks={myTasks}
-                  onTaskClick={handleTaskClick}
-                  statusMap={taskMetaMap}
-                  statusColors={statusColorLookup}
-                  currentUserName={currentUserName}
-                />
-              )}
-              {!loading && error && (
-                <p className="text-sm text-red-700">{error}</p>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
+                  {viewMode === "tasks" ? "My Tasks" : "Today's Schedule"}
+                </h2>
+                <p className="text-sm text-[#7a7f54]">
+                  {viewMode === "tasks"
+                    ? `Your assigned tasks for ${scheduleDateLabel || "today"}.`
+                    : "Click any task to see its details and who you are assigned with."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setCommentPanelOpen((prev) => !prev)}
+                    className="relative flex items-center justify-center rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm text-[#4a5b2a] shadow-sm hover:bg-white"
+                    aria-label="View comment notifications"
+                  >
+                    🔔
+                    {commentAlerts.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#8fae4c] px-1 text-[10px] font-semibold text-white">
+                        {commentAlerts.length}
+                      </span>
+                    )}
+                  </button>
+                  {commentPanelOpen && (
+                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-[#d0c9a4] bg-white/95 p-3 text-xs text-[#4b5133] shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b]">
+                          Notifications
+                        </span>
+                        {commentAlerts.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setCommentAlerts([])}
+                            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {commentAlerts.length === 0 ? (
+                          <p className="text-[11px] text-[#7a7f54]">
+                            No new comments yet.
+                          </p>
+                        ) : (
+                          commentAlerts.map((alert) => (
+                            <div
+                              key={`${alert.task}-${alert.newCount}`}
+                              className="rounded-lg border border-[#e2d7b5] bg-[#f8f4e3] px-3 py-2"
+                            >
+                              <p className="text-[11px] font-semibold text-[#3b4224]">
+                                {alert.task}
+                              </p>
+                              <p className="text-[11px] text-[#7a7f54]">
+                                {alert.newCount} new comment
+                                {alert.newCount > 1 ? "s" : ""}
+                                {alert.latestTime
+                                  ? ` • ${formatCommentTime(alert.latestTime)}`
+                                  : ""}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("tasks")}
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] shadow-sm ${
+                    viewMode === "tasks"
+                      ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+                      : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+                  }`}
+                >
+                  My Tasks
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("schedule")}
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] shadow-sm ${
+                    viewMode === "schedule"
+                      ? "border-[#8fae4c] bg-[#8fae4c] text-white"
+                      : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+                  }`}
+                >
+                  Today&apos;s Schedule
+                </button>
+              </div>
             </div>
-          </section>
-        )}
-
-        {showStandardSection && (
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
-              {scheduleTitle}
-            </h2>
-            <p className="text-sm text-[#7a7f54]">
-              Click any task to see its details, description, and who you are
-              assigned with. Evening shift columns now sit beside the daytime schedule for a single view.
-            </p>
             {scheduleOutdated && !loading && scheduleOutdatedMessage ? (
               <p className="mt-1 text-xs font-semibold text-red-700">
                 {scheduleOutdatedMessage}
@@ -1621,151 +2099,119 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
             {data?.message && !loading && (
               <p className="mt-1 text-xs text-[#7a7f54]">{data.message}</p>
             )}
-
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => scrollSchedule("left")}
-                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
-                  aria-label="Scroll schedule left"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollSchedule("right")}
-                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
-                  aria-label="Scroll schedule right"
-                >
-                  →
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadSchedule({ showLoading: true, force: true })}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
-                >
-                  Refresh
-                </button>
+            {viewMode === "tasks" ? (
+              <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                {loading && (
+                  <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+                )}
+                {!loading && !error && (
+                  <MyTasksList
+                    tasks={myTasks}
+                    onTaskClick={handleTaskClick}
+                    statusMap={taskMetaMap}
+                    statusColors={statusColorLookup}
+                    currentUserName={currentUserName}
+                  />
+                )}
+                {!loading && error && (
+                  <p className="text-sm text-red-700">{error}</p>
+                )}
               </div>
-
-              <div className="mt-3 rounded-lg bg-[#a0b764] px-3 py-3">
-                <div className="rounded-md bg-[#f8f4e3]">
-                  {loading && (
-                  <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
-                    Loading schedule…
-                  </div>
-                )}
-                {error && (
-                  <div className="px-4 py-6 text-sm text-center text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {!loading &&
-                  !error &&
-                  scheduleDataToRender &&
-                  weekdayWorkSlots.length > 0 && (
-                    <>
-                      <div className="relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-2 sm:hidden">
-                          <button
-                            type="button"
-                            onClick={() => scrollSchedule("left")}
-                            className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:-translate-x-0.5 transition"
-                            aria-label="Scroll schedule left"
-                          >
-                            ←
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => scrollSchedule("right")}
-                            className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:translate-x-0.5 transition"
-                            aria-label="Scroll schedule right"
-                          >
-                            →
-                          </button>
-                        </div>
-                        <div
-                          ref={scheduleScrollRef}
-                          className="overflow-x-auto scroll-smooth pb-2"
-                        >
-                          <ScheduleGrid
-                            data={scheduleDataToRender}
-                            workSlots={weekdayWorkSlots}
-                            currentUserName={currentUserName}
-                            currentSlotId={currentSlotId}
-                            onTaskClick={handleTaskClick}
-                            statusMap={taskMetaMap}
-                            statusColors={statusColorLookup}
-                          />
-                        </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollSchedule("left")}
+                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:-translate-x-0.5 transition"
+                    aria-label="Scroll schedule left"
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollSchedule("right")}
+                    className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#4b522d] shadow hover:translate-x-0.5 transition"
+                    aria-label="Scroll schedule right"
+                  >
+                    →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadSchedule({ showLoading: true, force: true })}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="mt-3 rounded-lg bg-[#a0b764] px-3 py-3">
+                  <div className="rounded-md bg-[#f8f4e3]">
+                    {loading && (
+                      <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
+                        Loading schedule…
                       </div>
-                    </>
-                  )}
-
-                {!loading &&
-                  !error &&
-                  data &&
-                  weekdayWorkSlots.length === 0 &&
-                  (
-                  <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
-                    No work slots defined in this schedule.
+                    )}
+                    {error && (
+                      <div className="px-4 py-6 text-sm text-center text-red-700">
+                        {error}
+                      </div>
+                    )}
+                    {!loading &&
+                      !error &&
+                      scheduleDataToRender &&
+                      weekdayWorkSlots.length > 0 && (
+                        <>
+                          <div className="relative">
+                            <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-2 sm:hidden">
+                              <button
+                                type="button"
+                                onClick={() => scrollSchedule("left")}
+                                className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:-translate-x-0.5 transition"
+                                aria-label="Scroll schedule left"
+                              >
+                                ←
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => scrollSchedule("right")}
+                                className="pointer-events-auto rounded-full bg-white/90 border border-[#d0c9a4] shadow px-2 py-2 text-[#4b522d] hover:translate-x-0.5 transition"
+                                aria-label="Scroll schedule right"
+                              >
+                                →
+                              </button>
+                            </div>
+                            <div
+                              ref={scheduleScrollRef}
+                              className="overflow-x-auto scroll-smooth pb-2"
+                            >
+                              <ScheduleGrid
+                                data={scheduleDataToRender}
+                                workSlots={weekdayWorkSlots}
+                                currentUserName={currentUserName}
+                                currentSlotId={currentSlotId}
+                                onTaskClick={handleTaskClick}
+                                statusMap={taskMetaMap}
+                                statusColors={statusColorLookup}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    {!loading &&
+                      !error &&
+                      data &&
+                      weekdayWorkSlots.length === 0 && (
+                        <div className="px-4 py-6 text-sm text-center text-[#7a7f54]">
+                          No work slots defined in this schedule.
+                        </div>
+                      )}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </section>
         )}
 
-        {isExternalVolunteer && (
-          <section className="space-y-3">
-            <div className="rounded-lg bg-[#a0b764] px-3 py-3 text-sm text-[#f8f4e3] shadow">
-              Weekend assignments available for External Volunteers are listed below.
-            </div>
-          </section>
-        )}
-
-        {!loading &&
-          !error &&
-          data &&
-          showEveningSection && (
-            <EveningScheduleTable
-              title="Evening Schedule"
-              description="Evening shift coverage laid out by weekday with a rollup of shared evening tasks."
-              dayRows={eveningScheduleSummary.dayRows}
-              indexTasks={eveningScheduleSummary.indexTasks}
-              onTaskClick={handleTaskClick}
-              taskMetaMap={taskMetaMap}
-              statusColors={statusColorLookup}
-              currentUserName={currentUserName}
-            />
-          )}
-
-        {!loading &&
-          !error &&
-          data &&
-          showWeekendSection && (
-            <WeekendScheduleTable
-              title="Weekend Schedule"
-              description="Weekend shift coverage with assignments by shift."
-              slotRows={weekendScheduleSummary.slotRows}
-              indexTasks={weekendScheduleSummary.indexTasks}
-              onTaskClick={handleTaskClick}
-              taskMetaMap={taskMetaMap}
-              statusColors={statusColorLookup}
-              currentUserName={currentUserName}
-            />
-          )}
-
-        {isExternalVolunteer &&
-          !showWeekendSection &&
-          !loading &&
-          !error &&
-          data && (
-            <p className="text-sm text-[#7a7f54]">
-              No weekend assignments are currently listed for you.
-            </p>
-          )}
       </div>
 
       {/* Task detail modal */}
@@ -1979,7 +2425,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
                             {comment.text || "(No text)"}
                           </p>
                           <p className="mt-1 text-[10px] text-[#8a8256]">
-                            {comment.author || "Unknown"} • {new Date(comment.createdTime).toLocaleString()}
+                            {comment.author || "Unknown"} • {formatCommentTime(comment.createdTime)}
                           </p>
                         </div>
                       ))}
@@ -2140,7 +2586,7 @@ async function handleTaskClick(taskPayload: TaskClickPayload) {
         </div>
       )}
 
-      {reportOpen && (
+      {reportEnabled && reportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#d0c9a4] bg-[#f8f4e3] p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
