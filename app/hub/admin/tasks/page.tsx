@@ -472,20 +472,20 @@ export default function TaskEditorPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
-      <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4">
+      <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin</p>
             <h1 className="text-2xl font-semibold text-[#314123]">Task Editor</h1>
-            <p className="text-sm text-[#5f5a3b]">
+            <p className="text-xs text-[#5f5a3b]">
               Manage tasks, recurrence rules, and task types for the schedule system.
             </p>
           </div>
           <button
             type="button"
             onClick={() => openEditor()}
-            className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+            className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
           >
             New task
           </button>
@@ -494,20 +494,20 @@ export default function TaskEditorPage() {
         {message && <p className="mt-3 text-sm font-semibold text-[#4b5133]">{message}</p>}
       </div>
 
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-[#314123]">Filters</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <input
               value={filters.search}
               onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
               placeholder="Search tasks"
             />
             <select
               value={filters.status}
               onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
             >
               <option value="">All statuses</option>
               {STATUS_OPTIONS.map((status) => (
@@ -519,7 +519,7 @@ export default function TaskEditorPage() {
             <select
               value={filters.type}
               onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
             >
               <option value="">All types</option>
               {types.map((type) => (
@@ -531,7 +531,7 @@ export default function TaskEditorPage() {
             <select
               value={filters.priority}
               onChange={(e) => setFilters((prev) => ({ ...prev, priority: e.target.value }))}
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
             >
               <option value="">All priorities</option>
               {PRIORITY_OPTIONS.map((priority) => (
@@ -543,7 +543,7 @@ export default function TaskEditorPage() {
             <select
               value={filters.recurring}
               onChange={(e) => setFilters((prev) => ({ ...prev, recurring: e.target.value }))}
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
             >
               <option value="">Any recurrence</option>
               <option value="true">Recurring only</option>
@@ -554,7 +554,7 @@ export default function TaskEditorPage() {
               onChange={(e) =>
                 setFilters((prev) => ({ ...prev, includeOccurrences: e.target.value }))
               }
-              className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
             >
               <option value="true">Show occurrences</option>
               <option value="false">Hide occurrences</option>
@@ -564,13 +564,13 @@ export default function TaskEditorPage() {
                 type="date"
                 value={filters.start}
                 onChange={(e) => setFilters((prev) => ({ ...prev, start: e.target.value }))}
-                className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
               />
               <input
                 type="date"
                 value={filters.end}
                 onChange={(e) => setFilters((prev) => ({ ...prev, end: e.target.value }))}
-                className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
               />
             </div>
           </div>
@@ -579,8 +579,8 @@ export default function TaskEditorPage() {
             {loading ? (
               <p className="text-sm text-[#7a7f54]">Loading tasks…</p>
             ) : (
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-3">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h3 className="text-base font-semibold text-[#314123]">Recurring tasks</h3>
@@ -596,15 +596,15 @@ export default function TaskEditorPage() {
                         type="date"
                         value={recurringEditDate}
                         onChange={(e) => setRecurringEditDate(e.target.value)}
-                        className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm"
+                        className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-xs"
                       />
                     </div>
                   </div>
-                  <div className="mt-3 space-y-3">
+                  <div className="mt-3 space-y-2">
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-4 py-3 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
@@ -613,7 +613,7 @@ export default function TaskEditorPage() {
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-xs text-[#6b6d4b]">
+                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
@@ -659,7 +659,7 @@ export default function TaskEditorPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-4">
+                <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-3">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h3 className="text-base font-semibold text-[#314123]">One-off tasks</h3>
@@ -668,11 +668,11 @@ export default function TaskEditorPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 space-y-3">
+                  <div className="mt-3 space-y-2">
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-4 py-3 shadow-sm ${
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-3 py-2 shadow-sm ${
                           STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
                         }`}
                       >
@@ -681,7 +681,7 @@ export default function TaskEditorPage() {
                             <div className="text-sm font-semibold text-[#314123]">
                               {task.name}
                             </div>
-                            <p className="mt-1 text-xs text-[#6b6d4b]">
+                            <p className="mt-1 text-[11px] text-[#6b6d4b]">
                               {task.description || "No description provided."}
                             </p>
                           </div>
@@ -732,7 +732,7 @@ export default function TaskEditorPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#d0c9a4] bg-white/70 p-5 shadow-sm">
+      <div className="rounded-2xl border border-[#d0c9a4] bg-white/70 p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-[#314123]">Task type editor</h2>
           <button
@@ -746,7 +746,7 @@ export default function TaskEditorPage() {
 
         {taskTypeOpen && (
           <>
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-2">
               {types.map((type) => (
                 <div key={type.id} className="flex items-center gap-2">
                   <input
@@ -756,7 +756,7 @@ export default function TaskEditorPage() {
                         prev.map((t) => (t.id === type.id ? { ...t, name: e.target.value } : t))
                       )
                     }
-                    className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                    className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
                   />
                   <select
                     value={type.color}
@@ -765,7 +765,7 @@ export default function TaskEditorPage() {
                         prev.map((t) => (t.id === type.id ? { ...t, color: e.target.value } : t))
                       )
                     }
-                    className="rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                    className="rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs"
                   >
                     {COLOR_OPTIONS.map((color) => (
                       <option key={color} value={color}>
@@ -776,7 +776,7 @@ export default function TaskEditorPage() {
                   <button
                     type="button"
                     onClick={() => handleUpdateType(type)}
-                    className="rounded-md bg-[#a0b764] px-3 py-2 text-xs font-semibold uppercase text-white"
+                    className="rounded-md bg-[#a0b764] px-3 py-1.5 text-xs font-semibold uppercase text-white"
                   >
                     Save
                   </button>
@@ -784,19 +784,19 @@ export default function TaskEditorPage() {
               ))}
             </div>
 
-            <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] p-4">
+            <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] p-3">
               <h3 className="text-sm font-semibold text-[#314123]">Add new type</h3>
               <div className="mt-2 flex gap-2">
                 <input
                   value={typeEditor.name}
                   onChange={(e) => setTypeEditor((prev) => ({ ...prev, name: e.target.value }))}
-                  className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                  className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
                   placeholder="Type name"
                 />
                 <select
                   value={typeEditor.color}
                   onChange={(e) => setTypeEditor((prev) => ({ ...prev, color: e.target.value }))}
-                  className="rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
+                  className="rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs"
                 >
                   {COLOR_OPTIONS.map((color) => (
                     <option key={color} value={color}>
@@ -807,7 +807,7 @@ export default function TaskEditorPage() {
                 <button
                   type="button"
                   onClick={handleCreateType}
-                  className="rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
+                  className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-xs font-semibold uppercase text-white"
                 >
                   Add
                 </button>

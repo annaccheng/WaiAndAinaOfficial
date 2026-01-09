@@ -1205,6 +1205,12 @@ export default function AdminScheduleEditorPage() {
               Back to admin
             </Link>
             <Link
+              href="/hub/admin/tasks"
+              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
+            >
+              Task editor
+            </Link>
+            <Link
               href="/hub/admin/shifts"
               className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
             >
