@@ -81,8 +81,48 @@ export async function GET(req: Request) {
   }
 }
 
-export async function PATCH() {
-  return NextResponse.json({ success: true });
+export async function PATCH(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for tasks yet." },
+      { status: 503 }
+    );
+  }
+  const body = await req.json().catch(() => null);
+  const { id, name, status } = body || {};
+  if (!id && !name) {
+    return NextResponse.json({ error: "Missing task id or name" }, { status: 400 });
+  }
+  if (typeof status !== "string") {
+    return NextResponse.json({ error: "Missing status" }, { status: 400 });
+  }
+
+  try {
+    let targetId = id as string | undefined;
+    if (!targetId && name) {
+      const matches = await supabaseRequest<any[]>("tasks", {
+        query: {
+          select: "id,name",
+          name: `ilike.${name}`,
+          order: "created_at.desc",
+          limit: 1,
+        },
+      });
+      targetId = matches?.[0]?.id;
+    }
+    if (!targetId) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+    await supabaseRequest("tasks", {
+      method: "PATCH",
+      query: { id: `eq.${targetId}` },
+      body: { status },
+    });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to update task status:", err);
+    return NextResponse.json({ error: "Unable to update task status" }, { status: 500 });
+  }
 }
 
 export async function POST() {
