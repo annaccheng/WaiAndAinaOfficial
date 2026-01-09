@@ -83,6 +83,16 @@ type TaskDetails = {
 
 type TaskTypeOption = { name: string; color: string };
 type StatusOption = { name: string; color: string };
+type CommentSnapshot = {
+  task: string;
+  commentCount: number;
+  latestTime: string | null;
+};
+type CommentAlert = {
+  task: string;
+  newCount: number;
+  latestTime: string | null;
+};
 
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
@@ -198,6 +208,8 @@ export default function HubSchedulePage() {
   );
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentAlerts, setCommentAlerts] = useState<CommentAlert[]>([]);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -1250,6 +1262,97 @@ export default function HubSchedulePage() {
     );
   }, [data, currentUserName, workSlots]);
 
+  useEffect(() => {
+    if (!currentUserName || !scheduleDateLabel || !myTasks.length) {
+      setCommentAlerts([]);
+      return;
+    }
+
+    const cacheKey = `hub-comment-cache-${currentUserName.toLowerCase()}`;
+    let previousSnapshot: CommentSnapshot[] = [];
+    try {
+      const cached =
+        typeof window !== "undefined" ? localStorage.getItem(cacheKey) : null;
+      if (cached) {
+        const parsed = JSON.parse(cached) as CommentSnapshot[];
+        if (Array.isArray(parsed)) {
+          previousSnapshot = parsed;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to read comment snapshot cache", err);
+    }
+
+    const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    const taskNames = Array.from(
+      new Set(
+        myTasks.map((entry) => taskBaseName(entry.task)).filter(Boolean)
+      )
+    );
+
+    if (!taskNames.length) {
+      setCommentAlerts([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const snapshots = await Promise.all(
+          taskNames.map(async (taskName) => {
+            const search = new URLSearchParams({ name: taskName });
+            if (occurrenceParam) {
+              search.set("occurrenceDate", occurrenceParam);
+            }
+            const res = await fetch(`/api/task?${search.toString()}`);
+            if (!res.ok) {
+              return { task: taskName, commentCount: 0, latestTime: null };
+            }
+            const detail = await res.json();
+            const comments = Array.isArray(detail.comments) ? detail.comments : [];
+            const latestTime =
+              comments.length > 0
+                ? String(comments[comments.length - 1]?.createdTime || "")
+                : null;
+            return {
+              task: taskName,
+              commentCount: comments.length,
+              latestTime: latestTime || null,
+            };
+          })
+        );
+
+        const previousMap = new Map(
+          previousSnapshot.map((entry) => [entry.task, entry])
+        );
+        const nextAlerts: CommentAlert[] = [];
+
+        snapshots.forEach((snapshot) => {
+          const prev = previousMap.get(snapshot.task);
+          if (!prev) return;
+          const delta = snapshot.commentCount - prev.commentCount;
+          if (delta > 0) {
+            nextAlerts.push({
+              task: snapshot.task,
+              newCount: delta,
+              latestTime: snapshot.latestTime,
+            });
+          }
+        });
+
+        setCommentAlerts(nextAlerts);
+        try {
+          if (typeof window !== "undefined") {
+            localStorage.setItem(cacheKey, JSON.stringify(snapshots));
+          }
+        } catch (err) {
+          console.warn("Failed to cache comment snapshot", err);
+        }
+      } catch (err) {
+        console.warn("Failed to load comment alerts", err);
+      }
+    })();
+  }, [currentUserName, myTasks, scheduleDateLabel]);
+
   const reportRows = useMemo(() => {
     if (!myTasks.length) return [];
     const unique = new Map<string, { task: string; groupNames: string[] }>();
@@ -1906,6 +2009,64 @@ export default function HubSchedulePage() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setCommentPanelOpen((prev) => !prev)}
+                    className="relative flex items-center justify-center rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm text-[#4a5b2a] shadow-sm hover:bg-white"
+                    aria-label="View comment notifications"
+                  >
+                    🔔
+                    {commentAlerts.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#8fae4c] px-1 text-[10px] font-semibold text-white">
+                        {commentAlerts.length}
+                      </span>
+                    )}
+                  </button>
+                  {commentPanelOpen && (
+                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-[#d0c9a4] bg-white/95 p-3 text-xs text-[#4b5133] shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b]">
+                          Notifications
+                        </span>
+                        {commentAlerts.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setCommentAlerts([])}
+                            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {commentAlerts.length === 0 ? (
+                          <p className="text-[11px] text-[#7a7f54]">
+                            No new comments yet.
+                          </p>
+                        ) : (
+                          commentAlerts.map((alert) => (
+                            <div
+                              key={`${alert.task}-${alert.newCount}`}
+                              className="rounded-lg border border-[#e2d7b5] bg-[#f8f4e3] px-3 py-2"
+                            >
+                              <p className="text-[11px] font-semibold text-[#3b4224]">
+                                {alert.task}
+                              </p>
+                              <p className="text-[11px] text-[#7a7f54]">
+                                {alert.newCount} new comment
+                                {alert.newCount > 1 ? "s" : ""}
+                                {alert.latestTime
+                                  ? ` • ${formatCommentTime(alert.latestTime)}`
+                                  : ""}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setViewMode("tasks")}
