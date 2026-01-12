@@ -174,8 +174,8 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
-    const photos = Array.isArray(task.photos) ? task.photos : [];
-    const media = photos.map((url) => ({
+    const photos: string[] = Array.isArray(task.photos) ? task.photos : [];
+    const media = photos.map((url: string) => ({
       name: url.split("/").pop() || "Photo",
       url,
       kind: "image",

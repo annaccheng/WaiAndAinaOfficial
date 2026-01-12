@@ -2546,7 +2546,7 @@ export default function HubSchedulePage() {
                 </div>
               )}
 
-              {showFullTaskDetail && (
+              {modalDetails && (
                 <div className="rounded-lg border border-[#e2d7b5] bg-white/70 px-4 py-3 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
