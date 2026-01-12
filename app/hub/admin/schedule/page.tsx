@@ -148,6 +148,9 @@ export default function AdminScheduleEditorPage() {
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
+  const [recurringQuickName, setRecurringQuickName] = useState("");
+  const [recurringQuickDescription, setRecurringQuickDescription] = useState("");
+  const [recurringQuickUntil, setRecurringQuickUntil] = useState("");
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
@@ -172,6 +175,7 @@ export default function AdminScheduleEditorPage() {
   const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [canvasExpanded, setCanvasExpanded] = useState(false);
   const [saveLog, setSaveLog] = useState<{
     status: "idle" | "saving" | "success" | "error";
     message?: string;
@@ -191,6 +195,13 @@ export default function AdminScheduleEditorPage() {
     const [month, day, year] = label.split("/");
     if (!month || !day || !year) return "";
     return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  };
+
+  const addDaysToIso = (isoDate: string, days: number) => {
+    const base = isoDate ? new Date(isoDate) : new Date();
+    const next = new Date(base);
+    next.setDate(next.getDate() + days);
+    return next.toISOString().slice(0, 10);
   };
 
   const todayLabel = formatDateInput(new Date().toISOString().slice(0, 10));
@@ -626,6 +637,69 @@ export default function AdminScheduleEditorPage() {
       setMessage("Unable to create quick task.");
     }
   }, [quickTaskDescription, quickTaskName, selectedDate]);
+
+  const createRecurringQuickTask = useCallback(async () => {
+    if (!recurringQuickName.trim()) return;
+    const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+    const originDate = dateParam || new Date().toISOString().slice(0, 10);
+    const untilDate = recurringQuickUntil || addDaysToIso(originDate, 30);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: recurringQuickName.trim(),
+          description: recurringQuickDescription.trim() || null,
+          status: "Not Started",
+          priority: "Medium",
+          recurring: true,
+          recurrence_interval: 1,
+          recurrence_unit: "day",
+          recurrence_until: untilDate,
+          origin_date: originDate,
+          occurrence_date: originDate,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to create recurring task");
+      }
+      setRecurringQuickName("");
+      setRecurringQuickDescription("");
+      setRecurringQuickUntil("");
+      if (selectedDate) {
+        const recurringRes = await fetch(
+          `/api/tasks?recurring=true&includeOccurrences=true&start=${originDate}&end=${originDate}`
+        );
+        if (recurringRes.ok) {
+          const json = await recurringRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            priority: task.priority || "",
+            occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
+            description: task.description || null,
+            personCount: task.person_count ?? null,
+          }));
+          setRecurringTasks(items);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to create recurring quick task", err);
+      setMessage("Unable to create recurring quick task.");
+    }
+  }, [
+    addDaysToIso,
+    recurringQuickDescription,
+    recurringQuickName,
+    recurringQuickUntil,
+    selectedDate,
+  ]);
 
   const resolveTaskEntry = useCallback(
     async (taskName: string): Promise<ScheduledTask | null> => {
@@ -1206,7 +1280,7 @@ export default function AdminScheduleEditorPage() {
             </Link>
             <Link
               href="/hub/admin/tasks"
-              className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
+              className="rounded-md bg-[#6f8f3d] px-4 py-2 font-semibold uppercase tracking-[0.08em] text-white shadow-md transition hover:bg-[#5f7f35]"
             >
               Task editor
             </Link>
@@ -1326,20 +1400,36 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
+      {canvasExpanded && (
+        <div className="fixed inset-0 z-40 bg-[#fdfbf4]/90 backdrop-blur-sm" />
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] bg-white/80 p-3 shadow-md">
+        <div
+          className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-3 shadow-md ${
+            canvasExpanded
+              ? "fixed inset-4 z-50 h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] bg-white"
+              : "bg-white/80"
+          }`}
+        >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
               <p className="text-xs text-[#6a6c4d]">Tap a cell to add tasks or notes.</p>
             </div>
-            <div className="flex items-center gap-2 text-xs text-[#6a6c4d]">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
               <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
                 {scheduleData?.slots.length || 0} shifts
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-[#f0f4de] px-3 py-1 font-semibold text-[#4b5133]">
                 {scheduleData?.people.length || 0} teammates
               </span>
+              <button
+                type="button"
+                onClick={() => setCanvasExpanded((prev) => !prev)}
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm"
+              >
+                {canvasExpanded ? "Exit full screen" : "Full screen"}
+              </button>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#6a6c4d]">
@@ -1529,11 +1619,13 @@ export default function AdminScheduleEditorPage() {
                                         loadTaskDetail(task.id, task.name);
                                       }
                                     }}
-                                    className={`flex w-full items-center justify-between gap-2 rounded-full border px-2 py-1 text-left text-[10px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] ${typeColorClasses(
+                                    className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${typeColorClasses(
                                       meta?.typeColor
                                     )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                   >
-                                    <span className="truncate font-semibold">{task.name}</span>
+                                    <span className="line-clamp-2 font-semibold text-[#2f3b21]">
+                                      {task.name}
+                                    </span>
                                     <span className="flex items-center gap-1 text-[9px] text-[#4f4f31]">
                                       <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
                                         {assignedCount}/{neededCount}
@@ -1673,6 +1765,47 @@ export default function AdminScheduleEditorPage() {
                       ))}
                     </select>
 
+                    <div className="rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                        Quick recurring task
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        <input
+                          value={recurringQuickName}
+                          onChange={(e) => setRecurringQuickName(e.target.value)}
+                          className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          placeholder="Task name"
+                        />
+                        <textarea
+                          value={recurringQuickDescription}
+                          onChange={(e) => setRecurringQuickDescription(e.target.value)}
+                          className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          placeholder="Task description"
+                          rows={2}
+                        />
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            type="date"
+                            value={recurringQuickUntil}
+                            onChange={(e) => setRecurringQuickUntil(e.target.value)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                            placeholder="Until date"
+                          />
+                          <button
+                            type="button"
+                            onClick={createRecurringQuickTask}
+                            disabled={!recurringQuickName.trim()}
+                            className="w-full rounded-md bg-[#6f8f3d] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
+                          >
+                            Add recurring
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-[#6b6d4b]">
+                          Defaults to a daily recurring task for 30 days if no end date is set.
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
                       {filteredRecurringTasks.map((task) => {
                         const taskHandled = isTaskHandled(task);
@@ -1707,15 +1840,9 @@ export default function AdminScheduleEditorPage() {
                                 {task.priority ? ` • ${task.priority}` : ""}
                               </div>
                             </div>
-                            <span
-                              className={
-                                taskHandled.hasEnoughPeople
-                                  ? "text-2xl text-emerald-600"
-                                  : "text-xl"
-                              }
-                            >
-                              {taskHandled.hasEnoughPeople ? "✅" : "🐐"}
-                            </span>
+                            {taskHandled.hasEnoughPeople && (
+                              <span className="text-2xl text-emerald-600">✅</span>
+                            )}
                           </button>
                         );
                       })}
@@ -1733,6 +1860,38 @@ export default function AdminScheduleEditorPage() {
                     One-off task dock
                   </div>
                   <div className="space-y-2 p-3 text-sm">
+                    <div className="rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                        Quick one-off task
+                      </p>
+                      <p className="mt-1 text-[10px] text-[#6b6d4b]">
+                        Adds a one-off task for {selectedDate || "the selected date"}.
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        <input
+                          value={quickTaskName}
+                          onChange={(e) => setQuickTaskName(e.target.value)}
+                          className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          placeholder="Task name"
+                        />
+                        <textarea
+                          value={quickTaskDescription}
+                          onChange={(e) => setQuickTaskDescription(e.target.value)}
+                          className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          placeholder="Task description"
+                          rows={2}
+                        />
+                        <button
+                          type="button"
+                          onClick={createQuickTask}
+                          disabled={!quickTaskName.trim() || !selectedDate}
+                          className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
+                        >
+                          Add one-off
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
                       {filteredOneOffTasks.map((task) => {
                         const taskHandled = isTaskHandled(task);
@@ -1767,15 +1926,9 @@ export default function AdminScheduleEditorPage() {
                                 {task.priority ? ` • ${task.priority}` : ""}
                               </div>
                             </div>
-                            <span
-                              className={
-                                taskHandled.hasEnoughPeople
-                                  ? "text-2xl text-emerald-600"
-                                  : "text-xl"
-                              }
-                            >
-                              {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                            </span>
+                            {taskHandled.hasEnoughPeople && (
+                              <span className="text-2xl text-emerald-600">✅</span>
+                            )}
                           </button>
                         );
                       })}
@@ -1786,34 +1939,6 @@ export default function AdminScheduleEditorPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-                  <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
-                  <p className="mt-1 text-[12px] text-[#6b6d4b]">
-                    Adds a one-off task for {selectedDate || "the selected date"}.
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    <input
-                      value={quickTaskName}
-                      onChange={(e) => setQuickTaskName(e.target.value)}
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                      placeholder="Task name"
-                    />
-                    <textarea
-                      value={quickTaskDescription}
-                      onChange={(e) => setQuickTaskDescription(e.target.value)}
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                      placeholder="Task description"
-                      rows={3}
-                    />
-                    <button
-                      type="button"
-                      onClick={createQuickTask}
-                      className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-                    >
-                      Add quick task
-                    </button>
-                  </div>
-                </div>
               </div>
             ) : (
               <button
@@ -1824,35 +1949,6 @@ export default function AdminScheduleEditorPage() {
                 Open task dock
               </button>
             )}
-
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md lg:hidden">
-              <h3 className="text-sm font-semibold text-[#314123]">Quick task</h3>
-              <p className="mt-1 text-[12px] text-[#6b6d4b]">
-                Adds a one-off task for {selectedDate || "the selected date"}.
-              </p>
-              <div className="mt-2 space-y-2">
-                <input
-                  value={quickTaskName}
-                  onChange={(e) => setQuickTaskName(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                  placeholder="Task name"
-                />
-                <textarea
-                  value={quickTaskDescription}
-                  onChange={(e) => setQuickTaskDescription(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm"
-                  placeholder="Task description"
-                  rows={3}
-                />
-                <button
-                  type="button"
-                  onClick={createQuickTask}
-                  className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase text-white"
-                >
-                  Add quick task
-                </button>
-              </div>
-            </div>
 
             {taskDetail && (
               <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
@@ -2233,6 +2329,78 @@ export default function AdminScheduleEditorPage() {
               </div>
             </div>
             <div className="max-h-[55vh] overflow-y-auto px-4 py-3 pb-6">
+              {mobileDockTab === "recurring" && (
+                <div className="mb-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3 text-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                    Quick recurring task
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      value={recurringQuickName}
+                      onChange={(e) => setRecurringQuickName(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Task name"
+                    />
+                    <textarea
+                      value={recurringQuickDescription}
+                      onChange={(e) => setRecurringQuickDescription(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Task description"
+                      rows={2}
+                    />
+                    <input
+                      type="date"
+                      value={recurringQuickUntil}
+                      onChange={(e) => setRecurringQuickUntil(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={createRecurringQuickTask}
+                      disabled={!recurringQuickName.trim()}
+                      className="w-full rounded-md bg-[#6f8f3d] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
+                    >
+                      Add recurring
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-[#6b6d4b]">
+                    Defaults to a daily recurring task for 30 days if no end date is set.
+                  </p>
+                </div>
+              )}
+              {mobileDockTab === "oneOff" && (
+                <div className="mb-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3 text-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                    Quick one-off task
+                  </p>
+                  <p className="mt-1 text-[10px] text-[#6b6d4b]">
+                    Adds a one-off task for {selectedDate || "the selected date"}.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      value={quickTaskName}
+                      onChange={(e) => setQuickTaskName(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Task name"
+                    />
+                    <textarea
+                      value={quickTaskDescription}
+                      onChange={(e) => setQuickTaskDescription(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="Task description"
+                      rows={2}
+                    />
+                    <button
+                      type="button"
+                      onClick={createQuickTask}
+                      disabled={!quickTaskName.trim() || !selectedDate}
+                      className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
+                    >
+                      Add one-off
+                    </button>
+                  </div>
+                </div>
+              )}
               {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
                 (task) => {
                   const taskHandled = isTaskHandled(task);
@@ -2267,15 +2435,9 @@ export default function AdminScheduleEditorPage() {
                           {task.priority ? ` • ${task.priority}` : ""}
                         </div>
                       </div>
-                      <span
-                        className={
-                          taskHandled.hasEnoughPeople
-                            ? "text-2xl text-emerald-600"
-                            : "text-xl"
-                        }
-                      >
-                        {taskHandled.hasEnoughPeople ? "✅" : "🌿"}
-                      </span>
+                      {taskHandled.hasEnoughPeople && (
+                        <span className="text-2xl text-emerald-600">✅</span>
+                      )}
                     </button>
                   );
                 }
