@@ -11,6 +11,13 @@ function buildPublicPhotoUrl(path: string) {
 
 function extractPhotoPath(entry: string) {
   if (!entry) return "";
+  const trimmed = entry.replace(/^\/+/, "");
+  if (trimmed.startsWith(`${PHOTO_BUCKET}/`)) {
+    return trimmed.slice(`${PHOTO_BUCKET}/`.length);
+  }
+  if (trimmed.startsWith(`storage/v1/object/${PHOTO_BUCKET}/`)) {
+    return trimmed.slice(`storage/v1/object/${PHOTO_BUCKET}/`.length);
+  }
   if (entry.startsWith("http")) {
     const marker = `/storage/v1/object/public/${PHOTO_BUCKET}/`;
     const idx = entry.indexOf(marker);
