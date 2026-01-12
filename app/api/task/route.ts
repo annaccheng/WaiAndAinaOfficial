@@ -147,7 +147,7 @@ export async function GET(req: Request) {
   try {
     const buildQuery = (withOccurrence: boolean) => ({
       select:
-        "id,name,description,status,extra_notes,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,task_type:task_types(name,color)",
+        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,task_type:task_types(name,color)",
       ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
       ...(withOccurrence && occurrenceDate
         ? { occurrence_date: `eq.${occurrenceDate}` }
@@ -179,6 +179,7 @@ export async function GET(req: Request) {
       name: task.name,
       description: task.description || "",
       extraNotes: task.extra_notes || [],
+      personCount: task.person_count ?? null,
       status: task.status || "",
       comments: commentsWithAuthors.map((comment) => ({
         id: comment.id,

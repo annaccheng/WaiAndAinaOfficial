@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
@@ -30,21 +30,15 @@ type TaskCatalogItem = {
 };
 type TaskTypeOption = { name: string; color: string };
 type StatusOption = { name: string; color: string };
-type TaskPropertyField = {
-  name: string;
-  type: string;
-  value: string | string[] | boolean | number | null;
-  options?: { name: string; color?: string }[];
-  readOnly?: boolean;
-};
 type TaskDetail = {
   id: string;
   name: string;
   description: string;
+  extraNotes: string[];
+  personCount?: number | null;
   status?: string;
   priority?: string;
   taskType?: { name: string; color: string };
-  properties?: TaskPropertyField[];
   recurring?: boolean;
   occurrenceDate?: string | null;
   parentTaskId?: string | null;
@@ -82,51 +76,6 @@ function safeIndex(length: number, index?: number) {
   return Math.min(Math.max(index, 0), length);
 }
 
-async function loadImageElement(file: File): Promise<HTMLImageElement> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
-
-async function compressImageFile(file: File, maxBytes = 500 * 1024) {
-  if (file.size <= maxBytes) return file;
-  const img = await loadImageElement(file);
-  const scale = Math.min(1, Math.sqrt(maxBytes / file.size));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(img.width * scale));
-  canvas.height = Math.max(1, Math.round(img.height * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return file;
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  let quality = 0.9;
-  let blob: Blob | null = null;
-  while (quality > 0.2) {
-    blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
-    );
-    if (blob && blob.size <= maxBytes) break;
-    quality -= 0.1;
-  }
-
-  if (!blob) return file;
-  if (blob.size > maxBytes) {
-    // Last resort: accept the compressed blob even if slightly over the limit
-    return new File([blob], `compressed-${file.name}`, { type: "image/jpeg" });
-  }
-
-  return new File([blob], `compressed-${file.name}`, { type: "image/jpeg" });
-}
 
 export default function AdminScheduleEditorPage() {
   const router = useRouter();
@@ -151,6 +100,8 @@ export default function AdminScheduleEditorPage() {
   const [recurringQuickName, setRecurringQuickName] = useState("");
   const [recurringQuickDescription, setRecurringQuickDescription] = useState("");
   const [recurringQuickUntil, setRecurringQuickUntil] = useState("");
+  const [recurringQuickInterval, setRecurringQuickInterval] = useState(1);
+  const [recurringQuickUnit, setRecurringQuickUnit] = useState("day");
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
@@ -162,19 +113,18 @@ export default function AdminScheduleEditorPage() {
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
-  const [taskEditFields, setTaskEditFields] = useState<TaskPropertyField[]>([]);
+  const [taskEditDraft, setTaskEditDraft] = useState({
+    description: "",
+    extraNotes: "",
+    personCount: "",
+  });
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
-  const [taskEditorExpanded, setTaskEditorExpanded] = useState(false);
-  const [taskDetailExpanded, setTaskDetailExpanded] = useState(false);
   const [saveStatusOpen, setSaveStatusOpen] = useState(true);
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [desktopDockOpen, setDesktopDockOpen] = useState(true);
-  const [multiSelectDrafts, setMultiSelectDrafts] = useState<Record<string, string>>({});
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [canvasExpanded, setCanvasExpanded] = useState(false);
   const [saveLog, setSaveLog] = useState<{
     status: "idle" | "saving" | "success" | "error";
@@ -182,7 +132,6 @@ export default function AdminScheduleEditorPage() {
     lastAttempt?: string;
     payload?: { person: string; slotId: string; dateLabel?: string };
   }>({ status: "idle" });
-  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -203,6 +152,8 @@ export default function AdminScheduleEditorPage() {
     next.setDate(next.getDate() + days);
     return next.toISOString().slice(0, 10);
   };
+
+  const buildNotesText = (notes: string[]) => notes.filter(Boolean).join("\n");
 
   const todayLabel = formatDateInput(new Date().toISOString().slice(0, 10));
 
@@ -653,8 +604,8 @@ export default function AdminScheduleEditorPage() {
           status: "Not Started",
           priority: "Medium",
           recurring: true,
-          recurrence_interval: 1,
-          recurrence_unit: "day",
+          recurrence_interval: Math.max(1, Number(recurringQuickInterval) || 1),
+          recurrence_unit: recurringQuickUnit || "day",
           recurrence_until: untilDate,
           origin_date: originDate,
           occurrence_date: originDate,
@@ -667,6 +618,8 @@ export default function AdminScheduleEditorPage() {
       setRecurringQuickName("");
       setRecurringQuickDescription("");
       setRecurringQuickUntil("");
+      setRecurringQuickInterval(1);
+      setRecurringQuickUnit("day");
       if (selectedDate) {
         const recurringRes = await fetch(
           `/api/tasks?recurring=true&includeOccurrences=true&start=${originDate}&end=${originDate}`
@@ -696,7 +649,9 @@ export default function AdminScheduleEditorPage() {
   }, [
     addDaysToIso,
     recurringQuickDescription,
+    recurringQuickInterval,
     recurringQuickName,
+    recurringQuickUnit,
     recurringQuickUntil,
     selectedDate,
   ]);
@@ -1055,49 +1010,32 @@ export default function AdminScheduleEditorPage() {
         id: json.id || taskId,
         name: json.name || fallbackName || "Task",
         description: json.description || "",
+        extraNotes: Array.isArray(json.extraNotes) ? json.extraNotes : [],
+        personCount: json.personCount ?? null,
         status: json.status || "",
         priority: json.priority || "",
         taskType: json.taskType,
-        properties: json.properties || [],
         recurring: json.recurring || false,
         occurrenceDate: json.occurrenceDate || null,
         parentTaskId: json.parentTaskId || null,
       };
       setTaskDetail(detail);
-      setTaskEditFields(detail.properties || []);
-      setTaskEditorExpanded(false);
-      setTaskDetailExpanded(false);
+      setTaskEditDraft({
+        description: detail.description || "",
+        extraNotes: buildNotesText(detail.extraNotes || []),
+        personCount:
+          detail.personCount === null || detail.personCount === undefined
+            ? ""
+            : String(detail.personCount),
+      });
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
       setMessage(friendly);
       setTaskDetail(null);
-      setTaskEditFields([]);
+      setTaskEditDraft({ description: "", extraNotes: "", personCount: "" });
     } finally {
       setTaskDetailLoading(false);
-    }
-  };
-
-  const updateTaskField = (name: string, value: TaskPropertyField["value"]) => {
-    setTaskEditFields((prev) =>
-      prev.map((field) => (field.name === name ? { ...field, value } : field))
-    );
-  };
-
-  const toggleMultiSelect = (field: TaskPropertyField, option: string) => {
-    const current = Array.isArray(field.value) ? field.value : [];
-    const next = current.includes(option)
-      ? current.filter((val) => val !== option)
-      : [...current, option];
-    updateTaskField(field.name, next);
-  };
-
-  const addMultiSelectCustom = (field: TaskPropertyField, option: string) => {
-    const trimmed = option.trim();
-    if (!trimmed) return;
-    const current = Array.isArray(field.value) ? field.value : [];
-    if (!current.includes(trimmed)) {
-      updateTaskField(field.name, [...current, trimmed]);
     }
   };
 
@@ -1106,29 +1044,32 @@ export default function AdminScheduleEditorPage() {
     setTaskEditSaving(true);
     setTaskEditMessage(null);
     try {
-      const res = await fetch("/api/task", {
+      const notesList = taskEditDraft.extraNotes
+        .split("\n")
+        .map((note) => note.trim())
+        .filter(Boolean);
+      const personCount =
+        taskEditDraft.personCount.trim() === ""
+          ? null
+          : Number(taskEditDraft.personCount);
+      const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: taskDetail.id,
-          name: taskDetail.name,
-          properties: taskEditFields,
+          description: taskEditDraft.description.trim(),
+          extra_notes: notesList,
+          person_count: Number.isNaN(personCount) ? null : personCount,
         }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to update task");
       setTaskDetail({
-        id: json.id || taskDetail.id,
-        name: json.name || taskDetail.name,
-        description: json.description || "",
-        priority: json.priority ?? taskDetail.priority,
-        taskType: json.taskType,
-        properties: json.properties || [],
-        recurring: json.recurring ?? taskDetail.recurring,
-        occurrenceDate: json.occurrenceDate ?? taskDetail.occurrenceDate,
-        parentTaskId: json.parentTaskId ?? taskDetail.parentTaskId,
+        ...taskDetail,
+        description: taskEditDraft.description.trim(),
+        extraNotes: notesList,
+        personCount: Number.isNaN(personCount) ? null : personCount,
       });
-      setTaskEditFields(json.properties || []);
       setTaskEditMessage("Task updated.");
     } catch (err) {
       console.error(err);
@@ -1184,47 +1125,6 @@ export default function AdminScheduleEditorPage() {
     } catch (err) {
       console.error("Failed to publish schedule", err);
       setScheduleNote("Unable to publish the schedule right now.");
-    }
-  };
-
-  const handlePhotoUpload = async () => {
-    if (!taskDetail?.name) {
-      setPhotoMessage("Select a task before uploading a photo.");
-      return;
-    }
-    const file = photoInputRef.current?.files?.[0];
-    if (!file) {
-      setPhotoMessage("Choose an image to upload.");
-      return;
-    }
-    if (!file.type.startsWith("image/")) {
-      setPhotoMessage("Only image files are supported.");
-      return;
-    }
-
-    setPhotoUploading(true);
-    setPhotoMessage(null);
-    try {
-      const compressed = await compressImageFile(file);
-      const form = new FormData();
-      form.append("taskName", taskDetail.name);
-      form.append("file", compressed);
-
-      const res = await fetch("/api/task/photos", { method: "POST", body: form });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Upload failed");
-
-      setPhotoMessage("Photo uploaded.");
-      if (photoInputRef.current) {
-        photoInputRef.current.value = "";
-      }
-      await loadTaskDetail(taskDetail.id, taskDetail.name);
-    } catch (err) {
-      console.error(err);
-      const friendly = err instanceof Error ? err.message : "Upload failed";
-      setPhotoMessage(friendly);
-    } finally {
-      setPhotoUploading(false);
     }
   };
 
@@ -1400,15 +1300,10 @@ export default function AdminScheduleEditorPage() {
         )}
       </div>
 
-      {canvasExpanded && (
-        <div className="fixed inset-0 z-40 bg-[#fdfbf4]/90 backdrop-blur-sm" />
-      )}
       <div className="flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32">
         <div
           className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-3 shadow-md ${
-            canvasExpanded
-              ? "fixed inset-4 z-50 h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] bg-white"
-              : "bg-white/80"
+            canvasExpanded ? "bg-white lg:flex-[1.5]" : "bg-white/80"
           }`}
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1428,7 +1323,7 @@ export default function AdminScheduleEditorPage() {
                 onClick={() => setCanvasExpanded((prev) => !prev)}
                 className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm"
               >
-                {canvasExpanded ? "Exit full screen" : "Full screen"}
+                {canvasExpanded ? "Exit expanded" : "Expand canvas"}
               </button>
             </div>
           </div>
@@ -1444,7 +1339,7 @@ export default function AdminScheduleEditorPage() {
           <div
             className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
               scheduleLoading ? "pointer-events-none opacity-80" : ""
-            }`}
+            } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-16rem)]" : ""}`}
           >
             {scheduleLoading && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
@@ -1783,6 +1678,27 @@ export default function AdminScheduleEditorPage() {
                           placeholder="Task description"
                           rows={2}
                         />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={recurringQuickInterval}
+                            onChange={(e) =>
+                              setRecurringQuickInterval(Number(e.target.value) || 1)
+                            }
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                            placeholder="Every"
+                          />
+                          <select
+                            value={recurringQuickUnit}
+                            onChange={(e) => setRecurringQuickUnit(e.target.value)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          >
+                            <option value="day">Day</option>
+                            <option value="month">Month</option>
+                            <option value="year">Year</option>
+                          </select>
+                        </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <input
                             type="date"
@@ -1954,7 +1870,9 @@ export default function AdminScheduleEditorPage() {
               <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task detail</p>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+                      Task detail
+                    </p>
                     <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
                   </div>
                   {taskDetailLoading && (
@@ -1991,266 +1909,67 @@ export default function AdminScheduleEditorPage() {
                     {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
                   </p>
                 )}
-                <p className="mt-2 whitespace-pre-line text-sm text-[#4b5133]">{taskDetail.description || "No description yet."}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#6b6d4b]">
-                  {taskDetail.recurring && (
-                    <span className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold">
-                      Tip: update just this occurrence to avoid changing the full series.
-                    </span>
-                  )}
-                  <Link
-                    href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
-                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
-                  >
-                    Open in task editor
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setTaskDetailExpanded((prev) => !prev)}
-                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 font-semibold text-[#4b5133]"
-                  >
-                    {taskDetailExpanded ? "Hide details" : "Edit details"}
-                  </button>
-                </div>
-                {taskDetailExpanded && (
-                  <div className="mt-3 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Attach photo (500kb max)</p>
-                    <input
-                      ref={photoInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handlePhotoUpload}
-                      disabled={photoUploading}
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                    >
-                      {photoUploading ? (
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-                          Uploading…
-                        </span>
-                      ) : (
-                        "Upload photo"
-                      )}
-                    </button>
-                    {photoMessage && (
-                      <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {taskDetail && taskDetailExpanded && (
-              <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Task editor</p>
-                    <h3 className="text-base font-semibold text-[#314123]">Edit task properties</h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {taskEditSaving && <span className="text-[11px] text-[#6b6d4b]">Saving…</span>}
-                    <button
-                      type="button"
-                      onClick={() => setTaskEditorExpanded((prev) => !prev)}
-                      className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]"
-                    >
-                      {taskEditorExpanded ? "Collapse" : "Expand"}
-                    </button>
-                  </div>
-                </div>
-
-                {!taskEditorExpanded && (
-                  <p className="mt-3 text-[12px] text-[#6b6d4b]">
-                    Expand to edit task properties, status, and custom fields.
+                {taskDetail.recurring && (
+                  <p className="mt-2 text-[11px] text-[#6b6d4b]">
+                    Tip: update just this occurrence to avoid changing the full series.
                   </p>
                 )}
 
-                {taskEditorExpanded && (
-                  <>
-                    <div className="mt-3 space-y-3">
-                      {taskEditFields.map((field) => {
-                        const value = field.value;
-                        const isReadOnly = field.readOnly;
+                <div className="mt-3 space-y-3 text-sm text-[#4b5133]">
+                  <label className="space-y-1">
+                    <span className="text-[12px] font-semibold text-[#5f5a3b]">Description</span>
+                    <textarea
+                      value={taskEditDraft.description}
+                      onChange={(e) =>
+                        setTaskEditDraft((prev) => ({ ...prev, description: e.target.value }))
+                      }
+                      className="min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[12px] font-semibold text-[#5f5a3b]">Extra notes</span>
+                    <textarea
+                      value={taskEditDraft.extraNotes}
+                      onChange={(e) =>
+                        setTaskEditDraft((prev) => ({ ...prev, extraNotes: e.target.value }))
+                      }
+                      className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      placeholder="One note per line"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[12px] font-semibold text-[#5f5a3b]">People needed</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={taskEditDraft.personCount}
+                      onChange={(e) =>
+                        setTaskEditDraft((prev) => ({ ...prev, personCount: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                    />
+                  </label>
+                </div>
 
-                        if (field.type === "checkbox") {
-                          return (
-                            <label
-                              key={field.name}
-                              className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f6f1dd] px-3 py-2 text-sm text-[#4b5133]"
-                            >
-                              <span className="font-semibold">{field.name}</span>
-                              <input
-                                type="checkbox"
-                                checked={Boolean(value)}
-                                disabled={isReadOnly}
-                                onChange={(e) => updateTaskField(field.name, e.target.checked)}
-                                className="h-4 w-4 accent-[#8fae4c]"
-                              />
-                            </label>
-                          );
-                        }
-
-                        if (field.type === "select" || field.type === "status") {
-                          return (
-                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                              <select
-                                value={String(value || "")}
-                                disabled={isReadOnly}
-                                onChange={(e) => updateTaskField(field.name, e.target.value)}
-                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                              >
-                                <option value="">None</option>
-                                {field.options?.map((opt) => (
-                                  <option key={opt.name} value={opt.name}>
-                                    {opt.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          );
-                        }
-
-                        if (field.type === "multi_select") {
-                          const selected = Array.isArray(value) ? value : [];
-                          const options = field.options || [];
-                          const customValue = multiSelectDrafts[field.name] || "";
-
-                          return (
-                            <div key={field.name} className="space-y-2 text-sm text-[#4b5133]">
-                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                              <div className="flex flex-wrap gap-2">
-                                {options.length ? (
-                                  options.map((opt) => (
-                                    <label
-                                      key={opt.name}
-                                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] font-semibold ${
-                                        selected.includes(opt.name)
-                                          ? "bg-[#dfeac1] border-[#b9cd7f] text-[#2f3b21]"
-                                          : "bg-white border-[#d0c9a4] text-[#4b5133]"
-                                      }`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        className="accent-[#8fae4c]"
-                                        checked={selected.includes(opt.name)}
-                                        disabled={isReadOnly}
-                                        onChange={() => toggleMultiSelect(field, opt.name)}
-                                      />
-                                      {opt.name}
-                                    </label>
-                                  ))
-                                ) : (
-                                  <span className="text-[12px] text-[#7a7f54]">No options defined.</span>
-                                )}
-                              </div>
-                              {!isReadOnly && (
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    value={customValue}
-                                    onChange={(e) =>
-                                      setMultiSelectDrafts((prev) => ({
-                                        ...prev,
-                                        [field.name]: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="Add custom option"
-                                    className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      addMultiSelectCustom(field, customValue);
-                                      setMultiSelectDrafts((prev) => ({ ...prev, [field.name]: "" }));
-                                    }}
-                                    className="rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44]"
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        if (field.type === "rich_text") {
-                          return (
-                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                              <textarea
-                                value={String(value || "")}
-                                disabled={isReadOnly}
-                                onChange={(e) => updateTaskField(field.name, e.target.value)}
-                                className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                              />
-                            </label>
-                          );
-                        }
-
-                        if (field.type === "number") {
-                          return (
-                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                              <input
-                                type="number"
-                                value={value === null ? "" : String(value)}
-                                disabled={isReadOnly}
-                                onChange={(e) => updateTaskField(field.name, e.target.value)}
-                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                              />
-                            </label>
-                          );
-                        }
-
-                        if (field.type === "date") {
-                          return (
-                            <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                              <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                              <input
-                                type="date"
-                                value={String(value || "")}
-                                disabled={isReadOnly}
-                                onChange={(e) => updateTaskField(field.name, e.target.value)}
-                                className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                              />
-                            </label>
-                          );
-                        }
-
-                        return (
-                          <label key={field.name} className="space-y-1 text-sm text-[#4b5133]">
-                            <span className="text-[12px] font-semibold text-[#5f5a3b]">{field.name}</span>
-                            <input
-                              type="text"
-                              value={String(value || "")}
-                              disabled={isReadOnly}
-                              onChange={(e) => updateTaskField(field.name, e.target.value)}
-                              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none disabled:opacity-60"
-                            />
-                          </label>
-                        );
-                      })}
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={saveTaskEdits}
-                        disabled={taskEditSaving}
-                        className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                      >
-                        Save task updates
-                      </button>
-                      {taskEditMessage && (
-                        <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
-                      )}
-                    </div>
-                  </>
-                )}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={saveTaskEdits}
+                    disabled={taskEditSaving}
+                    className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                  >
+                    {taskEditSaving ? "Saving…" : "Save basic updates"}
+                  </button>
+                  {taskEditMessage && (
+                    <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
+                  )}
+                  <Link
+                    href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
+                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                  >
+                    Open in task editor
+                  </Link>
+                </div>
               </div>
             )}
           </div>
@@ -2348,6 +2067,27 @@ export default function AdminScheduleEditorPage() {
                       placeholder="Task description"
                       rows={2}
                     />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={recurringQuickInterval}
+                        onChange={(e) =>
+                          setRecurringQuickInterval(Number(e.target.value) || 1)
+                        }
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                        placeholder="Every"
+                      />
+                      <select
+                        value={recurringQuickUnit}
+                        onChange={(e) => setRecurringQuickUnit(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      >
+                        <option value="day">Day</option>
+                        <option value="month">Month</option>
+                        <option value="year">Year</option>
+                      </select>
+                    </div>
                     <input
                       type="date"
                       value={recurringQuickUntil}
