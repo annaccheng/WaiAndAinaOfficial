@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
@@ -71,6 +71,47 @@ function typeColorClasses(color?: string) {
   return map[color || "default"] || map.default;
 }
 
+async function loadImageElement(file: File): Promise<HTMLImageElement> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function compressImageFile(file: File, maxBytes = 150 * 1024) {
+  if (file.size <= maxBytes) return file;
+  const img = await loadImageElement(file);
+  const scale = Math.min(1, Math.sqrt(maxBytes / file.size));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  let quality = 0.85;
+  let blob: Blob | null = null;
+  while (quality > 0.2) {
+    blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+    if (blob && blob.size <= maxBytes) break;
+    quality -= 0.1;
+  }
+
+  if (!blob || blob.size > maxBytes) return null;
+  return new File([blob], `compressed-${file.name}`, { type: "image/jpeg" });
+}
+
 function safeIndex(length: number, index?: number) {
   if (index === undefined || Number.isNaN(index)) return length;
   return Math.min(Math.max(index, 0), length);
@@ -126,12 +167,15 @@ export default function AdminScheduleEditorPage() {
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [desktopDockOpen, setDesktopDockOpen] = useState(true);
   const [canvasExpanded, setCanvasExpanded] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [saveLog, setSaveLog] = useState<{
     status: "idle" | "saving" | "success" | "error";
     message?: string;
     lastAttempt?: string;
     payload?: { person: string; slotId: string; dateLabel?: string };
   }>({ status: "idle" });
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -1002,6 +1046,7 @@ export default function AdminScheduleEditorPage() {
     if (!taskId) return;
     setTaskDetailLoading(true);
     setTaskEditMessage(null);
+    setPhotoMessage(null);
     try {
       const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
       const json = await res.json();
@@ -1077,6 +1122,52 @@ export default function AdminScheduleEditorPage() {
       setTaskEditMessage(friendly);
     } finally {
       setTaskEditSaving(false);
+    }
+  };
+
+  const handlePhotoUpload = async () => {
+    if (!taskDetail?.id || !taskDetail?.name) {
+      setPhotoMessage("Select a task before uploading a photo.");
+      return;
+    }
+    const file = photoInputRef.current?.files?.[0];
+    if (!file) {
+      setPhotoMessage("Choose an image to upload.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setPhotoMessage("Only image files are supported.");
+      return;
+    }
+
+    setPhotoUploading(true);
+    setPhotoMessage(null);
+    try {
+      const compressed = await compressImageFile(file);
+      if (!compressed) {
+        setPhotoMessage("Image must be 150kb or less after compression.");
+        return;
+      }
+      const form = new FormData();
+      form.append("taskId", taskDetail.id);
+      form.append("taskName", taskDetail.name);
+      form.append("file", compressed);
+
+      const res = await fetch("/api/task/photos", { method: "POST", body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+
+      setPhotoMessage("Photo uploaded.");
+      if (photoInputRef.current) {
+        photoInputRef.current.value = "";
+      }
+      await loadTaskDetail(taskDetail.id, taskDetail.name);
+    } catch (err) {
+      console.error(err);
+      const friendly = err instanceof Error ? err.message : "Upload failed";
+      setPhotoMessage(friendly);
+    } finally {
+      setPhotoUploading(false);
     }
   };
 
@@ -1977,6 +2068,29 @@ export default function AdminScheduleEditorPage() {
                   >
                     Open in task editor
                   </Link>
+                </div>
+
+                <div className="mt-4 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                    Upload task photo (150kb max)
+                  </p>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePhotoUpload}
+                    disabled={photoUploading}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                  >
+                    {photoUploading ? "Uploading…" : "Upload photo"}
+                  </button>
+                  {photoMessage && (
+                    <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
+                  )}
                 </div>
               </div>
             )}

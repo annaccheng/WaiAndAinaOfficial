@@ -147,7 +147,7 @@ export async function GET(req: Request) {
   try {
     const buildQuery = (withOccurrence: boolean) => ({
       select:
-        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,task_type:task_types(name,color)",
+        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,photos,task_type:task_types(name,color)",
       ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
       ...(withOccurrence && occurrenceDate
         ? { occurrence_date: `eq.${occurrenceDate}` }
@@ -174,6 +174,12 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
+    const photos = Array.isArray(task.photos) ? task.photos : [];
+    const media = photos.map((url) => ({
+      name: url.split("/").pop() || "Photo",
+      url,
+      kind: "image",
+    }));
     return NextResponse.json({
       id: task.id,
       name: task.name,
@@ -187,7 +193,8 @@ export async function GET(req: Request) {
         createdTime: comment.createdTime,
         author: comment.author,
       })),
-      media: [],
+      media,
+      photos,
       links: task.links || [],
       taskType: task.task_type
         ? { name: task.task_type.name, color: task.task_type.color || "default" }

@@ -148,6 +148,47 @@ function typeColorClasses(color?: string) {
   return map[color || "default"] || map.default;
 }
 
+async function loadImageElement(file: File): Promise<HTMLImageElement> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function compressImageFile(file: File, maxBytes = 150 * 1024) {
+  if (file.size <= maxBytes) return file;
+  const img = await loadImageElement(file);
+  const scale = Math.min(1, Math.sqrt(maxBytes / file.size));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  let quality = 0.85;
+  let blob: Blob | null = null;
+  while (quality > 0.2) {
+    blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+    if (blob && blob.size <= maxBytes) break;
+    quality -= 0.1;
+  }
+
+  if (!blob || blob.size > maxBytes) return null;
+  return new File([blob], `compressed-${file.name}`, { type: "image/jpeg" });
+}
+
 function computeGroupNamesForSlotTask(
   schedule: ScheduleResponse,
   slotId: string,
@@ -210,6 +251,9 @@ export default function HubSchedulePage() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentAlerts, setCommentAlerts] = useState<CommentAlert[]>([]);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -1647,6 +1691,54 @@ export default function HubSchedulePage() {
     }
   }
 
+  async function handleTaskPhotoUpload() {
+    if (!modalDetails?.name) {
+      setPhotoMessage("Select a task before uploading a photo.");
+      return;
+    }
+    const file = photoInputRef.current?.files?.[0];
+    if (!file) {
+      setPhotoMessage("Choose an image to upload.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setPhotoMessage("Only image files are supported.");
+      return;
+    }
+
+    setPhotoUploading(true);
+    setPhotoMessage(null);
+    try {
+      const compressed = await compressImageFile(file);
+      if (!compressed) {
+        setPhotoMessage("Image must be 150kb or less after compression.");
+        return;
+      }
+      const form = new FormData();
+      form.append("taskName", modalDetails.name);
+      if (scheduleDateLabel) {
+        form.append("occurrenceDate", scheduleDateLabel);
+      }
+      form.append("file", compressed);
+
+      const res = await fetch("/api/task/photos", { method: "POST", body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+
+      setPhotoMessage("Photo uploaded.");
+      if (photoInputRef.current) {
+        photoInputRef.current.value = "";
+      }
+      await loadTaskDetails(modalDetails.name, { occurrenceDate: scheduleDateLabel });
+    } catch (e) {
+      console.error("Failed to upload photo:", e);
+      const friendly = e instanceof Error ? e.message : "Upload failed";
+      setPhotoMessage(friendly);
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   // When a task box is clicked
   async function handleTaskClick(taskPayload: TaskClickPayload) {
   // Always recompute group membership from the schedule matrix so the modal
@@ -1696,6 +1788,7 @@ export default function HubSchedulePage() {
     setModalDetails(null);
     setModalIsMeal(false);
     setCommentDraft("");
+    setPhotoMessage(null);
     setAnimalOverlay(null);
     setAnimalLookupError(null);
   }
@@ -2461,9 +2554,28 @@ export default function HubSchedulePage() {
                         Task Media
                       </p>
                       <p className="text-[11px] text-[#6a6748]">
-                        Uploads are temporarily disabled. Existing media stays visible below.
+                        Upload photos up to 150kb each.
                       </p>
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3f3c2d] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTaskPhotoUpload}
+                      disabled={photoUploading || !modalDetails}
+                      className="w-full sm:w-auto rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-md hover:bg-[#7e9c44] disabled:opacity-60"
+                    >
+                      {photoUploading ? "Uploading…" : "Upload photo"}
+                    </button>
+                    {photoMessage && (
+                      <p className="text-[11px] text-[#4b5133]">{photoMessage}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     {modalDetails?.media?.length ? (
