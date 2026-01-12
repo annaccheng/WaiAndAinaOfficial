@@ -58,7 +58,7 @@ async function signPhotoPaths(paths: string[]) {
               apikey: serviceRoleKey,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ expiresIn: 60 * 60 * 24 }),
+            body: JSON.stringify({ expiresIn: 60 * 60 * 24 * 365 }),
           }
         );
         if (!res.ok) return "";
