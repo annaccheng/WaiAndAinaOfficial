@@ -21,6 +21,33 @@ function buildPublicUrl(path: string) {
   return `${base}/storage/v1/object/public/${BUCKET_NAME}/${path}`;
 }
 
+async function signPhotoPath(path: string) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) return "";
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/storage/v1/object/sign/${BUCKET_NAME}/${path}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ expiresIn: 60 * 60 * 24 }),
+      }
+    );
+    if (!res.ok) return "";
+    const json = await res.json();
+    if (!json?.signedURL) return "";
+    return `${supabaseUrl}${json.signedURL}`;
+  } catch (err) {
+    console.error("Failed to sign uploaded photo:", err);
+    return "";
+  }
+}
+
 export async function POST(req: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
@@ -85,7 +112,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const url = buildPublicUrl(path);
+  const signedUrl = await signPhotoPath(path);
+  const publicUrl = buildPublicUrl(path);
 
   try {
     let targetId = taskId || "";
@@ -110,9 +138,9 @@ export async function POST(req: Request) {
       query: { select: "id,photos", id: `eq.${targetId}`, limit: 1 },
     });
     const existingPhotos = Array.isArray(task?.photos) ? task.photos : [];
-    const nextPhotos = existingPhotos.includes(url)
+    const nextPhotos = existingPhotos.includes(path)
       ? existingPhotos
-      : [...existingPhotos, url];
+      : [...existingPhotos, path];
 
     await supabaseRequest("tasks", {
       method: "PATCH",
@@ -123,5 +151,5 @@ export async function POST(req: Request) {
     console.error("Failed to attach photo to task:", err);
   }
 
-  return NextResponse.json({ url });
+  return NextResponse.json({ url: signedUrl || publicUrl, path });
 }

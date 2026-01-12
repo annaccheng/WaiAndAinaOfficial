@@ -1,6 +1,65 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
+const PHOTO_BUCKET = "Photos";
+
+function buildPublicPhotoUrl(path: string) {
+  const base = process.env.SUPABASE_URL;
+  if (!base) return "";
+  return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${path}`;
+}
+
+function extractPhotoPath(entry: string) {
+  if (!entry) return "";
+  if (entry.startsWith("http")) {
+    const marker = `/storage/v1/object/public/${PHOTO_BUCKET}/`;
+    const idx = entry.indexOf(marker);
+    if (idx !== -1) {
+      return entry.slice(idx + marker.length);
+    }
+    const altMarker = `/storage/v1/object/${PHOTO_BUCKET}/`;
+    const altIdx = entry.indexOf(altMarker);
+    if (altIdx !== -1) {
+      return entry.slice(altIdx + altMarker.length);
+    }
+    return "";
+  }
+  return entry;
+}
+
+async function signPhotoPaths(paths: string[]) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) return [];
+
+  return Promise.all(
+    paths.map(async (path) => {
+      if (!path) return "";
+      try {
+        const res = await fetch(
+          `${supabaseUrl}/storage/v1/object/sign/${PHOTO_BUCKET}/${path}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              apikey: serviceRoleKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ expiresIn: 60 * 60 * 24 }),
+          }
+        );
+        if (!res.ok) return "";
+        const json = await res.json();
+        if (!json?.signedURL) return "";
+        return `${supabaseUrl}${json.signedURL}`;
+      } catch (err) {
+        console.error("Failed to sign photo URL:", err);
+        return "";
+      }
+    })
+  );
+}
+
 type NormalizedComment = {
   id: string;
   text: string;
@@ -175,11 +234,24 @@ export async function GET(req: Request) {
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
     const photos: string[] = Array.isArray(task.photos) ? task.photos : [];
-    const media = photos.map((url: string) => ({
-      name: url.split("/").pop() || "Photo",
-      url,
-      kind: "image",
-    }));
+    const photoPaths = photos.map((entry) => extractPhotoPath(String(entry))).filter(Boolean);
+    const signedUrls = photoPaths.length ? await signPhotoPaths(photoPaths) : [];
+    const signedMap = new Map(photoPaths.map((path, idx) => [path, signedUrls[idx] || ""]));
+    const media = photos.map((entry) => {
+      const path = extractPhotoPath(String(entry));
+      const signedUrl = path ? signedMap.get(path) || "" : "";
+      const fallbackUrl = entry.startsWith("http")
+        ? entry
+        : path
+          ? buildPublicPhotoUrl(path)
+          : "";
+      const url = signedUrl || fallbackUrl;
+      return {
+        name: (path || entry).split("/").pop() || "Photo",
+        url,
+        kind: "image",
+      };
+    });
     return NextResponse.json({
       id: task.id,
       name: task.name,
