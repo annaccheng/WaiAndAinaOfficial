@@ -39,12 +39,18 @@ async function signPhotoPaths(paths: string[]) {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceRoleKey) return [];
 
+  const encodePath = (path: string) =>
+    path
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+
   return Promise.all(
     paths.map(async (path) => {
       if (!path) return "";
       try {
         const res = await fetch(
-          `${supabaseUrl}/storage/v1/object/sign/${PHOTO_BUCKET}/${path}`,
+          `${supabaseUrl}/storage/v1/object/sign/${PHOTO_BUCKET}/${encodePath(path)}`,
           {
             method: "POST",
             headers: {
