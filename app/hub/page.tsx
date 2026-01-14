@@ -2353,9 +2353,11 @@ export default function HubSchedulePage() {
                       <h3 className="text-lg font-semibold text-[#3b4224]">
                         Custom Tables
                       </h3>
-                      <p className="text-xs text-[#7a7f54]">
-                        Add custom sections with editable headers and volunteer selections.
-                      </p>
+                      {isAdmin && (
+                        <p className="text-xs text-[#7a7f54]">
+                          Add custom sections with editable headers and volunteer selections.
+                        </p>
+                      )}
                     </div>
                     {isAdmin && (
                       <button
@@ -2390,7 +2392,7 @@ export default function HubSchedulePage() {
                       return (
                         <div
                           key={table.id}
-                          className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-3 shadow-sm"
+                          className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             {isAdmin ? (
@@ -2573,15 +2575,29 @@ export default function HubSchedulePage() {
                                               ))}
                                             </select>
                                           ) : (
-                                            <span
-                                              className={
-                                                highlight
-                                                  ? "font-semibold text-[#3e4c24]"
-                                                  : "text-[#4b5133]"
-                                              }
-                                            >
-                                              {value || "—"}
-                                            </span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {selectedNames.length > 0 ? (
+                                                selectedNames.map((name) => {
+                                                  const isCurrent =
+                                                    normalizedUserName &&
+                                                    name.toLowerCase() === normalizedUserName;
+                                                  return (
+                                                    <span
+                                                      key={`${table.id}-${rowIdx}-${colIdx}-${name}`}
+                                                      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                        isCurrent
+                                                          ? "bg-[#8fae4c] text-white shadow-sm"
+                                                          : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                      }`}
+                                                    >
+                                                      {name}
+                                                    </span>
+                                                  );
+                                                })
+                                              ) : (
+                                                <span className="text-[#9a9574]">—</span>
+                                              )}
+                                            </div>
                                           )}
                                         </td>
                                       );
