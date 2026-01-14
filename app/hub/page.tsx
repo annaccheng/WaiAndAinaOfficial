@@ -2522,11 +2522,12 @@ export default function HubSchedulePage() {
                                     </th>
                                     {table.columnHeaders.map((_, colIdx) => {
                                       const value = table.cells[rowIdx]?.[colIdx] ?? "";
+                                      const normalizedUserName =
+                                        currentUserName?.toLowerCase() || "";
                                       const highlight =
                                         Boolean(value) &&
-                                        Boolean(currentUserName) &&
-                                        value.toLowerCase() ===
-                                          currentUserName.toLowerCase();
+                                        normalizedUserName &&
+                                        value.toLowerCase() === normalizedUserName;
                                       return (
                                         <td
                                           key={`${table.id}-cell-${rowIdx}-${colIdx}`}
