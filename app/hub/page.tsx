@@ -2468,7 +2468,7 @@ export default function HubSchedulePage() {
                               <thead>
                                 <tr>
                                   <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
-                                    {scheduleDayName || ""}
+                                    {" "}
                                   </th>
                                   {table.columnHeaders.map((header, colIdx) => (
                                     <th
@@ -2524,10 +2524,16 @@ export default function HubSchedulePage() {
                                       const value = table.cells[rowIdx]?.[colIdx] ?? "";
                                       const normalizedUserName =
                                         currentUserName?.toLowerCase() || "";
+                                      const selectedNames = value
+                                        .split(",")
+                                        .map((name) => name.trim())
+                                        .filter(Boolean);
                                       const highlight =
-                                        Boolean(value) &&
+                                        selectedNames.length > 0 &&
                                         normalizedUserName &&
-                                        value.toLowerCase() === normalizedUserName;
+                                        selectedNames.some(
+                                          (name) => name.toLowerCase() === normalizedUserName
+                                        );
                                       return (
                                         <td
                                           key={`${table.id}-cell-${rowIdx}-${colIdx}`}
@@ -2537,14 +2543,20 @@ export default function HubSchedulePage() {
                                         >
                                           {isAdmin ? (
                                             <select
-                                              value={value}
+                                              multiple
+                                              value={selectedNames}
                                               onChange={(event) =>
                                                 updateCustomTableState(table.id, (prev) => {
+                                                  const nextValue = Array.from(
+                                                    event.target.selectedOptions
+                                                  )
+                                                    .map((option) => option.value)
+                                                    .filter(Boolean)
+                                                    .join(", ");
                                                   const nextCells = prev.cells.map((row) => [
                                                     ...row,
                                                   ]);
-                                                  nextCells[rowIdx][colIdx] =
-                                                    event.target.value;
+                                                  nextCells[rowIdx][colIdx] = nextValue;
                                                   return { ...prev, cells: nextCells };
                                                 })
                                               }
@@ -2554,7 +2566,6 @@ export default function HubSchedulePage() {
                                                   : "text-[#4b5133]"
                                               }`}
                                             >
-                                              <option value="">—</option>
                                               {userOptions.map((name) => (
                                                 <option key={`${table.id}-${name}`} value={name}>
                                                   {name}
