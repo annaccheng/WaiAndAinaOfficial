@@ -94,6 +94,17 @@ type CommentAlert = {
   latestTime: string | null;
 };
 
+type CustomTable = {
+  id: string;
+  title: string;
+  columnHeaders: string[];
+  rowHeaders: string[];
+  cells: string[][];
+  rowHeaderType: "user" | "task" | "text";
+  columnHeaderType: "user" | "task" | "text";
+  cellType: "user" | "task" | "text";
+};
+
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
 
@@ -148,6 +159,47 @@ function typeColorClasses(color?: string) {
   return map[color || "default"] || map.default;
 }
 
+async function loadImageElement(file: File): Promise<HTMLImageElement> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function compressImageFile(file: File, maxBytes = 150 * 1024) {
+  if (file.size <= maxBytes) return file;
+  const img = await loadImageElement(file);
+  const scale = Math.min(1, Math.sqrt(maxBytes / file.size));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  let quality = 0.85;
+  let blob: Blob | null = null;
+  while (quality > 0.2) {
+    blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+    if (blob && blob.size <= maxBytes) break;
+    quality -= 0.1;
+  }
+
+  if (!blob || blob.size > maxBytes) return null;
+  return new File([blob], `compressed-${file.name}`, { type: "image/jpeg" });
+}
+
 function computeGroupNamesForSlotTask(
   schedule: ScheduleResponse,
   slotId: string,
@@ -181,6 +233,12 @@ export default function HubSchedulePage() {
   const [currentUserType, setCurrentUserType] = useState<string | null>(null);
   const [currentSlotId, setCurrentSlotId] = useState<string | null>(null);
   const [knownUsers, setKnownUsers] = useState<string[]>([]);
+  const [taskOptions, setTaskOptions] = useState<string[]>([]);
+  const [customTables, setCustomTables] = useState<CustomTable[]>([]);
+  const [customTablesLoading, setCustomTablesLoading] = useState(false);
+  const [customTablesError, setCustomTablesError] = useState<string | null>(null);
+  const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
+  const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -210,6 +268,9 @@ export default function HubSchedulePage() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentAlerts, setCommentAlerts] = useState<CommentAlert[]>([]);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -249,6 +310,19 @@ export default function HubSchedulePage() {
     });
     return map;
   }, [statusOptions]);
+  const userOptions = useMemo(
+    () => Array.from(new Set(knownUsers)).sort((a, b) => a.localeCompare(b)),
+    [knownUsers]
+  );
+  const taskNameOptions = useMemo(
+    () => Array.from(new Set(taskOptions)).sort((a, b) => a.localeCompare(b)),
+    [taskOptions]
+  );
+  const headerTypeOptions = [
+    { value: "user", label: "User" },
+    { value: "task", label: "Task" },
+    { value: "text", label: "Custom text" },
+  ] as const;
 
   const scheduleDateLabel = data?.scheduleDate;
   useEffect(() => {
@@ -270,6 +344,92 @@ export default function HubSchedulePage() {
     if (!scheduleDateObj) return null;
     return scheduleDateObj.toLocaleDateString("en-US", { weekday: "long" });
   }, [scheduleDateObj]);
+
+  const normalizeCustomTable = useCallback((table: any): CustomTable => {
+    const columnHeaders = Array.isArray(table?.columnHeaders)
+      ? table.columnHeaders
+      : Array.isArray(table?.column_headers)
+        ? table.column_headers
+        : [];
+    const rowHeaders = Array.isArray(table?.rowHeaders)
+      ? table.rowHeaders
+      : Array.isArray(table?.row_headers)
+        ? table.row_headers
+        : [];
+    const rawCells = Array.isArray(table?.cells) ? table.cells : [];
+    const sanitizedColumns = columnHeaders.map((value: any) => String(value ?? ""));
+    const sanitizedRows = rowHeaders.map((value: any) => String(value ?? ""));
+    const normalizedCells = sanitizedRows.map((_label: string, rowIdx: number) => {
+      const row = Array.isArray(rawCells[rowIdx]) ? rawCells[rowIdx] : [];
+      return sanitizedColumns.map((_header: string, colIdx: number) => String(row[colIdx] ?? ""));
+    });
+
+    return {
+      id: String(table?.id ?? ""),
+      title: String(table?.title ?? "Custom Table"),
+      columnHeaders: sanitizedColumns,
+      rowHeaders: sanitizedRows,
+      cells: normalizedCells,
+      rowHeaderType:
+        table?.rowHeaderType === "user" ||
+        table?.rowHeaderType === "task" ||
+        table?.rowHeaderType === "text"
+          ? table.rowHeaderType
+          : table?.row_header_type === "user" ||
+              table?.row_header_type === "task" ||
+              table?.row_header_type === "text"
+            ? table.row_header_type
+            : "text",
+      columnHeaderType:
+        table?.columnHeaderType === "user" ||
+        table?.columnHeaderType === "task" ||
+        table?.columnHeaderType === "text"
+          ? table.columnHeaderType
+          : table?.column_header_type === "user" ||
+              table?.column_header_type === "task" ||
+              table?.column_header_type === "text"
+            ? table.column_header_type
+            : "text",
+      cellType:
+        table?.cellType === "user" ||
+        table?.cellType === "task" ||
+        table?.cellType === "text"
+          ? table.cellType
+          : table?.cell_type === "user" ||
+              table?.cell_type === "task" ||
+              table?.cell_type === "text"
+            ? table.cell_type
+            : "user",
+    };
+  }, []);
+
+  const loadCustomTables = useCallback(
+    async (dateLabel?: string | null) => {
+      if (!dateLabel) {
+        setCustomTables([]);
+        return;
+      }
+      const isoDate = toIsoDateLabel(dateLabel) || dateLabel;
+      setCustomTablesLoading(true);
+      setCustomTablesError(null);
+      try {
+        const res = await fetch(
+          `/api/schedule/custom-tables?date=${encodeURIComponent(isoDate)}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const tables = Array.isArray(json.tables) ? json.tables : [];
+        setCustomTables(tables.map(normalizeCustomTable));
+        setCustomTablesDirty({});
+      } catch (err) {
+        console.error("Failed to load custom tables:", err);
+        setCustomTablesError("Unable to load custom tables.");
+      } finally {
+        setCustomTablesLoading(false);
+      }
+    },
+    [normalizeCustomTable]
+  );
 
   useEffect(() => {
     if (!scheduleDateObj) return;
@@ -337,6 +497,10 @@ export default function HubSchedulePage() {
       cancelled = true;
     };
   }, [scheduleDateLabel, weekDays]);
+
+  useEffect(() => {
+    loadCustomTables(scheduleDateLabel);
+  }, [loadCustomTables, scheduleDateLabel]);
 
   const isScheduleToday = useMemo(() => {
     if (!scheduleDateObj) return false;
@@ -669,6 +833,93 @@ export default function HubSchedulePage() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/task?list=1");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (Array.isArray(json.tasks)) {
+          setTaskOptions(
+            json.tasks
+              .map((task: any) => task.name || "")
+              .filter(Boolean)
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load task list", err);
+      }
+    })();
+  }, []);
+
+  const updateCustomTableState = useCallback(
+    (tableId: string, updater: (table: CustomTable) => CustomTable) => {
+      setCustomTables((prev) =>
+        prev.map((table) => (table.id === tableId ? updater(table) : table))
+      );
+      setCustomTablesDirty((prev) => ({ ...prev, [tableId]: true }));
+    },
+    []
+  );
+
+  const splitMultiValue = useCallback((value: string) => {
+    return value
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }, []);
+
+  const handleAddCustomTable = useCallback(async () => {
+    if (!isAdmin || !scheduleDateLabel) return;
+    const isoDate = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    try {
+      const res = await fetch("/api/schedule/custom-tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduleDate: isoDate }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json?.table) {
+        setCustomTables((prev) => [...prev, normalizeCustomTable(json.table)]);
+      }
+    } catch (err) {
+      console.error("Failed to add custom table:", err);
+      setCustomTablesError("Unable to add a custom table.");
+    }
+  }, [isAdmin, normalizeCustomTable, scheduleDateLabel]);
+
+  const handleSaveCustomTable = useCallback(
+    async (table: CustomTable) => {
+      if (!isAdmin) return;
+      setCustomTablesSaving((prev) => ({ ...prev, [table.id]: true }));
+      try {
+        const res = await fetch("/api/schedule/custom-tables", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: table.id,
+            title: table.title,
+            columnHeaders: table.columnHeaders,
+            rowHeaders: table.rowHeaders,
+            cells: table.cells,
+            rowHeaderType: table.rowHeaderType,
+            columnHeaderType: table.columnHeaderType,
+            cellType: table.cellType,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setCustomTablesDirty((prev) => ({ ...prev, [table.id]: false }));
+      } catch (err) {
+        console.error("Failed to save custom table:", err);
+        setCustomTablesError("Unable to save custom table.");
+      } finally {
+        setCustomTablesSaving((prev) => ({ ...prev, [table.id]: false }));
+      }
+    },
+    [isAdmin]
+  );
 
   useEffect(() => {
     (async () => {
@@ -1647,6 +1898,54 @@ export default function HubSchedulePage() {
     }
   }
 
+  async function handleTaskPhotoUpload() {
+    if (!modalDetails?.name) {
+      setPhotoMessage("Select a task before uploading a photo.");
+      return;
+    }
+    const file = photoInputRef.current?.files?.[0];
+    if (!file) {
+      setPhotoMessage("Choose an image to upload.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setPhotoMessage("Only image files are supported.");
+      return;
+    }
+
+    setPhotoUploading(true);
+    setPhotoMessage(null);
+    try {
+      const compressed = await compressImageFile(file);
+      if (!compressed) {
+        setPhotoMessage("Image must be 150kb or less after compression.");
+        return;
+      }
+      const form = new FormData();
+      form.append("taskName", modalDetails.name);
+      if (scheduleDateLabel) {
+        form.append("occurrenceDate", scheduleDateLabel);
+      }
+      form.append("file", compressed);
+
+      const res = await fetch("/api/task/photos", { method: "POST", body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+
+      setPhotoMessage("Photo uploaded.");
+      if (photoInputRef.current) {
+        photoInputRef.current.value = "";
+      }
+      await loadTaskDetails(modalDetails.name, { occurrenceDate: scheduleDateLabel });
+    } catch (e) {
+      console.error("Failed to upload photo:", e);
+      const friendly = e instanceof Error ? e.message : "Upload failed";
+      setPhotoMessage(friendly);
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   // When a task box is clicked
   async function handleTaskClick(taskPayload: TaskClickPayload) {
   // Always recompute group membership from the schedule matrix so the modal
@@ -1696,6 +1995,7 @@ export default function HubSchedulePage() {
     setModalDetails(null);
     setModalIsMeal(false);
     setCommentDraft("");
+    setPhotoMessage(null);
     setAnimalOverlay(null);
     setAnimalLookupError(null);
   }
@@ -2100,22 +2400,552 @@ export default function HubSchedulePage() {
               <p className="mt-1 text-xs text-[#7a7f54]">{data.message}</p>
             )}
             {viewMode === "tasks" ? (
-              <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                {loading && (
-                  <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
-                )}
-                {!loading && !error && (
-                  <MyTasksList
-                    tasks={myTasks}
-                    onTaskClick={handleTaskClick}
-                    statusMap={taskMetaMap}
-                    statusColors={statusColorLookup}
-                    currentUserName={currentUserName}
-                  />
-                )}
-                {!loading && error && (
-                  <p className="text-sm text-red-700">{error}</p>
-                )}
+              <div className="space-y-4">
+                <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                  {loading && (
+                    <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+                  )}
+                  {!loading && !error && (
+                    <MyTasksList
+                      tasks={myTasks}
+                      onTaskClick={handleTaskClick}
+                      statusMap={taskMetaMap}
+                      statusColors={statusColorLookup}
+                      currentUserName={currentUserName}
+                    />
+                  )}
+                  {!loading && error && (
+                    <p className="text-sm text-red-700">{error}</p>
+                  )}
+                </div>
+
+                <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#3b4224]">
+                          Custom Tables
+                        </h3>
+                        <p className="text-xs text-[#7a7f54]">
+                          Add custom sections with editable headers and volunteer selections.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddCustomTable}
+                        disabled={!scheduleDateLabel}
+                        className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Add Section
+                      </button>
+                    </div>
+                  )}
+
+                  {customTablesLoading && (
+                    <p className="mt-3 text-sm text-[#7a7f54]">
+                      Loading custom tables…
+                    </p>
+                  )}
+                  {customTablesError && (
+                    <p className="mt-3 text-sm text-red-700">{customTablesError}</p>
+                  )}
+                  {!customTablesLoading && customTables.length === 0 && (
+                    <p className="mt-3 text-sm text-[#7a7f54]">
+                      No custom tables yet for this schedule date.
+                    </p>
+                  )}
+
+                  <div className="mt-4 space-y-4">
+                    {customTables.map((table) => {
+                      const isSaving = Boolean(customTablesSaving[table.id]);
+                      const isDirty = Boolean(customTablesDirty[table.id]);
+                      const rowHeaderType = table.rowHeaderType;
+                      const columnHeaderType = table.columnHeaderType;
+                      const cellType = table.cellType;
+                      const normalizedUserName =
+                        currentUserName?.toLowerCase() || "";
+                      return (
+                        <div
+                          key={table.id}
+                          className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            {isAdmin ? (
+                              <input
+                                value={table.title}
+                                onChange={(event) =>
+                                  updateCustomTableState(table.id, (prev) => ({
+                                    ...prev,
+                                    title: event.target.value,
+                                  }))
+                                }
+                                className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
+                                placeholder="Custom table title"
+                              />
+                            ) : (
+                              <h4 className="text-base font-semibold text-[#3b4224]">
+                                {table.title}
+                              </h4>
+                            )}
+                            {isAdmin && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      rowHeaders: [
+                                        ...prev.rowHeaders,
+                                        `Row ${prev.rowHeaders.length + 1}`,
+                                      ],
+                                      cells: [
+                                        ...prev.cells,
+                                        Array(prev.columnHeaders.length).fill(""),
+                                      ],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm"
+                                >
+                                  Add Row
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      columnHeaders: [
+                                        ...prev.columnHeaders,
+                                        `Column ${prev.columnHeaders.length + 1}`,
+                                      ],
+                                      cells: prev.cells.map((row) => [...row, ""]),
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm"
+                                >
+                                  Add Column
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveCustomTable(table)}
+                                  disabled={!isDirty || isSaving}
+                                  className="rounded-full border border-[#8fae4c] bg-[#8fae4c] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSaving
+                                    ? "Saving…"
+                                    : isDirty
+                                      ? "Save Table"
+                                      : "Saved"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {isAdmin && (
+                            <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Row headers
+                                </span>
+                                <select
+                                  value={rowHeaderType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      rowHeaderType: event.target.value as CustomTable["rowHeaderType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`row-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Column headers
+                                </span>
+                                <select
+                                  value={columnHeaderType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      columnHeaderType:
+                                        event.target.value as CustomTable["columnHeaderType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`col-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Cells
+                                </span>
+                                <select
+                                  value={cellType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      cellType: event.target.value as CustomTable["cellType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`cell-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          )}
+
+                          <div className="mt-3 overflow-x-auto">
+                            <table className="min-w-full border-collapse text-xs text-[#3f4630]">
+                              <thead>
+                                <tr>
+                                  <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                    {" "}
+                                  </th>
+                                  {table.columnHeaders.map((header, colIdx) => (
+                                    <th
+                                      key={`${table.id}-col-${colIdx}`}
+                                      className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                    >
+                                      {isAdmin ? (
+                                        columnHeaderType === "text" ? (
+                                          <input
+                                            value={header}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.columnHeaders];
+                                                next[colIdx] = event.target.value;
+                                                return { ...prev, columnHeaders: next };
+                                              })
+                                            }
+                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                            placeholder={`Column ${colIdx + 1}`}
+                                          />
+                                        ) : (
+                                          <select
+                                            value={header}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.columnHeaders];
+                                                next[colIdx] = event.target.value;
+                                                return { ...prev, columnHeaders: next };
+                                              })
+                                            }
+                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                          >
+                                            <option value="">—</option>
+                                            {(columnHeaderType === "user"
+                                              ? userOptions
+                                              : taskNameOptions
+                                            ).map((name) => (
+                                              <option key={`${table.id}-col-${name}`} value={name}>
+                                                {name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )
+                                      ) : columnHeaderType === "text" ? (
+                                        <span className="font-semibold text-[#4b5133]">
+                                          {header || `Column ${colIdx + 1}`}
+                                        </span>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {splitMultiValue(header).length > 0 ? (
+                                            splitMultiValue(header).map((name) => {
+                                              if (columnHeaderType === "task") {
+                                                return (
+                                                  <button
+                                                    key={`${table.id}-col-${colIdx}-${name}`}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleTaskClick({
+                                                        person: "Team",
+                                                        slot: {
+                                                          id: `custom-${table.id}-col-${colIdx}`,
+                                                          label: table.title || "Custom Table",
+                                                          timeRange: "",
+                                                          isMeal: false,
+                                                        },
+                                                        task: name,
+                                                        groupNames: [],
+                                                      })
+                                                    }
+                                                    className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
+                                                  >
+                                                    {name}
+                                                  </button>
+                                                );
+                                              }
+                                              const isCurrent =
+                                                columnHeaderType === "user" &&
+                                                normalizedUserName &&
+                                                name.toLowerCase() === normalizedUserName;
+                                              return (
+                                                <span
+                                                  key={`${table.id}-col-${colIdx}-${name}`}
+                                                  className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                    isCurrent
+                                                      ? "bg-[#8fae4c] text-white shadow-sm"
+                                                      : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                  }`}
+                                                >
+                                                  {name}
+                                                </span>
+                                              );
+                                            })
+                                          ) : (
+                                            <span className="text-[#9a9574]">—</span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {table.rowHeaders.map((rowHeader, rowIdx) => (
+                                  <tr key={`${table.id}-row-${rowIdx}`}>
+                                    <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                      {isAdmin ? (
+                                        rowHeaderType === "text" ? (
+                                          <input
+                                            value={rowHeader}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.rowHeaders];
+                                                next[rowIdx] = event.target.value;
+                                                return { ...prev, rowHeaders: next };
+                                              })
+                                            }
+                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                            placeholder={`Row ${rowIdx + 1}`}
+                                          />
+                                        ) : (
+                                          <select
+                                            value={rowHeader}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.rowHeaders];
+                                                next[rowIdx] = event.target.value;
+                                                return { ...prev, rowHeaders: next };
+                                              })
+                                            }
+                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                          >
+                                            <option value="">—</option>
+                                            {(rowHeaderType === "user"
+                                              ? userOptions
+                                              : taskNameOptions
+                                            ).map((name) => (
+                                              <option key={`${table.id}-row-${name}`} value={name}>
+                                                {name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )
+                                      ) : rowHeaderType === "text" ? (
+                                        <span className="font-semibold text-[#4b5133]">
+                                          {rowHeader || `Row ${rowIdx + 1}`}
+                                        </span>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {splitMultiValue(rowHeader).length > 0 ? (
+                                            splitMultiValue(rowHeader).map((name) => {
+                                              if (rowHeaderType === "task") {
+                                                return (
+                                                  <button
+                                                    key={`${table.id}-row-${rowIdx}-${name}`}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleTaskClick({
+                                                        person: "Team",
+                                                        slot: {
+                                                          id: `custom-${table.id}-row-${rowIdx}`,
+                                                          label: table.title || "Custom Table",
+                                                          timeRange: "",
+                                                          isMeal: false,
+                                                        },
+                                                        task: name,
+                                                        groupNames: [],
+                                                      })
+                                                    }
+                                                    className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
+                                                  >
+                                                    {name}
+                                                  </button>
+                                                );
+                                              }
+                                              const isCurrent =
+                                                rowHeaderType === "user" &&
+                                                normalizedUserName &&
+                                                name.toLowerCase() === normalizedUserName;
+                                              return (
+                                                <span
+                                                  key={`${table.id}-row-${rowIdx}-${name}`}
+                                                  className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                    isCurrent
+                                                      ? "bg-[#8fae4c] text-white shadow-sm"
+                                                      : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                  }`}
+                                                >
+                                                  {name}
+                                                </span>
+                                              );
+                                            })
+                                          ) : (
+                                            <span className="text-[#9a9574]">—</span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </th>
+                                    {table.columnHeaders.map((_, colIdx) => {
+                                      const value = table.cells[rowIdx]?.[colIdx] ?? "";
+                                      const selectedNames = splitMultiValue(value);
+                                      const highlight =
+                                        selectedNames.length > 0 &&
+                                        normalizedUserName &&
+                                        selectedNames.some(
+                                          (name) => name.toLowerCase() === normalizedUserName
+                                        );
+                                      return (
+                                        <td
+                                          key={`${table.id}-cell-${rowIdx}-${colIdx}`}
+                                          className={`border border-[#d0c9a4] p-2 ${
+                                            highlight ? "bg-[#e8f3cf]" : "bg-white/90"
+                                          }`}
+                                        >
+                                          {isAdmin ? (
+                                            cellType === "text" ? (
+                                              <textarea
+                                                value={value}
+                                                onChange={(event) =>
+                                                  updateCustomTableState(table.id, (prev) => {
+                                                    const nextCells = prev.cells.map((row) => [
+                                                      ...row,
+                                                    ]);
+                                                    nextCells[rowIdx][colIdx] = event.target.value;
+                                                    return { ...prev, cells: nextCells };
+                                                  })
+                                                }
+                                                className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs text-[#4b5133]"
+                                                rows={2}
+                                              />
+                                            ) : (
+                                              <select
+                                                multiple
+                                                value={selectedNames}
+                                                onChange={(event) =>
+                                                  updateCustomTableState(table.id, (prev) => {
+                                                    const nextValue = Array.from(
+                                                      event.target.selectedOptions
+                                                    )
+                                                      .map((option) => option.value)
+                                                      .filter(Boolean)
+                                                      .join(", ");
+                                                    const nextCells = prev.cells.map((row) => [
+                                                      ...row,
+                                                    ]);
+                                                    nextCells[rowIdx][colIdx] = nextValue;
+                                                    return { ...prev, cells: nextCells };
+                                                  })
+                                                }
+                                                className={`w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs ${
+                                                  highlight
+                                                    ? "font-semibold text-[#3e4c24] ring-2 ring-[#8fae4c]"
+                                                    : "text-[#4b5133]"
+                                                }`}
+                                              >
+                                                {(cellType === "user"
+                                                  ? userOptions
+                                                  : taskNameOptions
+                                                ).map((name) => (
+                                                  <option key={`${table.id}-${name}`} value={name}>
+                                                    {name}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            )
+                                          ) : (
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {cellType === "text" ? (
+                                                <span className="text-[#4b5133]">
+                                                  {value || "—"}
+                                                </span>
+                                              ) : selectedNames.length > 0 ? (
+                                                selectedNames.map((name) => {
+                                                  const isCurrent =
+                                                    cellType === "user" &&
+                                                    normalizedUserName &&
+                                                    name.toLowerCase() === normalizedUserName;
+                                                  if (cellType === "task") {
+                                                    return (
+                                                      <button
+                                                        key={`${table.id}-${rowIdx}-${colIdx}-${name}`}
+                                                        type="button"
+                                                        onClick={() =>
+                                                          handleTaskClick({
+                                                            person: "Team",
+                                                            slot: {
+                                                              id: `custom-${table.id}`,
+                                                              label: table.title || "Custom Table",
+                                                              timeRange: "",
+                                                              isMeal: false,
+                                                            },
+                                                            task: name,
+                                                            groupNames: [],
+                                                          })
+                                                        }
+                                                        className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
+                                                      >
+                                                        {name}
+                                                      </button>
+                                                    );
+                                                  }
+                                                  return (
+                                                    <span
+                                                      key={`${table.id}-${rowIdx}-${colIdx}-${name}`}
+                                                      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                        isCurrent
+                                                          ? "bg-[#8fae4c] text-white shadow-sm"
+                                                          : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                      }`}
+                                                    >
+                                                      {name}
+                                                    </span>
+                                                  );
+                                                })
+                                              ) : (
+                                                <span className="text-[#9a9574]">—</span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               </div>
             ) : (
               <>
@@ -2453,7 +3283,7 @@ export default function HubSchedulePage() {
                 </div>
               )}
 
-              {showFullTaskDetail && (
+              {modalDetails && (
                 <div className="rounded-lg border border-[#e2d7b5] bg-white/70 px-4 py-3 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -2461,9 +3291,28 @@ export default function HubSchedulePage() {
                         Task Media
                       </p>
                       <p className="text-[11px] text-[#6a6748]">
-                        Uploads are temporarily disabled. Existing media stays visible below.
+                        Upload photos up to 150kb each.
                       </p>
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3f3c2d] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTaskPhotoUpload}
+                      disabled={photoUploading || !modalDetails}
+                      className="w-full sm:w-auto rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-md hover:bg-[#7e9c44] disabled:opacity-60"
+                    >
+                      {photoUploading ? "Uploading…" : "Upload photo"}
+                    </button>
+                    {photoMessage && (
+                      <p className="text-[11px] text-[#4b5133]">{photoMessage}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     {modalDetails?.media?.length ? (

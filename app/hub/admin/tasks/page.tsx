@@ -103,6 +103,7 @@ export default function TaskEditorPage() {
   }>({ task: null, mode: "single", occurrenceDate: null });
   const [deleteOccurrences, setDeleteOccurrences] = useState(false);
   const [editing, setEditing] = useState<TaskItem | null>(null);
+  const [showValidation, setShowValidation] = useState(false);
   const [draft, setDraft] = useState<TaskItem>({
     id: "",
     name: "",
@@ -288,10 +289,12 @@ export default function TaskEditorPage() {
     }
     setDeleteOccurrences(false);
     setAdvancedOpen(false);
+    setShowValidation(false);
     setEditorOpen(true);
   }
 
   async function handleSave() {
+    setShowValidation(true);
     if (!draft.name.trim()) {
       setMessage("Task name is required.");
       return;
@@ -367,6 +370,7 @@ export default function TaskEditorPage() {
         setMessage("Task created.");
       }
       setEditorOpen(false);
+      setShowValidation(false);
       await loadTasks();
     } catch (err) {
       console.error("Failed to save task", err);
@@ -462,6 +466,8 @@ export default function TaskEditorPage() {
   );
   const editingDateLabel =
     draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
+  const nameInvalid = showValidation && !draft.name.trim();
+  const recurringUntilInvalid = showValidation && draft.recurring && !draft.recurrence_until;
 
   if (!authorized) {
     return (
@@ -839,7 +845,11 @@ export default function TaskEditorPage() {
                 <input
                   value={draft.name}
                   onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                  className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none ${
+                    nameInvalid
+                      ? "border-red-500 ring-2 ring-red-200"
+                      : "border-[#d0c9a4] focus:border-[#8fae4c]"
+                  }`}
                 />
               </div>
               <div className="space-y-2">
@@ -976,7 +986,11 @@ export default function TaskEditorPage() {
                         onChange={(e) =>
                           setDraft((prev) => ({ ...prev, recurrence_until: e.target.value }))
                         }
-                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                        className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none ${
+                          recurringUntilInvalid
+                            ? "border-red-500 ring-2 ring-red-200"
+                            : "border-[#d0c9a4] focus:border-[#8fae4c]"
+                        }`}
                       />
                       <p className="text-[10px] text-[#6f754f]">
                         Required to generate each recurring occurrence.

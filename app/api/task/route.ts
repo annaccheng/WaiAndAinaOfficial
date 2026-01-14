@@ -1,6 +1,86 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
+const PHOTO_BUCKET = "Photos";
+
+function normalizePhotoEntries(raw: unknown): string[] {
+  const entries = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  return entries
+    .flatMap((entry) => String(entry).split(","))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function buildPublicPhotoUrl(path: string) {
+  const base = process.env.SUPABASE_URL;
+  if (!base) return "";
+  return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${path}`;
+}
+
+function extractPhotoPath(entry: string) {
+  if (!entry) return "";
+  const trimmed = entry.replace(/^\/+/, "");
+  if (trimmed.startsWith(`${PHOTO_BUCKET}/`)) {
+    return trimmed.slice(`${PHOTO_BUCKET}/`.length);
+  }
+  if (trimmed.startsWith(`storage/v1/object/${PHOTO_BUCKET}/`)) {
+    return trimmed.slice(`storage/v1/object/${PHOTO_BUCKET}/`.length);
+  }
+  if (entry.startsWith("http")) {
+    const marker = `/storage/v1/object/public/${PHOTO_BUCKET}/`;
+    const idx = entry.indexOf(marker);
+    if (idx !== -1) {
+      return entry.slice(idx + marker.length);
+    }
+    const altMarker = `/storage/v1/object/${PHOTO_BUCKET}/`;
+    const altIdx = entry.indexOf(altMarker);
+    if (altIdx !== -1) {
+      return entry.slice(altIdx + altMarker.length);
+    }
+    return "";
+  }
+  return entry;
+}
+
+async function signPhotoPaths(paths: string[]) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) return [];
+
+  const encodePath = (path: string) =>
+    path
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+
+  return Promise.all(
+    paths.map(async (path) => {
+      if (!path) return "";
+      try {
+        const res = await fetch(
+          `${supabaseUrl}/storage/v1/object/sign/${PHOTO_BUCKET}/${encodePath(path)}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              apikey: serviceRoleKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ expiresIn: 60 * 60 * 24 * 365 }),
+          }
+        );
+        if (!res.ok) return "";
+        const json = await res.json();
+        if (!json?.signedURL) return "";
+        return `${supabaseUrl}${json.signedURL}`;
+      } catch (err) {
+        console.error("Failed to sign photo URL:", err);
+        return "";
+      }
+    })
+  );
+}
+
 type NormalizedComment = {
   id: string;
   text: string;
@@ -147,7 +227,7 @@ export async function GET(req: Request) {
   try {
     const buildQuery = (withOccurrence: boolean) => ({
       select:
-        "id,name,description,status,extra_notes,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,task_type:task_types(name,color)",
+        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,photos,task_type:task_types(name,color)",
       ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
       ...(withOccurrence && occurrenceDate
         ? { occurrence_date: `eq.${occurrenceDate}` }
@@ -174,11 +254,31 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
+    const photos = normalizePhotoEntries(task.photos);
+    const photoPaths = photos.map((entry) => extractPhotoPath(entry)).filter(Boolean);
+    const signedUrls = photoPaths.length ? await signPhotoPaths(photoPaths) : [];
+    const signedMap = new Map(photoPaths.map((path, idx) => [path, signedUrls[idx] || ""]));
+    const media = photos.map((entry) => {
+      const path = extractPhotoPath(entry);
+      const signedUrl = path ? signedMap.get(path) || "" : "";
+      const fallbackUrl = entry.startsWith("http")
+        ? entry
+        : path
+          ? buildPublicPhotoUrl(path)
+          : "";
+      const url = signedUrl || fallbackUrl;
+      return {
+        name: (path || entry).split("/").pop() || "Photo",
+        url,
+        kind: "image",
+      };
+    });
     return NextResponse.json({
       id: task.id,
       name: task.name,
       description: task.description || "",
       extraNotes: task.extra_notes || [],
+      personCount: task.person_count ?? null,
       status: task.status || "",
       comments: commentsWithAuthors.map((comment) => ({
         id: comment.id,
@@ -186,7 +286,8 @@ export async function GET(req: Request) {
         createdTime: comment.createdTime,
         author: comment.author,
       })),
-      media: [],
+      media,
+      photos,
       links: task.links || [],
       taskType: task.task_type
         ? { name: task.task_type.name, color: task.task_type.color || "default" }
