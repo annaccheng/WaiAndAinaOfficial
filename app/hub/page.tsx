@@ -346,9 +346,9 @@ export default function HubSchedulePage() {
     const rawCells = Array.isArray(table?.cells) ? table.cells : [];
     const sanitizedColumns = columnHeaders.map((value: any) => String(value ?? ""));
     const sanitizedRows = rowHeaders.map((value: any) => String(value ?? ""));
-    const normalizedCells = sanitizedRows.map((_, rowIdx) => {
+    const normalizedCells = sanitizedRows.map((_label: string, rowIdx: number) => {
       const row = Array.isArray(rawCells[rowIdx]) ? rawCells[rowIdx] : [];
-      return sanitizedColumns.map((__, colIdx) => String(row[colIdx] ?? ""));
+      return sanitizedColumns.map((_header: string, colIdx: number) => String(row[colIdx] ?? ""));
     });
 
     return {
