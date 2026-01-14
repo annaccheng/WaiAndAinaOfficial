@@ -2666,6 +2666,30 @@ export default function HubSchedulePage() {
                                         <div className="flex flex-wrap gap-1.5">
                                           {splitMultiValue(header).length > 0 ? (
                                             splitMultiValue(header).map((name) => {
+                                              if (columnHeaderType === "task") {
+                                                return (
+                                                  <button
+                                                    key={`${table.id}-col-${colIdx}-${name}`}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleTaskClick({
+                                                        person: "Team",
+                                                        slot: {
+                                                          id: `custom-${table.id}-col-${colIdx}`,
+                                                          label: table.title || "Custom Table",
+                                                          timeRange: "",
+                                                          isMeal: false,
+                                                        },
+                                                        task: name,
+                                                        groupNames: [],
+                                                      })
+                                                    }
+                                                    className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
+                                                  >
+                                                    {name}
+                                                  </button>
+                                                );
+                                              }
                                               const isCurrent =
                                                 columnHeaderType === "user" &&
                                                 normalizedUserName &&
@@ -2741,6 +2765,30 @@ export default function HubSchedulePage() {
                                         <div className="flex flex-wrap gap-1.5">
                                           {splitMultiValue(rowHeader).length > 0 ? (
                                             splitMultiValue(rowHeader).map((name) => {
+                                              if (rowHeaderType === "task") {
+                                                return (
+                                                  <button
+                                                    key={`${table.id}-row-${rowIdx}-${name}`}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleTaskClick({
+                                                        person: "Team",
+                                                        slot: {
+                                                          id: `custom-${table.id}-row-${rowIdx}`,
+                                                          label: table.title || "Custom Table",
+                                                          timeRange: "",
+                                                          isMeal: false,
+                                                        },
+                                                        task: name,
+                                                        groupNames: [],
+                                                      })
+                                                    }
+                                                    className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
+                                                  >
+                                                    {name}
+                                                  </button>
+                                                );
+                                              }
                                               const isCurrent =
                                                 rowHeaderType === "user" &&
                                                 normalizedUserName &&
@@ -2861,7 +2909,7 @@ export default function HubSchedulePage() {
                                                             groupNames: [],
                                                           })
                                                         }
-                                                        className="inline-flex items-center rounded-full border border-[#cdd7ab] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133] shadow-sm hover:bg-[#f1edd8]"
+                                                        className="inline-flex items-center rounded-lg border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#3e4c24] shadow-sm hover:border-[#b8c98a] hover:shadow"
                                                       >
                                                         {name}
                                                       </button>
