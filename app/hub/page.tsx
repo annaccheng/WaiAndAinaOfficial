@@ -2348,18 +2348,16 @@ export default function HubSchedulePage() {
                 </div>
 
                 <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-[#3b4224]">
-                        Custom Tables
-                      </h3>
-                      {isAdmin && (
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#3b4224]">
+                          Custom Tables
+                        </h3>
                         <p className="text-xs text-[#7a7f54]">
                           Add custom sections with editable headers and volunteer selections.
                         </p>
-                      )}
-                    </div>
-                    {isAdmin && (
+                      </div>
                       <button
                         type="button"
                         onClick={handleAddCustomTable}
@@ -2368,8 +2366,8 @@ export default function HubSchedulePage() {
                       >
                         Add Section
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {customTablesLoading && (
                     <p className="mt-3 text-sm text-[#7a7f54]">
