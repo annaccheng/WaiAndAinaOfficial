@@ -94,6 +94,14 @@ type CommentAlert = {
   latestTime: string | null;
 };
 
+type CustomTable = {
+  id: string;
+  title: string;
+  columnHeaders: string[];
+  rowHeaders: string[];
+  cells: string[][];
+};
+
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
 
@@ -222,6 +230,11 @@ export default function HubSchedulePage() {
   const [currentUserType, setCurrentUserType] = useState<string | null>(null);
   const [currentSlotId, setCurrentSlotId] = useState<string | null>(null);
   const [knownUsers, setKnownUsers] = useState<string[]>([]);
+  const [customTables, setCustomTables] = useState<CustomTable[]>([]);
+  const [customTablesLoading, setCustomTablesLoading] = useState(false);
+  const [customTablesError, setCustomTablesError] = useState<string | null>(null);
+  const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
+  const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -293,6 +306,10 @@ export default function HubSchedulePage() {
     });
     return map;
   }, [statusOptions]);
+  const userOptions = useMemo(
+    () => Array.from(new Set(knownUsers)).sort((a, b) => a.localeCompare(b)),
+    [knownUsers]
+  );
 
   const scheduleDateLabel = data?.scheduleDate;
   useEffect(() => {
@@ -314,6 +331,62 @@ export default function HubSchedulePage() {
     if (!scheduleDateObj) return null;
     return scheduleDateObj.toLocaleDateString("en-US", { weekday: "long" });
   }, [scheduleDateObj]);
+
+  const normalizeCustomTable = useCallback((table: any): CustomTable => {
+    const columnHeaders = Array.isArray(table?.columnHeaders)
+      ? table.columnHeaders
+      : Array.isArray(table?.column_headers)
+        ? table.column_headers
+        : [];
+    const rowHeaders = Array.isArray(table?.rowHeaders)
+      ? table.rowHeaders
+      : Array.isArray(table?.row_headers)
+        ? table.row_headers
+        : [];
+    const rawCells = Array.isArray(table?.cells) ? table.cells : [];
+    const sanitizedColumns = columnHeaders.map((value: any) => String(value ?? ""));
+    const sanitizedRows = rowHeaders.map((value: any) => String(value ?? ""));
+    const normalizedCells = sanitizedRows.map((_, rowIdx) => {
+      const row = Array.isArray(rawCells[rowIdx]) ? rawCells[rowIdx] : [];
+      return sanitizedColumns.map((__, colIdx) => String(row[colIdx] ?? ""));
+    });
+
+    return {
+      id: String(table?.id ?? ""),
+      title: String(table?.title ?? "Custom Table"),
+      columnHeaders: sanitizedColumns,
+      rowHeaders: sanitizedRows,
+      cells: normalizedCells,
+    };
+  }, []);
+
+  const loadCustomTables = useCallback(
+    async (dateLabel?: string | null) => {
+      if (!dateLabel) {
+        setCustomTables([]);
+        return;
+      }
+      const isoDate = toIsoDateLabel(dateLabel) || dateLabel;
+      setCustomTablesLoading(true);
+      setCustomTablesError(null);
+      try {
+        const res = await fetch(
+          `/api/schedule/custom-tables?date=${encodeURIComponent(isoDate)}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const tables = Array.isArray(json.tables) ? json.tables : [];
+        setCustomTables(tables.map(normalizeCustomTable));
+        setCustomTablesDirty({});
+      } catch (err) {
+        console.error("Failed to load custom tables:", err);
+        setCustomTablesError("Unable to load custom tables.");
+      } finally {
+        setCustomTablesLoading(false);
+      }
+    },
+    [normalizeCustomTable]
+  );
 
   useEffect(() => {
     if (!scheduleDateObj) return;
@@ -381,6 +454,10 @@ export default function HubSchedulePage() {
       cancelled = true;
     };
   }, [scheduleDateLabel, weekDays]);
+
+  useEffect(() => {
+    loadCustomTables(scheduleDateLabel);
+  }, [loadCustomTables, scheduleDateLabel]);
 
   const isScheduleToday = useMemo(() => {
     if (!scheduleDateObj) return false;
@@ -713,6 +790,64 @@ export default function HubSchedulePage() {
       }
     })();
   }, []);
+
+  const updateCustomTableState = useCallback(
+    (tableId: string, updater: (table: CustomTable) => CustomTable) => {
+      setCustomTables((prev) =>
+        prev.map((table) => (table.id === tableId ? updater(table) : table))
+      );
+      setCustomTablesDirty((prev) => ({ ...prev, [tableId]: true }));
+    },
+    []
+  );
+
+  const handleAddCustomTable = useCallback(async () => {
+    if (!isAdmin || !scheduleDateLabel) return;
+    const isoDate = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    try {
+      const res = await fetch("/api/schedule/custom-tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduleDate: isoDate }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json?.table) {
+        setCustomTables((prev) => [...prev, normalizeCustomTable(json.table)]);
+      }
+    } catch (err) {
+      console.error("Failed to add custom table:", err);
+      setCustomTablesError("Unable to add a custom table.");
+    }
+  }, [isAdmin, normalizeCustomTable, scheduleDateLabel]);
+
+  const handleSaveCustomTable = useCallback(
+    async (table: CustomTable) => {
+      if (!isAdmin) return;
+      setCustomTablesSaving((prev) => ({ ...prev, [table.id]: true }));
+      try {
+        const res = await fetch("/api/schedule/custom-tables", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: table.id,
+            title: table.title,
+            columnHeaders: table.columnHeaders,
+            rowHeaders: table.rowHeaders,
+            cells: table.cells,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setCustomTablesDirty((prev) => ({ ...prev, [table.id]: false }));
+      } catch (err) {
+        console.error("Failed to save custom table:", err);
+        setCustomTablesError("Unable to save custom table.");
+      } finally {
+        setCustomTablesSaving((prev) => ({ ...prev, [table.id]: false }));
+      }
+    },
+    [isAdmin]
+  );
 
   useEffect(() => {
     (async () => {
@@ -2193,22 +2328,262 @@ export default function HubSchedulePage() {
               <p className="mt-1 text-xs text-[#7a7f54]">{data.message}</p>
             )}
             {viewMode === "tasks" ? (
-              <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                {loading && (
-                  <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
-                )}
-                {!loading && !error && (
-                  <MyTasksList
-                    tasks={myTasks}
-                    onTaskClick={handleTaskClick}
-                    statusMap={taskMetaMap}
-                    statusColors={statusColorLookup}
-                    currentUserName={currentUserName}
-                  />
-                )}
-                {!loading && error && (
-                  <p className="text-sm text-red-700">{error}</p>
-                )}
+              <div className="space-y-4">
+                <div className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                  {loading && (
+                    <p className="text-sm text-[#7a7f54]">Loading your tasks…</p>
+                  )}
+                  {!loading && !error && (
+                    <MyTasksList
+                      tasks={myTasks}
+                      onTaskClick={handleTaskClick}
+                      statusMap={taskMetaMap}
+                      statusColors={statusColorLookup}
+                      currentUserName={currentUserName}
+                    />
+                  )}
+                  {!loading && error && (
+                    <p className="text-sm text-red-700">{error}</p>
+                  )}
+                </div>
+
+                <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#3b4224]">
+                        Custom Tables
+                      </h3>
+                      <p className="text-xs text-[#7a7f54]">
+                        Add custom sections with editable headers and volunteer selections.
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={handleAddCustomTable}
+                        disabled={!scheduleDateLabel}
+                        className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Add Section
+                      </button>
+                    )}
+                  </div>
+
+                  {customTablesLoading && (
+                    <p className="mt-3 text-sm text-[#7a7f54]">
+                      Loading custom tables…
+                    </p>
+                  )}
+                  {customTablesError && (
+                    <p className="mt-3 text-sm text-red-700">{customTablesError}</p>
+                  )}
+                  {!customTablesLoading && customTables.length === 0 && (
+                    <p className="mt-3 text-sm text-[#7a7f54]">
+                      No custom tables yet for this schedule date.
+                    </p>
+                  )}
+
+                  <div className="mt-4 space-y-4">
+                    {customTables.map((table) => {
+                      const isSaving = Boolean(customTablesSaving[table.id]);
+                      const isDirty = Boolean(customTablesDirty[table.id]);
+                      return (
+                        <div
+                          key={table.id}
+                          className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-3 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            {isAdmin ? (
+                              <input
+                                value={table.title}
+                                onChange={(event) =>
+                                  updateCustomTableState(table.id, (prev) => ({
+                                    ...prev,
+                                    title: event.target.value,
+                                  }))
+                                }
+                                className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
+                                placeholder="Custom table title"
+                              />
+                            ) : (
+                              <h4 className="text-base font-semibold text-[#3b4224]">
+                                {table.title}
+                              </h4>
+                            )}
+                            {isAdmin && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      rowHeaders: [
+                                        ...prev.rowHeaders,
+                                        `Row ${prev.rowHeaders.length + 1}`,
+                                      ],
+                                      cells: [
+                                        ...prev.cells,
+                                        Array(prev.columnHeaders.length).fill(""),
+                                      ],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm"
+                                >
+                                  Add Row
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      columnHeaders: [
+                                        ...prev.columnHeaders,
+                                        `Column ${prev.columnHeaders.length + 1}`,
+                                      ],
+                                      cells: prev.cells.map((row) => [...row, ""]),
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm"
+                                >
+                                  Add Column
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveCustomTable(table)}
+                                  disabled={!isDirty || isSaving}
+                                  className="rounded-full border border-[#8fae4c] bg-[#8fae4c] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSaving
+                                    ? "Saving…"
+                                    : isDirty
+                                      ? "Save Table"
+                                      : "Saved"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 overflow-x-auto">
+                            <table className="min-w-full border-collapse text-xs text-[#3f4630]">
+                              <thead>
+                                <tr>
+                                  <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                    {scheduleDayName || ""}
+                                  </th>
+                                  {table.columnHeaders.map((header, colIdx) => (
+                                    <th
+                                      key={`${table.id}-col-${colIdx}`}
+                                      className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                    >
+                                      {isAdmin ? (
+                                        <input
+                                          value={header}
+                                          onChange={(event) =>
+                                            updateCustomTableState(table.id, (prev) => {
+                                              const next = [...prev.columnHeaders];
+                                              next[colIdx] = event.target.value;
+                                              return { ...prev, columnHeaders: next };
+                                            })
+                                          }
+                                          className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                          placeholder={`Column ${colIdx + 1}`}
+                                        />
+                                      ) : (
+                                        <span className="font-semibold text-[#4b5133]">
+                                          {header || `Column ${colIdx + 1}`}
+                                        </span>
+                                      )}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {table.rowHeaders.map((rowHeader, rowIdx) => (
+                                  <tr key={`${table.id}-row-${rowIdx}`}>
+                                    <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                      {isAdmin ? (
+                                        <input
+                                          value={rowHeader}
+                                          onChange={(event) =>
+                                            updateCustomTableState(table.id, (prev) => {
+                                              const next = [...prev.rowHeaders];
+                                              next[rowIdx] = event.target.value;
+                                              return { ...prev, rowHeaders: next };
+                                            })
+                                          }
+                                          className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                          placeholder={`Row ${rowIdx + 1}`}
+                                        />
+                                      ) : (
+                                        <span className="font-semibold text-[#4b5133]">
+                                          {rowHeader || `Row ${rowIdx + 1}`}
+                                        </span>
+                                      )}
+                                    </th>
+                                    {table.columnHeaders.map((_, colIdx) => {
+                                      const value = table.cells[rowIdx]?.[colIdx] ?? "";
+                                      const highlight =
+                                        Boolean(value) &&
+                                        Boolean(currentUserName) &&
+                                        value.toLowerCase() ===
+                                          currentUserName.toLowerCase();
+                                      return (
+                                        <td
+                                          key={`${table.id}-cell-${rowIdx}-${colIdx}`}
+                                          className={`border border-[#d0c9a4] p-2 ${
+                                            highlight ? "bg-[#e8f3cf]" : "bg-white/90"
+                                          }`}
+                                        >
+                                          {isAdmin ? (
+                                            <select
+                                              value={value}
+                                              onChange={(event) =>
+                                                updateCustomTableState(table.id, (prev) => {
+                                                  const nextCells = prev.cells.map((row) => [
+                                                    ...row,
+                                                  ]);
+                                                  nextCells[rowIdx][colIdx] =
+                                                    event.target.value;
+                                                  return { ...prev, cells: nextCells };
+                                                })
+                                              }
+                                              className={`w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs ${
+                                                highlight
+                                                  ? "font-semibold text-[#3e4c24] ring-2 ring-[#8fae4c]"
+                                                  : "text-[#4b5133]"
+                                              }`}
+                                            >
+                                              <option value="">—</option>
+                                              {userOptions.map((name) => (
+                                                <option key={`${table.id}-${name}`} value={name}>
+                                                  {name}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          ) : (
+                                            <span
+                                              className={
+                                                highlight
+                                                  ? "font-semibold text-[#3e4c24]"
+                                                  : "text-[#4b5133]"
+                                              }
+                                            >
+                                              {value || "—"}
+                                            </span>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               </div>
             ) : (
               <>
