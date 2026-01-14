@@ -3,6 +3,14 @@ import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 
 const PHOTO_BUCKET = "Photos";
 
+function normalizePhotoEntries(raw: unknown): string[] {
+  const entries = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  return entries
+    .flatMap((entry) => String(entry).split(","))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function buildPublicPhotoUrl(path: string) {
   const base = process.env.SUPABASE_URL;
   if (!base) return "";
@@ -246,12 +254,12 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
-    const photos: string[] = Array.isArray(task.photos) ? task.photos : [];
-    const photoPaths = photos.map((entry) => extractPhotoPath(String(entry))).filter(Boolean);
+    const photos = normalizePhotoEntries(task.photos);
+    const photoPaths = photos.map((entry) => extractPhotoPath(entry)).filter(Boolean);
     const signedUrls = photoPaths.length ? await signPhotoPaths(photoPaths) : [];
     const signedMap = new Map(photoPaths.map((path, idx) => [path, signedUrls[idx] || ""]));
     const media = photos.map((entry) => {
-      const path = extractPhotoPath(String(entry));
+      const path = extractPhotoPath(entry);
       const signedUrl = path ? signedMap.get(path) || "" : "";
       const fallbackUrl = entry.startsWith("http")
         ? entry

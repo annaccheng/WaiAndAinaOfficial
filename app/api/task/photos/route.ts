@@ -4,6 +4,14 @@ import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
 const MAX_PHOTO_BYTES = 150 * 1024;
 const BUCKET_NAME = "Photos";
 
+function normalizePhotoEntries(raw: unknown): string[] {
+  const entries = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  return entries
+    .flatMap((entry) => String(entry).split(","))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function toIsoDate(label?: string | null) {
   if (!label) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
@@ -141,10 +149,8 @@ export async function POST(req: Request) {
     const [task] = await supabaseRequest<any[]>("tasks", {
       query: { select: "id,photos", id: `eq.${targetId}`, limit: 1 },
     });
-    const existingPhotos = Array.isArray(task?.photos) ? task.photos : [];
-    const nextPhotos = existingPhotos.includes(path)
-      ? existingPhotos
-      : [...existingPhotos, path];
+    const existingPhotos = normalizePhotoEntries(task?.photos);
+    const nextPhotos = Array.from(new Set([...existingPhotos, path]));
 
     await supabaseRequest("tasks", {
       method: "PATCH",
