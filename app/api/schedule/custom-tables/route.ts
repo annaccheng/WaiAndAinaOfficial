@@ -12,6 +12,9 @@ type CustomTableRow = {
   row_headers: string[] | null;
   column_headers: string[] | null;
   cells: string[][] | null;
+  row_header_type: string | null;
+  column_header_type: string | null;
+  cell_type: string | null;
 };
 
 function toIsoDate(label?: string | null) {
@@ -39,6 +42,9 @@ function mapTable(row: CustomTableRow) {
     rowHeaders: row.row_headers || [],
     columnHeaders: row.column_headers || [],
     cells: row.cells || [],
+    rowHeaderType: row.row_header_type || "text",
+    columnHeaderType: row.column_header_type || "text",
+    cellType: row.cell_type || "text",
   };
 }
 
@@ -57,7 +63,8 @@ export async function GET(req: Request) {
   try {
     const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       query: {
-        select: "id,title,schedule_date,row_headers,column_headers,cells",
+        select:
+          "id,title,schedule_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
         schedule_date: `eq.${scheduleDate}`,
         order: "created_at.asc",
       },
@@ -99,6 +106,9 @@ export async function POST(req: Request) {
         row_headers: rowHeaders,
         column_headers: columnHeaders,
         cells,
+        row_header_type: "text",
+        column_header_type: "text",
+        cell_type: "user",
       },
     });
 
@@ -135,6 +145,15 @@ export async function PATCH(req: Request) {
   }
   if (Array.isArray(body?.cells)) {
     updates.cells = body.cells;
+  }
+  if (typeof body?.rowHeaderType === "string") {
+    updates.row_header_type = body.rowHeaderType;
+  }
+  if (typeof body?.columnHeaderType === "string") {
+    updates.column_header_type = body.columnHeaderType;
+  }
+  if (typeof body?.cellType === "string") {
+    updates.cell_type = body.cellType;
   }
 
   try {

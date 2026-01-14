@@ -100,6 +100,9 @@ type CustomTable = {
   columnHeaders: string[];
   rowHeaders: string[];
   cells: string[][];
+  rowHeaderType: "user" | "task" | "text";
+  columnHeaderType: "user" | "task" | "text";
+  cellType: "user" | "task" | "text";
 };
 
 function splitCellTasks(cell: string): string[] {
@@ -230,6 +233,7 @@ export default function HubSchedulePage() {
   const [currentUserType, setCurrentUserType] = useState<string | null>(null);
   const [currentSlotId, setCurrentSlotId] = useState<string | null>(null);
   const [knownUsers, setKnownUsers] = useState<string[]>([]);
+  const [taskOptions, setTaskOptions] = useState<string[]>([]);
   const [customTables, setCustomTables] = useState<CustomTable[]>([]);
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
   const [customTablesError, setCustomTablesError] = useState<string | null>(null);
@@ -310,6 +314,15 @@ export default function HubSchedulePage() {
     () => Array.from(new Set(knownUsers)).sort((a, b) => a.localeCompare(b)),
     [knownUsers]
   );
+  const taskNameOptions = useMemo(
+    () => Array.from(new Set(taskOptions)).sort((a, b) => a.localeCompare(b)),
+    [taskOptions]
+  );
+  const headerTypeOptions = [
+    { value: "user", label: "User" },
+    { value: "task", label: "Task" },
+    { value: "text", label: "Custom text" },
+  ] as const;
 
   const scheduleDateLabel = data?.scheduleDate;
   useEffect(() => {
@@ -357,6 +370,36 @@ export default function HubSchedulePage() {
       columnHeaders: sanitizedColumns,
       rowHeaders: sanitizedRows,
       cells: normalizedCells,
+      rowHeaderType:
+        table?.rowHeaderType === "user" ||
+        table?.rowHeaderType === "task" ||
+        table?.rowHeaderType === "text"
+          ? table.rowHeaderType
+          : table?.row_header_type === "user" ||
+              table?.row_header_type === "task" ||
+              table?.row_header_type === "text"
+            ? table.row_header_type
+            : "text",
+      columnHeaderType:
+        table?.columnHeaderType === "user" ||
+        table?.columnHeaderType === "task" ||
+        table?.columnHeaderType === "text"
+          ? table.columnHeaderType
+          : table?.column_header_type === "user" ||
+              table?.column_header_type === "task" ||
+              table?.column_header_type === "text"
+            ? table.column_header_type
+            : "text",
+      cellType:
+        table?.cellType === "user" ||
+        table?.cellType === "task" ||
+        table?.cellType === "text"
+          ? table.cellType
+          : table?.cell_type === "user" ||
+              table?.cell_type === "task" ||
+              table?.cell_type === "text"
+            ? table.cell_type
+            : "user",
     };
   }, []);
 
@@ -791,6 +834,25 @@ export default function HubSchedulePage() {
     })();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/task?list=1");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (Array.isArray(json.tasks)) {
+          setTaskOptions(
+            json.tasks
+              .map((task: any) => task.name || "")
+              .filter(Boolean)
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load task list", err);
+      }
+    })();
+  }, []);
+
   const updateCustomTableState = useCallback(
     (tableId: string, updater: (table: CustomTable) => CustomTable) => {
       setCustomTables((prev) =>
@@ -800,6 +862,13 @@ export default function HubSchedulePage() {
     },
     []
   );
+
+  const splitMultiValue = useCallback((value: string) => {
+    return value
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }, []);
 
   const handleAddCustomTable = useCallback(async () => {
     if (!isAdmin || !scheduleDateLabel) return;
@@ -835,6 +904,9 @@ export default function HubSchedulePage() {
             columnHeaders: table.columnHeaders,
             rowHeaders: table.rowHeaders,
             cells: table.cells,
+            rowHeaderType: table.rowHeaderType,
+            columnHeaderType: table.columnHeaderType,
+            cellType: table.cellType,
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2387,6 +2459,11 @@ export default function HubSchedulePage() {
                     {customTables.map((table) => {
                       const isSaving = Boolean(customTablesSaving[table.id]);
                       const isDirty = Boolean(customTablesDirty[table.id]);
+                      const rowHeaderType = table.rowHeaderType;
+                      const columnHeaderType = table.columnHeaderType;
+                      const cellType = table.cellType;
+                      const normalizedUserName =
+                        currentUserName?.toLowerCase() || "";
                       return (
                         <div
                           key={table.id}
@@ -2463,6 +2540,75 @@ export default function HubSchedulePage() {
                             )}
                           </div>
 
+                          {isAdmin && (
+                            <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Row headers
+                                </span>
+                                <select
+                                  value={rowHeaderType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      rowHeaderType: event.target.value as CustomTable["rowHeaderType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`row-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Column headers
+                                </span>
+                                <select
+                                  value={columnHeaderType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      columnHeaderType:
+                                        event.target.value as CustomTable["columnHeaderType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`col-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Cells
+                                </span>
+                                <select
+                                  value={cellType}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      cellType: event.target.value as CustomTable["cellType"],
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                >
+                                  {headerTypeOptions.map((option) => (
+                                    <option key={`cell-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          )}
+
                           <div className="mt-3 overflow-x-auto">
                             <table className="min-w-full border-collapse text-xs text-[#3f4630]">
                               <thead>
@@ -2476,22 +2622,71 @@ export default function HubSchedulePage() {
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
                                     >
                                       {isAdmin ? (
-                                        <input
-                                          value={header}
-                                          onChange={(event) =>
-                                            updateCustomTableState(table.id, (prev) => {
-                                              const next = [...prev.columnHeaders];
-                                              next[colIdx] = event.target.value;
-                                              return { ...prev, columnHeaders: next };
-                                            })
-                                          }
-                                          className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
-                                          placeholder={`Column ${colIdx + 1}`}
-                                        />
-                                      ) : (
+                                        columnHeaderType === "text" ? (
+                                          <input
+                                            value={header}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.columnHeaders];
+                                                next[colIdx] = event.target.value;
+                                                return { ...prev, columnHeaders: next };
+                                              })
+                                            }
+                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                            placeholder={`Column ${colIdx + 1}`}
+                                          />
+                                        ) : (
+                                          <select
+                                            value={header}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.columnHeaders];
+                                                next[colIdx] = event.target.value;
+                                                return { ...prev, columnHeaders: next };
+                                              })
+                                            }
+                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                          >
+                                            <option value="">—</option>
+                                            {(columnHeaderType === "user"
+                                              ? userOptions
+                                              : taskNameOptions
+                                            ).map((name) => (
+                                              <option key={`${table.id}-col-${name}`} value={name}>
+                                                {name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )
+                                      ) : columnHeaderType === "text" ? (
                                         <span className="font-semibold text-[#4b5133]">
                                           {header || `Column ${colIdx + 1}`}
                                         </span>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {splitMultiValue(header).length > 0 ? (
+                                            splitMultiValue(header).map((name) => {
+                                              const isCurrent =
+                                                columnHeaderType === "user" &&
+                                                normalizedUserName &&
+                                                name.toLowerCase() === normalizedUserName;
+                                              return (
+                                                <span
+                                                  key={`${table.id}-col-${colIdx}-${name}`}
+                                                  className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                    isCurrent
+                                                      ? "bg-[#8fae4c] text-white shadow-sm"
+                                                      : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                  }`}
+                                                >
+                                                  {name}
+                                                </span>
+                                              );
+                                            })
+                                          ) : (
+                                            <span className="text-[#9a9574]">—</span>
+                                          )}
+                                        </div>
                                       )}
                                     </th>
                                   ))}
@@ -2502,32 +2697,76 @@ export default function HubSchedulePage() {
                                   <tr key={`${table.id}-row-${rowIdx}`}>
                                     <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
                                       {isAdmin ? (
-                                        <input
-                                          value={rowHeader}
-                                          onChange={(event) =>
-                                            updateCustomTableState(table.id, (prev) => {
-                                              const next = [...prev.rowHeaders];
-                                              next[rowIdx] = event.target.value;
-                                              return { ...prev, rowHeaders: next };
-                                            })
-                                          }
-                                          className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
-                                          placeholder={`Row ${rowIdx + 1}`}
-                                        />
-                                      ) : (
+                                        rowHeaderType === "text" ? (
+                                          <input
+                                            value={rowHeader}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.rowHeaders];
+                                                next[rowIdx] = event.target.value;
+                                                return { ...prev, rowHeaders: next };
+                                              })
+                                            }
+                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                            placeholder={`Row ${rowIdx + 1}`}
+                                          />
+                                        ) : (
+                                          <select
+                                            value={rowHeader}
+                                            onChange={(event) =>
+                                              updateCustomTableState(table.id, (prev) => {
+                                                const next = [...prev.rowHeaders];
+                                                next[rowIdx] = event.target.value;
+                                                return { ...prev, rowHeaders: next };
+                                              })
+                                            }
+                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                          >
+                                            <option value="">—</option>
+                                            {(rowHeaderType === "user"
+                                              ? userOptions
+                                              : taskNameOptions
+                                            ).map((name) => (
+                                              <option key={`${table.id}-row-${name}`} value={name}>
+                                                {name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )
+                                      ) : rowHeaderType === "text" ? (
                                         <span className="font-semibold text-[#4b5133]">
                                           {rowHeader || `Row ${rowIdx + 1}`}
                                         </span>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {splitMultiValue(rowHeader).length > 0 ? (
+                                            splitMultiValue(rowHeader).map((name) => {
+                                              const isCurrent =
+                                                rowHeaderType === "user" &&
+                                                normalizedUserName &&
+                                                name.toLowerCase() === normalizedUserName;
+                                              return (
+                                                <span
+                                                  key={`${table.id}-row-${rowIdx}-${name}`}
+                                                  className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                    isCurrent
+                                                      ? "bg-[#8fae4c] text-white shadow-sm"
+                                                      : "bg-white/90 text-[#4b5133] border border-[#d0c9a4]"
+                                                  }`}
+                                                >
+                                                  {name}
+                                                </span>
+                                              );
+                                            })
+                                          ) : (
+                                            <span className="text-[#9a9574]">—</span>
+                                          )}
+                                        </div>
                                       )}
                                     </th>
                                     {table.columnHeaders.map((_, colIdx) => {
                                       const value = table.cells[rowIdx]?.[colIdx] ?? "";
-                                      const normalizedUserName =
-                                        currentUserName?.toLowerCase() || "";
-                                      const selectedNames = value
-                                        .split(",")
-                                        .map((name) => name.trim())
-                                        .filter(Boolean);
+                                      const selectedNames = splitMultiValue(value);
                                       const highlight =
                                         selectedNames.length > 0 &&
                                         normalizedUserName &&
@@ -2542,43 +2781,92 @@ export default function HubSchedulePage() {
                                           }`}
                                         >
                                           {isAdmin ? (
-                                            <select
-                                              multiple
-                                              value={selectedNames}
-                                              onChange={(event) =>
-                                                updateCustomTableState(table.id, (prev) => {
-                                                  const nextValue = Array.from(
-                                                    event.target.selectedOptions
-                                                  )
-                                                    .map((option) => option.value)
-                                                    .filter(Boolean)
-                                                    .join(", ");
-                                                  const nextCells = prev.cells.map((row) => [
-                                                    ...row,
-                                                  ]);
-                                                  nextCells[rowIdx][colIdx] = nextValue;
-                                                  return { ...prev, cells: nextCells };
-                                                })
-                                              }
-                                              className={`w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs ${
-                                                highlight
-                                                  ? "font-semibold text-[#3e4c24] ring-2 ring-[#8fae4c]"
-                                                  : "text-[#4b5133]"
-                                              }`}
-                                            >
-                                              {userOptions.map((name) => (
-                                                <option key={`${table.id}-${name}`} value={name}>
-                                                  {name}
-                                                </option>
-                                              ))}
-                                            </select>
+                                            cellType === "text" ? (
+                                              <textarea
+                                                value={value}
+                                                onChange={(event) =>
+                                                  updateCustomTableState(table.id, (prev) => {
+                                                    const nextCells = prev.cells.map((row) => [
+                                                      ...row,
+                                                    ]);
+                                                    nextCells[rowIdx][colIdx] = event.target.value;
+                                                    return { ...prev, cells: nextCells };
+                                                  })
+                                                }
+                                                className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs text-[#4b5133]"
+                                                rows={2}
+                                              />
+                                            ) : (
+                                              <select
+                                                multiple
+                                                value={selectedNames}
+                                                onChange={(event) =>
+                                                  updateCustomTableState(table.id, (prev) => {
+                                                    const nextValue = Array.from(
+                                                      event.target.selectedOptions
+                                                    )
+                                                      .map((option) => option.value)
+                                                      .filter(Boolean)
+                                                      .join(", ");
+                                                    const nextCells = prev.cells.map((row) => [
+                                                      ...row,
+                                                    ]);
+                                                    nextCells[rowIdx][colIdx] = nextValue;
+                                                    return { ...prev, cells: nextCells };
+                                                  })
+                                                }
+                                                className={`w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-xs ${
+                                                  highlight
+                                                    ? "font-semibold text-[#3e4c24] ring-2 ring-[#8fae4c]"
+                                                    : "text-[#4b5133]"
+                                                }`}
+                                              >
+                                                {(cellType === "user"
+                                                  ? userOptions
+                                                  : taskNameOptions
+                                                ).map((name) => (
+                                                  <option key={`${table.id}-${name}`} value={name}>
+                                                    {name}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            )
                                           ) : (
                                             <div className="flex flex-wrap gap-1.5">
-                                              {selectedNames.length > 0 ? (
+                                              {cellType === "text" ? (
+                                                <span className="text-[#4b5133]">
+                                                  {value || "—"}
+                                                </span>
+                                              ) : selectedNames.length > 0 ? (
                                                 selectedNames.map((name) => {
                                                   const isCurrent =
+                                                    cellType === "user" &&
                                                     normalizedUserName &&
                                                     name.toLowerCase() === normalizedUserName;
+                                                  if (cellType === "task") {
+                                                    return (
+                                                      <button
+                                                        key={`${table.id}-${rowIdx}-${colIdx}-${name}`}
+                                                        type="button"
+                                                        onClick={() =>
+                                                          handleTaskClick({
+                                                            person: "Team",
+                                                            slot: {
+                                                              id: `custom-${table.id}`,
+                                                              label: table.title || "Custom Table",
+                                                              timeRange: "",
+                                                              isMeal: false,
+                                                            },
+                                                            task: name,
+                                                            groupNames: [],
+                                                          })
+                                                        }
+                                                        className="inline-flex items-center rounded-full border border-[#cdd7ab] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133] shadow-sm hover:bg-[#f1edd8]"
+                                                      >
+                                                        {name}
+                                                      </button>
+                                                    );
+                                                  }
                                                   return (
                                                     <span
                                                       key={`${table.id}-${rowIdx}-${colIdx}-${name}`}
