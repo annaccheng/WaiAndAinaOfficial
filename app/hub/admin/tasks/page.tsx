@@ -27,7 +27,11 @@ type TaskItem = {
   extra_notes?: string[] | null;
   task_type?: TaskType | null;
   task_type_id?: string | null;
+  capabilities?: { id: string; name: string }[] | null;
+  capability_ids?: string[];
 };
+
+type CapabilityOption = { id: string; name: string };
 
 const STATUS_OPTIONS = ["Not Started", "In Progress", "Completed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
@@ -77,6 +81,9 @@ export default function TaskEditorPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [occurrenceLoading, setOccurrenceLoading] = useState(false);
+  const [capabilities, setCapabilities] = useState<CapabilityOption[]>([]);
+  const [capabilityName, setCapabilityName] = useState("");
+  const [capabilityMessage, setCapabilityMessage] = useState<string | null>(null);
   const [recurringEditDate, setRecurringEditDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
@@ -124,6 +131,7 @@ export default function TaskEditorPage() {
     time_slots: [],
     extra_notes: [],
     task_type_id: "",
+    capability_ids: [],
   });
 
   const [typeEditor, setTypeEditor] = useState({ name: "", color: "default" });
@@ -161,6 +169,7 @@ export default function TaskEditorPage() {
       time_slots: task.time_slots ?? [],
       extra_notes: task.extra_notes ?? [],
       person_count: task.person_count ?? 1,
+      capability_ids: (task.capabilities || []).map((capability) => capability.id),
     };
   }
 
@@ -213,6 +222,36 @@ export default function TaskEditorPage() {
     }
   }
 
+  async function loadCapabilities() {
+    try {
+      const res = await fetch("/api/capabilities");
+      const json = await res.json();
+      setCapabilities(json.capabilities || []);
+    } catch (err) {
+      console.error("Failed to load capabilities", err);
+    }
+  }
+
+  async function handleCreateCapability() {
+    const trimmed = capabilityName.trim();
+    if (!trimmed) return;
+    setCapabilityMessage(null);
+    try {
+      const res = await fetch("/api/capabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw new Error("Failed to create capability");
+      setCapabilityName("");
+      await loadCapabilities();
+      setCapabilityMessage("Capability added.");
+    } catch (err: any) {
+      console.error("Failed to create capability", err);
+      setCapabilityMessage(err?.message || "Unable to add capability.");
+    }
+  }
+
   async function loadTasks() {
     setLoading(true);
     try {
@@ -233,6 +272,7 @@ export default function TaskEditorPage() {
   useEffect(() => {
     if (!authorized) return;
     loadTaskTypes();
+    loadCapabilities();
     loadTasks();
   }, [authorized]);
 
@@ -281,6 +321,7 @@ export default function TaskEditorPage() {
         time_slots: [],
         extra_notes: [],
         task_type_id: "",
+        capability_ids: [],
       });
     }
     setApplyTo("single");
@@ -345,6 +386,7 @@ export default function TaskEditorPage() {
       photos: draft.photos || [],
       time_slots: draft.time_slots || [],
       extra_notes: draft.extra_notes || [],
+      capabilityIds: draft.capability_ids || [],
     };
 
     try {
@@ -606,7 +648,7 @@ export default function TaskEditorPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-1.5 space-y-1">
+                  <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
@@ -659,10 +701,10 @@ export default function TaskEditorPage() {
                         </div>
                       </div>
                     ))}
-                    {!recurringTasks.length && (
-                      <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
-                    )}
                   </div>
+                  {!recurringTasks.length && (
+                    <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-[#e2d7b5] bg-white/70 p-3">
@@ -674,7 +716,7 @@ export default function TaskEditorPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-1.5 space-y-1">
+                  <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
@@ -727,10 +769,10 @@ export default function TaskEditorPage() {
                         </div>
                       </div>
                     ))}
-                    {!oneOffTasks.length && (
-                      <p className="text-sm text-[#7a7f54]">No one-off tasks found.</p>
-                    )}
                   </div>
+                  {!oneOffTasks.length && (
+                    <p className="text-sm text-[#7a7f54]">No one-off tasks found.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -1255,6 +1297,64 @@ export default function TaskEditorPage() {
                       placeholder="Image URLs"
                     />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Capabilities</label>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-[#4f5730]">
+                    {capabilities.length ? (
+                      capabilities.map((capability) => {
+                        const selected = (draft.capability_ids || []).includes(capability.id);
+                        return (
+                          <label
+                            key={capability.id}
+                            className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
+                              selected
+                                ? "border-[#8fae4c] bg-[#eef4d4] font-semibold"
+                                : "border-[#d0c9a4] bg-white"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={(event) =>
+                                setDraft((prev) => {
+                                  const next = new Set(prev.capability_ids || []);
+                                  if (event.target.checked) {
+                                    next.add(capability.id);
+                                  } else {
+                                    next.delete(capability.id);
+                                  }
+                                  return { ...prev, capability_ids: Array.from(next) };
+                                })
+                              }
+                              className="accent-[#8fae4c]"
+                            />
+                            {capability.name}
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-[#7a7f54]">No capabilities yet.</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      value={capabilityName}
+                      onChange={(e) => setCapabilityName(e.target.value)}
+                      className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      placeholder="Add a capability tag"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateCapability}
+                      className="rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec]"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {capabilityMessage && (
+                    <p className="text-xs font-semibold text-[#4b5133]">{capabilityMessage}</p>
+                  )}
                 </div>
               </div>
             )}

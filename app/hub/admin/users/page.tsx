@@ -11,7 +11,10 @@ type UserItem = {
   userType: string;
   number: string;
   active: boolean;
+  capabilities?: { id: string; name: string }[];
 };
+
+type CapabilityOption = { id: string; name: string };
 
 const ROLE_OPTIONS = [
   "Admin",
@@ -26,6 +29,9 @@ export default function AdminUsersPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [capabilities, setCapabilities] = useState<CapabilityOption[]>([]);
+  const [capabilityName, setCapabilityName] = useState("");
+  const [capabilityMessage, setCapabilityMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     search: "",
     role: "",
@@ -44,6 +50,7 @@ export default function AdminUsersPage() {
     number: "",
     active: true,
     password: "",
+    capabilityIds: [] as string[],
   });
 
   useEffect(() => {
@@ -102,6 +109,11 @@ export default function AdminUsersPage() {
     loadUsers();
   }, [authorized]);
 
+  useEffect(() => {
+    if (!authorized) return;
+    loadCapabilities();
+  }, [authorized]);
+
   const handleCreateUser = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
@@ -130,6 +142,7 @@ export default function AdminUsersPage() {
       number: user.number || "",
       active: user.active,
       password: "",
+      capabilityIds: (user.capabilities || []).map((capability) => capability.id),
     });
   };
 
@@ -146,6 +159,7 @@ export default function AdminUsersPage() {
           number: editDraft.number,
           active: editDraft.active,
           password: editDraft.password || undefined,
+          capabilityIds: editDraft.capabilityIds,
         }),
       });
       if (!res.ok) throw new Error("Failed to update user.");
@@ -156,6 +170,36 @@ export default function AdminUsersPage() {
       setUsers(json.users || []);
     } catch (err: any) {
       setMessage(err?.message || "Could not update user.");
+    }
+  };
+
+  const loadCapabilities = async () => {
+    try {
+      const res = await fetch("/api/capabilities");
+      const json = await res.json();
+      setCapabilities(json.capabilities || []);
+    } catch (err) {
+      console.error("Failed to load capabilities", err);
+    }
+  };
+
+  const handleCreateCapability = async () => {
+    const trimmed = capabilityName.trim();
+    if (!trimmed) return;
+    setCapabilityMessage(null);
+    try {
+      const res = await fetch("/api/capabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw new Error("Failed to add capability");
+      setCapabilityName("");
+      await loadCapabilities();
+      setCapabilityMessage("Capability added.");
+    } catch (err: any) {
+      console.error("Failed to add capability", err);
+      setCapabilityMessage(err?.message || "Could not add capability.");
     }
   };
 
@@ -307,6 +351,18 @@ export default function AdminUsersPage() {
                     <p className="text-xs text-[#6b6d4b]">
                       {user.userType || "Unassigned"} • {user.number || "No number"}
                     </p>
+                    {user.capabilities && user.capabilities.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[#4f5730]">
+                        {user.capabilities.map((capability) => (
+                          <span
+                            key={capability.id}
+                            className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-[2px] font-semibold"
+                          >
+                            {capability.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <button
@@ -384,6 +440,45 @@ export default function AdminUsersPage() {
           </div>
 
           <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-[#314123]">Capability tags</h2>
+            <p className="text-sm text-[#5f5a3b]">
+              Maintain the list of skills you can assign to users and tasks.
+            </p>
+            {capabilityMessage && (
+              <p className="mt-2 text-sm font-semibold text-[#4b5133]">{capabilityMessage}</p>
+            )}
+            <div className="mt-3 flex gap-2">
+              <input
+                value={capabilityName}
+                onChange={(e) => setCapabilityName(e.target.value)}
+                className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                placeholder="Add new capability"
+              />
+              <button
+                type="button"
+                onClick={handleCreateCapability}
+                className="rounded-md bg-[#8fae4c] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec]"
+              >
+                Add
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-[#4f5730]">
+              {capabilities.length ? (
+                capabilities.map((capability) => (
+                  <span
+                    key={capability.id}
+                    className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-[2px] font-semibold"
+                  >
+                    {capability.name}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-[#7a7f54]">No capabilities added yet.</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-[#314123]">User details</h2>
             {editing ? (
               <div className="mt-3 space-y-3 text-sm">
@@ -416,6 +511,46 @@ export default function AdminUsersPage() {
                       <option key={role}>{role}</option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[#5f5a3b]">Capabilities</label>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-[#4f5730]">
+                    {capabilities.length ? (
+                      capabilities.map((capability) => {
+                        const selected = editDraft.capabilityIds.includes(capability.id);
+                        return (
+                          <label
+                            key={capability.id}
+                            className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
+                              selected
+                                ? "border-[#8fae4c] bg-[#eef4d4] font-semibold"
+                                : "border-[#d0c9a4] bg-white"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={(e) =>
+                                setEditDraft((prev) => {
+                                  const next = new Set(prev.capabilityIds);
+                                  if (e.target.checked) {
+                                    next.add(capability.id);
+                                  } else {
+                                    next.delete(capability.id);
+                                  }
+                                  return { ...prev, capabilityIds: Array.from(next) };
+                                })
+                              }
+                              className="accent-[#8fae4c]"
+                            />
+                            {capability.name}
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-[#7a7f54]">No capabilities yet.</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[#e2d7b5] bg-[#f9f6e7] px-3 py-2">
                   <span className="text-sm font-semibold text-[#4b5133]">Active</span>
@@ -459,6 +594,7 @@ export default function AdminUsersPage() {
                         number: "",
                         active: true,
                         password: "",
+                        capabilityIds: [],
                       });
                     }}
                     className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#4f5730] shadow-sm"

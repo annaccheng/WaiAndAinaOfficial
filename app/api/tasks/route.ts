@@ -9,6 +9,35 @@ function buildRangeFilter(start?: string, end?: string) {
   return filter;
 }
 
+function normalizeCapabilityIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((id) => String(id)).filter(Boolean);
+}
+
+async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
+  if (!taskIds.length) return;
+
+  const uniqueTaskIds = Array.from(new Set(taskIds));
+  const uniqueCapabilityIds = Array.from(new Set(capabilityIds));
+
+  await supabaseRequest("task_capabilities", {
+    method: "DELETE",
+    query: { task_id: `in.(${uniqueTaskIds.join(",")})` },
+  });
+
+  if (!uniqueCapabilityIds.length) return;
+
+  await supabaseRequest("task_capabilities", {
+    method: "POST",
+    body: uniqueCapabilityIds.flatMap((capabilityId) =>
+      uniqueTaskIds.map((taskId) => ({
+        task_id: taskId,
+        capability_id: capabilityId,
+      }))
+    ),
+  });
+}
+
 export async function GET(req: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
@@ -28,7 +57,7 @@ export async function GET(req: Request) {
 
   const query: Record<string, string> = {
     select:
-      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color)",
+      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
     order: "created_at.desc",
     ...buildRangeFilter(start, end),
   };
@@ -42,7 +71,14 @@ export async function GET(req: Request) {
 
   try {
     const data = await supabaseRequest<any[]>("tasks", { query });
-    return NextResponse.json({ tasks: data || [] });
+    const tasks =
+      data?.map((task) => ({
+        ...task,
+        capabilities: (task.task_capabilities || [])
+          .map((entry: any) => entry.capability)
+          .filter(Boolean),
+      })) ?? [];
+    return NextResponse.json({ tasks });
   } catch (err: any) {
     const message = String(err?.message || "");
     if (message.includes("comments")) {
@@ -50,7 +86,14 @@ export async function GET(req: Request) {
       fallbackQuery.select = fallbackQuery.select.replace(",comments", "");
       try {
         const data = await supabaseRequest<any[]>("tasks", { query: fallbackQuery });
-        return NextResponse.json({ tasks: data || [] });
+        const tasks =
+          data?.map((task) => ({
+            ...task,
+            capabilities: (task.task_capabilities || [])
+              .map((entry: any) => entry.capability)
+              .filter(Boolean),
+          })) ?? [];
+        return NextResponse.json({ tasks });
       } catch (fallbackErr) {
         console.error("Failed to load tasks (fallback):", fallbackErr);
       }
@@ -73,6 +116,7 @@ export async function POST(req: Request) {
   }
 
   try {
+    const capabilityIds = normalizeCapabilityIds(body?.capabilityIds);
     const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
     const isRecurring = Boolean(body.recurring);
     const fallbackDate = new Date().toISOString().slice(0, 10);
@@ -80,6 +124,8 @@ export async function POST(req: Request) {
     const interval = Number(body.recurrence_interval || 1);
     const unit = body.recurrence_unit || "day";
     const until = body.recurrence_until;
+    const sanitizedBody = { ...body };
+    delete (sanitizedBody as Record<string, unknown>).capabilityIds;
 
     const buildPayload = (payloadBody: Record<string, unknown>) => ({
       ...payloadBody,
@@ -130,7 +176,7 @@ export async function POST(req: Request) {
       }
     };
 
-    const payload = buildPayload(body);
+    const payload = buildPayload(sanitizedBody);
     const [parent] = await supabaseRequest<any[]>("tasks", {
       method: "POST",
       prefer: "return=representation",
@@ -139,7 +185,17 @@ export async function POST(req: Request) {
     });
 
     if (parent?.id) {
-      await createOccurrences(parent.id, body);
+      await createOccurrences(parent.id, sanitizedBody);
+      if (capabilityIds.length) {
+        const seriesTasks = await supabaseRequest<any[]>("tasks", {
+          query: {
+            select: "id",
+            or: `id.eq.${parent.id},parent_task_id.eq.${parent.id}`,
+          },
+        });
+        const taskIds = (seriesTasks || []).map((task) => task.id).filter(Boolean);
+        await syncTaskCapabilities(taskIds.length ? taskIds : [parent.id], capabilityIds);
+      }
     }
 
     return NextResponse.json({ task: parent });
@@ -148,8 +204,10 @@ export async function POST(req: Request) {
     if (message.includes("comments")) {
       try {
         const fallbackBody = { ...body };
+        delete (fallbackBody as Record<string, unknown>).capabilityIds;
         delete fallbackBody.comments;
         const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
+        const capabilityIds = normalizeCapabilityIds(body?.capabilityIds);
         const isRecurring = Boolean(fallbackBody.recurring);
         const fallbackDate = new Date().toISOString().slice(0, 10);
         const originDate =
@@ -213,6 +271,16 @@ export async function POST(req: Request) {
         });
         if (parent?.id) {
           await createOccurrences(parent.id);
+          if (capabilityIds.length) {
+            const seriesTasks = await supabaseRequest<any[]>("tasks", {
+              query: {
+                select: "id",
+                or: `id.eq.${parent.id},parent_task_id.eq.${parent.id}`,
+              },
+            });
+            const taskIds = (seriesTasks || []).map((task) => task.id).filter(Boolean);
+            await syncTaskCapabilities(taskIds.length ? taskIds : [parent.id], capabilityIds);
+          }
         }
         return NextResponse.json({ task: parent });
       } catch (fallbackErr) {
@@ -232,7 +300,7 @@ export async function PATCH(req: Request) {
     );
   }
   const body = await req.json().catch(() => null);
-  const { id, applyTo = "single", occurrenceDate, deleteOccurrences } = body || {};
+  const { id, applyTo = "single", occurrenceDate, deleteOccurrences, capabilityIds } = body || {};
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -243,6 +311,10 @@ export async function PATCH(req: Request) {
   delete updates.applyTo;
   delete updates.occurrenceDate;
   delete updates.deleteOccurrences;
+  delete (updates as Record<string, unknown>).capabilityIds;
+  const normalizedCapabilities = Array.isArray(capabilityIds)
+    ? normalizeCapabilityIds(capabilityIds)
+    : null;
 
   try {
     if (applyTo === "single") {
@@ -272,6 +344,10 @@ export async function PATCH(req: Request) {
           method: "DELETE",
           query: { parent_task_id: `eq.${id}` },
         });
+      }
+
+      if (normalizedCapabilities) {
+        await syncTaskCapabilities([id], normalizedCapabilities);
       }
 
       return NextResponse.json({ ok: true });
@@ -342,6 +418,14 @@ export async function PATCH(req: Request) {
         method: "DELETE",
         query: deleteFilters,
       });
+    }
+
+    if (normalizedCapabilities) {
+      const updatedTasks = await supabaseRequest<any[]>("tasks", {
+        query: { select: "id", ...filters },
+      });
+      const taskIds = (updatedTasks || []).map((task) => task.id).filter(Boolean);
+      await syncTaskCapabilities(taskIds, normalizedCapabilities);
     }
 
     return NextResponse.json({ ok: true });

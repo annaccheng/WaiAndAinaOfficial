@@ -21,6 +21,19 @@ create table if not exists users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists capabilities (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists user_capabilities (
+  user_id uuid references users(id) on delete cascade,
+  capability_id uuid references capabilities(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, capability_id)
+);
+
 insert into user_roles (name)
 values
   ('Admin'),
@@ -70,6 +83,13 @@ create table if not exists tasks (
   parent_task_id uuid references tasks(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists task_capabilities (
+  task_id uuid references tasks(id) on delete cascade,
+  capability_id uuid references capabilities(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (task_id, capability_id)
 );
 
 insert into task_types (name, color)

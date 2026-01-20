@@ -238,6 +238,7 @@ export default function HubSchedulePage() {
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
   const [customTablesError, setCustomTablesError] = useState<string | null>(null);
   const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
+  const [requestedDate, setRequestedDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -344,6 +345,10 @@ export default function HubSchedulePage() {
     if (!scheduleDateObj) return null;
     return scheduleDateObj.toLocaleDateString("en-US", { weekday: "long" });
   }, [scheduleDateObj]);
+  const scheduleDateInputValue = useMemo(() => {
+    if (requestedDate) return requestedDate;
+    return toIsoDateLabel(scheduleDateLabel) || "";
+  }, [requestedDate, scheduleDateLabel]);
 
   const normalizeCustomTable = useCallback((table: any): CustomTable => {
     const columnHeaders = Array.isArray(table?.columnHeaders)
@@ -538,6 +543,32 @@ export default function HubSchedulePage() {
     }
     return "This schedule date is not today. Please confirm timing before starting.";
   }, [isScheduleYesterday, scheduleOutdated]);
+
+  const scheduleDateControls = (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-[#4b5133]">
+      <label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6a6c4d]">
+        View date
+      </label>
+      <input
+        type="date"
+        value={scheduleDateInputValue}
+        onChange={(e) => setRequestedDate(e.target.value || null)}
+        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+      />
+      <button
+        type="button"
+        onClick={() => setRequestedDate(null)}
+        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730] shadow-sm"
+      >
+        Today
+      </button>
+      {scheduleDayName && scheduleDateLabel && (
+        <span className="text-[11px] text-[#6a6c4d]">
+          {scheduleDayName} • {scheduleDateLabel}
+        </span>
+      )}
+    </div>
+  );
 
   const todayAssignments = useMemo(() => {
     if (!data || !currentUserName) return [];
@@ -954,7 +985,7 @@ export default function HubSchedulePage() {
 
   // Load schedule data from API (with auto-refresh)
   const loadSchedule = useCallback(
-    async (opts: { showLoading?: boolean; force?: boolean } = {}) => {
+    async (opts: { showLoading?: boolean; force?: boolean; dateOverride?: string | null } = {}) => {
       const { showLoading = false, force = false } = opts;
       const now = Date.now();
       if (scheduleFetchInFlight.current) return;
@@ -967,7 +998,11 @@ export default function HubSchedulePage() {
       setError(null);
 
       try {
-        const res = await fetch("/api/schedule", { cache: "no-store" });
+        const dateValue = opts.dateOverride ?? requestedDate;
+        const url = dateValue
+          ? `/api/schedule?date=${encodeURIComponent(dateValue)}`
+          : "/api/schedule";
+        const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -982,7 +1017,7 @@ export default function HubSchedulePage() {
         setLoading(false);
       }
     },
-    [scheduleRefreshIntervalMs]
+    [requestedDate, scheduleRefreshIntervalMs]
   );
 
   useEffect(() => {
@@ -2094,6 +2129,7 @@ export default function HubSchedulePage() {
             <p className="text-sm text-[#7a7f54]">
               Simple grid view for {scheduleDateLabel || "today"}.
             </p>
+            <div className="mt-2">{scheduleDateControls}</div>
           </div>
           {loading && (
             <p className="text-sm text-[#7a7f54]">Loading schedule…</p>
@@ -2307,6 +2343,7 @@ export default function HubSchedulePage() {
                     ? `Your assigned tasks for ${scheduleDateLabel || "today"}.`
                     : "Click any task to see its details and who you are assigned with."}
                 </p>
+                <div className="mt-2">{scheduleDateControls}</div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative">
