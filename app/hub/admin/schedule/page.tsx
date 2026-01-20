@@ -53,6 +53,7 @@ type DragPayload = {
   fromIndex?: number;
 };
 type CellContent = { tasks: ScheduledTask[]; note: string };
+type AutoSlotChoice = { row: number; col: number; score: number };
 
 const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
@@ -1451,7 +1452,7 @@ export default function AdminScheduleEditorPage() {
             : scheduleData.slots.map((_slot, index) => index);
 
         while (remaining > 0) {
-          let best: { row: number; col: number; score: number } | null = null;
+          let best: AutoSlotChoice | null = null;
           scheduleData.people.forEach((_person, rowIdx) => {
             slotIndexes.forEach((colIdx) => {
               const cell = nextCells[rowIdx]?.[colIdx];
@@ -1464,7 +1465,8 @@ export default function AdminScheduleEditorPage() {
           });
 
           if (!best) break;
-          addTaskToCell(best.row, best.col, { id: task.id, name: task.name });
+          const chosen = best as AutoSlotChoice;
+          addTaskToCell(chosen.row, chosen.col, { id: task.id, name: task.name });
           remaining -= 1;
         }
       });
