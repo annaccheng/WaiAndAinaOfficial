@@ -422,6 +422,10 @@ export default function TaskEditorPage() {
       extra_notes: draft.extra_notes || [],
       capabilityIds: draft.capability_ids || [],
     };
+    if (isEditingRecurringSeries) {
+      delete payload.origin_date;
+      delete payload.occurrence_date;
+    }
 
     try {
       if (editing?.id) {
@@ -1094,8 +1098,14 @@ export default function TaskEditorPage() {
                         onChange={(e) =>
                           setDraft((prev) => ({ ...prev, origin_date: e.target.value }))
                         }
-                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                        disabled={Boolean(editing?.recurring || editing?.parent_task_id)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm disabled:bg-[#f6f1dd] disabled:text-[#7a7f54]"
                       />
+                      {editing?.recurring && (
+                        <p className="text-[10px] text-[#6f754f]">
+                          Series start is locked for recurring edits.
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <label className="text-[11px] uppercase text-[#6b6f4c]">
@@ -1106,19 +1116,25 @@ export default function TaskEditorPage() {
                         value={draft.occurrence_date || ""}
                         onChange={(e) => {
                           const nextDate = e.target.value;
-                          setDraft((prev) => ({ ...prev, occurrence_date: nextDate }));
-                          if (editing?.recurring && nextDate) {
+                          if (!editing?.recurring && !editing?.parent_task_id) {
+                            setDraft((prev) => ({ ...prev, occurrence_date: nextDate }));
+                          }
+                          if ((editing?.recurring || editing?.parent_task_id) && nextDate) {
                             const seriesId = editing.parent_task_id || editing.id;
                             if (seriesId) {
                               void loadOccurrence(seriesId, nextDate);
                             }
                           }
                         }}
-                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${
+                          editing?.recurring || editing?.parent_task_id
+                            ? "border-[#d0c9a4] bg-[#f6f1dd] text-[#7a7f54]"
+                            : "border-[#d0c9a4]"
+                        }`}
                       />
                       {editing?.recurring && (
                         <p className="text-[11px] text-[#6f754f]">
-                          Switching dates loads the saved occurrence so each day stays unique.
+                          Pick a date to load that occurrence (the date itself is locked).
                         </p>
                       )}
                     </div>

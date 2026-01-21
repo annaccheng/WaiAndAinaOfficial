@@ -312,6 +312,9 @@ export async function PATCH(req: Request) {
   delete updates.occurrenceDate;
   delete updates.deleteOccurrences;
   delete (updates as Record<string, unknown>).capabilityIds;
+  const hasDateUpdates =
+    Object.prototype.hasOwnProperty.call(updates, "occurrence_date") ||
+    Object.prototype.hasOwnProperty.call(updates, "origin_date");
   const normalizedCapabilities = Array.isArray(capabilityIds)
     ? normalizeCapabilityIds(capabilityIds)
     : null;
@@ -341,6 +344,15 @@ export async function PATCH(req: Request) {
 
   try {
     if (applyTo === "single") {
+      if (hasDateUpdates) {
+        const [current] = await supabaseRequest<any[]>("tasks", {
+          query: { select: "recurring,parent_task_id", id: `eq.${id}`, limit: 1 },
+        });
+        if (current?.recurring || current?.parent_task_id) {
+          delete (updates as Record<string, unknown>).occurrence_date;
+          delete (updates as Record<string, unknown>).origin_date;
+        }
+      }
       await applyUpdates({ id: `eq.${id}` });
 
       if (updates.recurring === false && deleteOccurrences) {
