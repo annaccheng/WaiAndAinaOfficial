@@ -206,6 +206,8 @@ export default function AdminScheduleEditorPage() {
   const [recurringDockExpanded, setRecurringDockExpanded] = useState(false);
   const [oneOffDockExpanded, setOneOffDockExpanded] = useState(false);
   const [showPastIncomplete, setShowPastIncomplete] = useState(false);
+  const [colorMode, setColorMode] = useState<"type" | "priority" | "status">("type");
+  const [sortMode, setSortMode] = useState<"priority" | "status" | "name">("priority");
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [saveLog, setSaveLog] = useState<{
@@ -496,12 +498,24 @@ export default function AdminScheduleEditorPage() {
       const aHandled = isTaskHandled(a).handled;
       const bHandled = isTaskHandled(b).handled;
       if (aHandled !== bHandled) return aHandled ? 1 : -1;
-      const aPriority = priorityRank(a.priority);
-      const bPriority = priorityRank(b.priority);
-      if (aPriority !== bPriority) return aPriority - bPriority;
-      const aStatus = statusRank(a.status);
-      const bStatus = statusRank(b.status);
-      if (aStatus !== bStatus) return aStatus - bStatus;
+
+      if (sortMode === "priority") {
+        const aPriority = priorityRank(a.priority);
+        const bPriority = priorityRank(b.priority);
+        if (aPriority !== bPriority) return aPriority - bPriority;
+      }
+
+      if (sortMode === "status") {
+        const aStatus = statusRank(a.status);
+        const bStatus = statusRank(b.status);
+        if (aStatus !== bStatus) return aStatus - bStatus;
+      }
+
+      if (sortMode === "name") {
+        const byName = a.name.localeCompare(b.name);
+        if (byName !== 0) return byName;
+      }
+
       const aDate = a.occurrenceDate || "";
       const bDate = b.occurrenceDate || "";
       if (aDate !== bDate) {
@@ -509,9 +523,30 @@ export default function AdminScheduleEditorPage() {
         if (!bDate) return -1;
         return aDate.localeCompare(bDate);
       }
+
       return a.name.localeCompare(b.name);
     },
-    [isTaskHandled, priorityRank, statusRank]
+    [isTaskHandled, priorityRank, sortMode, statusRank]
+  );
+
+  const taskColorClasses = useCallback(
+    (task?: TaskCatalogItem | null) => {
+      if (!task) return "border-[#d1d4aa] bg-white";
+      if (colorMode === "type") {
+        return typeColorClasses(task.typeColor);
+      }
+      if (colorMode === "priority") {
+        const priority = (task.priority || "").toLowerCase();
+        if (priority === "high") return "border-[#f7c8b8] bg-[#fff1ea]";
+        if (priority === "low") return "border-[#cfe6d2] bg-[#eff8f0]";
+        return "border-[#f3e0a4] bg-[#fff8e6]";
+      }
+      const status = (task.status || "").toLowerCase();
+      if (status === "completed") return "border-[#bfe5cf] bg-[#effaf4]";
+      if (status === "in progress") return "border-[#c5d9f6] bg-[#eef4ff]";
+      return "border-[#efe2b5] bg-[#fff8e6]";
+    },
+    [colorMode]
   );
 
   const filteredRecurringTasks = useMemo(() => {
@@ -1889,12 +1924,12 @@ export default function AdminScheduleEditorPage() {
       )}
 
       <div
-        className={`flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32 ${
+        className={`flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 pb-24 lg:flex-row lg:pb-32 lg:h-[calc(100vh-6rem)] lg:overflow-hidden ${
           canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
         }`}
       >
         <div
-          className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-3 shadow-md ${
+          className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-3 shadow-md lg:overflow-hidden ${
             canvasExpanded ? "bg-white lg:flex-[2.5]" : "bg-white/80"
           }`}
         >
@@ -2133,19 +2168,22 @@ export default function AdminScheduleEditorPage() {
                                             loadTaskDetail(task.id, task.name);
                                           }
                                         }}
-                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${typeColorClasses(
-                                          meta?.typeColor
+                                        className={`flex w-full items-start justify-between gap-2 rounded-lg border px-2 py-1 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${taskColorClasses(
+                                          meta
                                         )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                       >
-                                        <span className="whitespace-normal break-words font-semibold text-[#2f3b21]">
+                                        <span className="min-w-0 flex-1 whitespace-normal break-words font-semibold text-[#2f3b21]">
                                           {task.name}
                                         </span>
-                                        <span className="flex items-center gap-1 text-[9px] text-[#4f4f31]">
+                                        <span className="flex shrink-0 flex-wrap items-center gap-1 text-[9px] text-[#4f4f31]">
                                           <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
                                             {assignedCount}/{neededCount}
                                           </span>
                                           {hasEnoughPeople && (
-                                            <span className="text-sm text-emerald-600" title="Enough people assigned">
+                                            <span
+                                              className="text-sm text-emerald-600"
+                                              title="Enough people assigned"
+                                            >
                                               ✅
                                             </span>
                                           )}
@@ -2329,31 +2367,51 @@ export default function AdminScheduleEditorPage() {
                     </div>
                   </div>
                   <div className="space-y-2 p-3 text-sm">
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <input
-                        value={taskSearch}
-                        onChange={(e) => setTaskSearch(e.target.value)}
-                        placeholder="Search tasks"
-                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                      />
-                      <select
-                        value={taskTypeFilter}
-                        onChange={(e) => setTaskTypeFilter(e.target.value)}
-                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                      >
-                        <option value="">All types</option>
-                        {taskTypes.map((opt) => (
-                          <option key={opt.name} value={opt.name}>
-                            {opt.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <select
-                      value={taskStatusFilter}
-                      onChange={(e) => setTaskStatusFilter(e.target.value)}
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                    >
+              <div className="grid gap-2 md:grid-cols-2">
+                <input
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                  placeholder="Search tasks"
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                />
+                <select
+                  value={taskTypeFilter}
+                  onChange={(e) => setTaskTypeFilter(e.target.value)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                >
+                  <option value="">All types</option>
+                  {taskTypes.map((opt) => (
+                    <option key={opt.name} value={opt.name}>
+                      {opt.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                >
+                  <option value="priority">Sort: Priority</option>
+                  <option value="status">Sort: Status</option>
+                  <option value="name">Sort: Name</option>
+                </select>
+                <select
+                  value={colorMode}
+                  onChange={(e) => setColorMode(e.target.value as typeof colorMode)}
+                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                >
+                  <option value="type">Color: Task type</option>
+                  <option value="priority">Color: Priority</option>
+                  <option value="status">Color: Status</option>
+                </select>
+              </div>
+              <select
+                value={taskStatusFilter}
+                onChange={(e) => setTaskStatusFilter(e.target.value)}
+                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+              >
                       <option value="">All statuses</option>
                       {statusOptions.map((opt) => (
                         <option key={opt.name} value={opt.name}>
@@ -2366,6 +2424,34 @@ export default function AdminScheduleEditorPage() {
                         Recurring filters
                       </p>
                       <div className="mt-2 space-y-2">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-[#6a6c4d]">
+                            Sort by
+                          </span>
+                          <select
+                            value={sortMode}
+                            onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          >
+                            <option value="priority">Priority</option>
+                            <option value="status">Status</option>
+                            <option value="name">Name</option>
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-[#6a6c4d]">
+                            Color by
+                          </span>
+                          <select
+                            value={colorMode}
+                            onChange={(e) => setColorMode(e.target.value as typeof colorMode)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          >
+                            <option value="type">Task type</option>
+                            <option value="priority">Priority</option>
+                            <option value="status">Status</option>
+                          </select>
+                        </label>
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -2484,8 +2570,8 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                              task.typeColor
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${taskColorClasses(
+                              task
                             )}`}
                           >
                             <div>
@@ -2528,6 +2614,34 @@ export default function AdminScheduleEditorPage() {
                         One-off filters
                       </p>
                       <div className="mt-2 space-y-2">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-[#6a6c4d]">
+                            Sort by
+                          </span>
+                          <select
+                            value={sortMode}
+                            onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          >
+                            <option value="priority">Priority</option>
+                            <option value="status">Status</option>
+                            <option value="name">Name</option>
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-[#6a6c4d]">
+                            Color by
+                          </span>
+                          <select
+                            value={colorMode}
+                            onChange={(e) => setColorMode(e.target.value as typeof colorMode)}
+                            className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
+                          >
+                            <option value="type">Task type</option>
+                            <option value="priority">Priority</option>
+                            <option value="status">Status</option>
+                          </select>
+                        </label>
                         <select
                           value={taskStatusFilter}
                           onChange={(e) => setTaskStatusFilter(e.target.value)}
@@ -2609,8 +2723,8 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                              task.typeColor
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${taskColorClasses(
+                              task
                             )}`}
                           >
                             <div>
@@ -3031,8 +3145,8 @@ export default function AdminScheduleEditorPage() {
                         setPendingInsert(null);
                       }}
                       onClick={() => loadTaskDetail(task.id, task.name)}
-                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                        task.typeColor
+                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${taskColorClasses(
+                        task
                       )}`}
                     >
                       <div>
