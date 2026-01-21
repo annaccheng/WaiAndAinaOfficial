@@ -2294,7 +2294,7 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start ${
+          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
             canvasExpanded ? "lg:w-[280px]" : "lg:w-[360px]"
           }`}
         >
