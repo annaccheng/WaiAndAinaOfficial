@@ -560,15 +560,26 @@ export default function AdminScheduleEditorPage() {
       const matchesType = taskTypeFilter
         ? (task.type || "").toLowerCase() === taskTypeFilter.toLowerCase()
         : true;
+      const matchesStatus = taskStatusFilter
+        ? (task.status || "").toLowerCase() === taskStatusFilter.toLowerCase()
+        : true;
       const occurrence = task.occurrenceDate || "";
       const isPast = selectedIso && occurrence ? occurrence < selectedIso : false;
       const isCompleted = (task.status || "").toLowerCase() === "completed";
       const allowPast = !isPast || (showPastIncomplete && !isCompleted);
-      return matchesSearch && matchesType && allowPast;
+      return matchesSearch && matchesType && matchesStatus && allowPast;
     });
 
     return filtered.sort(sortTasks);
-  }, [oneOffTasks, selectedDate, showPastIncomplete, taskSearch, taskTypeFilter, sortTasks]);
+  }, [
+    oneOffTasks,
+    selectedDate,
+    showPastIncomplete,
+    taskSearch,
+    taskTypeFilter,
+    taskStatusFilter,
+    sortTasks,
+  ]);
 
   const dayOverviewSummary = useMemo(() => {
     if (!scheduleData) return null;
@@ -1995,7 +2006,7 @@ export default function AdminScheduleEditorPage() {
                       return (
                         <td
                           key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] min-h-[44px] p-1 align-top transition-colors duration-150 ${
+                          className={`border border-[#d1d4aa] min-h-[38px] p-1 align-top transition-colors duration-150 ${
                             isSelected ? "bg-[#f0f4de]" : ""
                           } ${saving ? "animate-pulse" : ""} ${
                             cellExists ? "" : "opacity-60"
@@ -2122,11 +2133,11 @@ export default function AdminScheduleEditorPage() {
                                             loadTaskDetail(task.id, task.name);
                                           }
                                         }}
-                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${typeColorClasses(
+                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${typeColorClasses(
                                           meta?.typeColor
                                         )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                       >
-                                        <span className="line-clamp-2 font-semibold text-[#2f3b21]">
+                                        <span className="whitespace-normal break-words font-semibold text-[#2f3b21]">
                                           {task.name}
                                         </span>
                                         <span className="flex items-center gap-1 text-[9px] text-[#4f4f31]">
@@ -2367,15 +2378,6 @@ export default function AdminScheduleEditorPage() {
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
-                            checked={showPastIncomplete}
-                            onChange={(e) => setShowPastIncomplete(e.target.checked)}
-                            className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
-                          />
-                          Show past incomplete one-offs
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
                             checked={hideCompletedRecurring}
                             onChange={(e) => setHideCompletedRecurring(e.target.checked)}
                             className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
@@ -2458,7 +2460,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        recurringDockExpanded ? "max-h-[420px] overflow-y-auto" : "max-h-48 overflow-y-auto"
+                        recurringDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
                       }`}
                     >
                       {filteredRecurringTasks.map((task) => {
@@ -2482,7 +2484,7 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
                               task.typeColor
                             )}`}
                           >
@@ -2521,6 +2523,34 @@ export default function AdminScheduleEditorPage() {
                     </button>
                   </div>
                   <div className="space-y-2 p-3 text-sm">
+                    <div className="rounded-lg border border-[#e2d7b5] bg-white/80 p-2 text-[11px] text-[#4b5133]">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                        One-off filters
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        <select
+                          value={taskStatusFilter}
+                          onChange={(e) => setTaskStatusFilter(e.target.value)}
+                          className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                        >
+                          <option value="">All statuses</option>
+                          {statusOptions.map((opt) => (
+                            <option key={opt.name} value={opt.name}>
+                              {opt.name}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={showPastIncomplete}
+                            onChange={(e) => setShowPastIncomplete(e.target.checked)}
+                            className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
+                          />
+                          Show past incomplete
+                        </label>
+                      </div>
+                    </div>
                     <div className="rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-2">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
                         Quick one-off task
@@ -2555,7 +2585,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        oneOffDockExpanded ? "max-h-[420px] overflow-y-auto" : "max-h-48 overflow-y-auto"
+                        oneOffDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
                       }`}
                     >
                       {filteredOneOffTasks.map((task) => {
@@ -2579,7 +2609,7 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
                               task.typeColor
                             )}`}
                           >
@@ -2839,15 +2869,6 @@ export default function AdminScheduleEditorPage() {
                       <label className="flex items-center gap-2">
                         <input
                           type="checkbox"
-                          checked={showPastIncomplete}
-                          onChange={(e) => setShowPastIncomplete(e.target.checked)}
-                          className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
-                        />
-                        Show past incomplete one-offs
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
                           checked={hideCompletedRecurring}
                           onChange={(e) => setHideCompletedRecurring(e.target.checked)}
                           className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
@@ -2926,37 +2947,67 @@ export default function AdminScheduleEditorPage() {
                 </>
               )}
               {mobileDockTab === "oneOff" && (
-                <div className="mb-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3 text-sm">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
-                    Quick one-off task
-                  </p>
-                  <p className="mt-1 text-[10px] text-[#6b6d4b]">
-                    Adds a one-off task for {selectedDate || "the selected date"}.
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    <input
-                      value={quickTaskName}
-                      onChange={(e) => setQuickTaskName(e.target.value)}
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
-                      placeholder="Task name"
-                    />
-                    <textarea
-                      value={quickTaskDescription}
-                      onChange={(e) => setQuickTaskDescription(e.target.value)}
-                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
-                      placeholder="Task description"
-                      rows={2}
-                    />
-                    <button
-                      type="button"
-                      onClick={createQuickTask}
-                      disabled={!quickTaskName.trim() || !selectedDate}
-                      className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
-                    >
-                      Add one-off
-                    </button>
+                <>
+                  <div className="mb-3 rounded-lg border border-[#e2d7b5] bg-white/90 p-3 text-[11px] text-[#4b5133]">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                      One-off filters
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <select
+                        value={taskStatusFilter}
+                        onChange={(e) => setTaskStatusFilter(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                      >
+                        <option value="">All statuses</option>
+                        {statusOptions.map((opt) => (
+                          <option key={opt.name} value={opt.name}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={showPastIncomplete}
+                          onChange={(e) => setShowPastIncomplete(e.target.checked)}
+                          className="h-4 w-4 rounded border-[#b5bf90] text-[#5d7f3b] focus:ring-[#7a8c43]"
+                        />
+                        Show past incomplete
+                      </label>
+                    </div>
                   </div>
-                </div>
+                  <div className="mb-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3 text-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                      Quick one-off task
+                    </p>
+                    <p className="mt-1 text-[10px] text-[#6b6d4b]">
+                      Adds a one-off task for {selectedDate || "the selected date"}.
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <input
+                        value={quickTaskName}
+                        onChange={(e) => setQuickTaskName(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                        placeholder="Task name"
+                      />
+                      <textarea
+                        value={quickTaskDescription}
+                        onChange={(e) => setQuickTaskDescription(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
+                        placeholder="Task description"
+                        rows={2}
+                      />
+                      <button
+                        type="button"
+                        onClick={createQuickTask}
+                        disabled={!quickTaskName.trim() || !selectedDate}
+                        className="w-full rounded-md bg-[#8fae4c] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-60"
+                      >
+                        Add one-off
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
               {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
                 (task) => {
@@ -2980,7 +3031,7 @@ export default function AdminScheduleEditorPage() {
                         setPendingInsert(null);
                       }}
                       onClick={() => loadTaskDetail(task.id, task.name)}
-                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
                         task.typeColor
                       )}`}
                     >

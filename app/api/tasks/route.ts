@@ -14,6 +14,13 @@ function normalizeCapabilityIds(input: unknown): string[] {
   return input.map((id) => String(id)).filter(Boolean);
 }
 
+function normalizePersonCount(input: unknown) {
+  if (input === null || input === undefined || input === "") return 1;
+  const value = Number(input);
+  if (Number.isNaN(value)) return 1;
+  return Math.max(1, Math.round(value));
+}
+
 async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
   if (!taskIds.length) return;
 
@@ -132,6 +139,7 @@ export async function POST(req: Request) {
       origin_date: originDate,
       occurrence_date: originDate,
       recurring: isRecurring,
+      person_count: normalizePersonCount(payloadBody.person_count),
     });
 
     const createOccurrences = async (parentId: string, payloadBody: Record<string, unknown>) => {
@@ -164,6 +172,7 @@ export async function POST(req: Request) {
           occurrence_date: nextDate.toISOString().slice(0, 10),
           parent_task_id: parentId,
           recurring: true,
+          person_count: normalizePersonCount(payloadBody.person_count),
         });
       }
 
@@ -247,6 +256,7 @@ export async function POST(req: Request) {
               occurrence_date: nextDate.toISOString().slice(0, 10),
               parent_task_id: parentId,
               recurring: true,
+              person_count: normalizePersonCount(fallbackBody.person_count),
             });
           }
 
@@ -267,6 +277,7 @@ export async function POST(req: Request) {
             origin_date: originDate,
             occurrence_date: originDate,
             recurring: isRecurring,
+            person_count: normalizePersonCount(fallbackBody.person_count),
           },
         });
         if (parent?.id) {
@@ -315,6 +326,9 @@ export async function PATCH(req: Request) {
   const hasDateUpdates =
     Object.prototype.hasOwnProperty.call(updates, "occurrence_date") ||
     Object.prototype.hasOwnProperty.call(updates, "origin_date");
+  if (Object.prototype.hasOwnProperty.call(updates, "person_count")) {
+    updates.person_count = normalizePersonCount(updates.person_count);
+  }
   const normalizedCapabilities = Array.isArray(capabilityIds)
     ? normalizeCapabilityIds(capabilityIds)
     : null;
