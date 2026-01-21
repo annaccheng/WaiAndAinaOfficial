@@ -72,6 +72,24 @@ const STATUS_COLORS: Record<string, string> = {
   "In Progress": "border-l-[#8fae4c] bg-[#f3f7e7]",
   Completed: "border-l-[#6fa3d9] bg-[#eef4fb]",
 };
+const PRIORITY_COLORS: Record<string, string> = {
+  High: "border-l-[#d97956] bg-[#fff4ee]",
+  Medium: "border-l-[#d1b458] bg-[#fff8e4]",
+  Low: "border-l-[#7aac86] bg-[#eef7f0]",
+};
+const TYPE_COLORS: Record<string, string> = {
+  default: "border-l-[#d0c9a4] bg-[#fdfaf1]",
+  gray: "border-l-[#a8a8a8] bg-[#f6f6f6]",
+  brown: "border-l-[#b27a53] bg-[#f7eee6]",
+  orange: "border-l-[#f2a05b] bg-[#fff0e1]",
+  yellow: "border-l-[#e8d46a] bg-[#fffbe5]",
+  green: "border-l-[#7fb27c] bg-[#eef8ef]",
+  blue: "border-l-[#6fa3d9] bg-[#eef4fb]",
+  purple: "border-l-[#9b7fb2] bg-[#f3eff8]",
+  pink: "border-l-[#d989b6] bg-[#fbf0f6]",
+  red: "border-l-[#d97956] bg-[#fff0ed]",
+  emerald: "border-l-[#5dbf9b] bg-[#eafaf3]",
+};
 
 function renderTextWithAnimalLinks(text?: string | null): ReactNode {
   if (!text) return "No description provided.";
@@ -132,6 +150,12 @@ export default function TaskEditorPage() {
     end: "",
     includeOccurrences: "true",
   });
+  const [taskColorMode, setTaskColorMode] = useState<
+    "status" | "priority" | "type"
+  >("status");
+  const [taskSortMode, setTaskSortMode] = useState<
+    "priority" | "status" | "name"
+  >("priority");
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [applyTo, setApplyTo] = useState<"single" | "future" | "all">("single");
@@ -547,14 +571,58 @@ export default function TaskEditorPage() {
     }
   }
 
+  const priorityRank = (priority?: string) => {
+    if (!priority) return 3;
+    if (priority === "High") return 0;
+    if (priority === "Medium") return 1;
+    if (priority === "Low") return 2;
+    return 3;
+  };
+
+  const statusRank = (status?: string) => {
+    if (!status) return 3;
+    if (status === "Not Started") return 0;
+    if (status === "In Progress") return 1;
+    if (status === "Completed") return 2;
+    return 3;
+  };
+
+  const sortTasks = useMemo(() => {
+    return (a: TaskItem, b: TaskItem) => {
+      if (taskSortMode === "priority") {
+        const diff = priorityRank(a.priority) - priorityRank(b.priority);
+        if (diff !== 0) return diff;
+      }
+      if (taskSortMode === "status") {
+        const diff = statusRank(a.status) - statusRank(b.status);
+        if (diff !== 0) return diff;
+      }
+      return a.name.localeCompare(b.name);
+    };
+  }, [taskSortMode]);
+
+  const taskCardClasses = (task: TaskItem) => {
+    if (taskColorMode === "priority") {
+      return PRIORITY_COLORS[task.priority] || "border-l-[#d0c9a4] bg-white/90";
+    }
+    if (taskColorMode === "type") {
+      const color = task.task_type?.color || "default";
+      return TYPE_COLORS[color] || TYPE_COLORS.default;
+    }
+    return STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90";
+  };
+
   const filteredTasks = useMemo(() => tasks, [tasks]);
   const recurringTasks = useMemo(
-    () => filteredTasks.filter((task) => task.recurring && !task.parent_task_id),
-    [filteredTasks]
+    () =>
+      filteredTasks
+        .filter((task) => task.recurring && !task.parent_task_id)
+        .sort(sortTasks),
+    [filteredTasks, sortTasks]
   );
   const oneOffTasks = useMemo(
-    () => filteredTasks.filter((task) => !task.recurring),
-    [filteredTasks]
+    () => filteredTasks.filter((task) => !task.recurring).sort(sortTasks),
+    [filteredTasks, sortTasks]
   );
   const editingDateLabel =
     draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
@@ -603,6 +671,15 @@ export default function TaskEditorPage() {
               placeholder="Search tasks"
             />
             <select
+              value={taskSortMode}
+              onChange={(e) => setTaskSortMode(e.target.value as typeof taskSortMode)}
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
+            >
+              <option value="priority">Sort by priority</option>
+              <option value="status">Sort by status</option>
+              <option value="name">Sort by name</option>
+            </select>
+            <select
               value={filters.status}
               onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
               className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
@@ -637,6 +714,15 @@ export default function TaskEditorPage() {
                   {priority}
                 </option>
               ))}
+            </select>
+            <select
+              value={taskColorMode}
+              onChange={(e) => setTaskColorMode(e.target.value as typeof taskColorMode)}
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
+            >
+              <option value="status">Color by status</option>
+              <option value="priority">Color by priority</option>
+              <option value="type">Color by task type</option>
             </select>
             <select
               value={filters.recurring}
@@ -702,9 +788,9 @@ export default function TaskEditorPage() {
                     {recurringTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
-                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                        }`}
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
+                          task
+                        )}`}
                       >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
@@ -770,9 +856,9 @@ export default function TaskEditorPage() {
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
-                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                        }`}
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
+                          task
+                        )}`}
                       >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
