@@ -2298,7 +2298,7 @@ export default function AdminScheduleEditorPage() {
             canvasExpanded ? "lg:w-[280px]" : "lg:w-[360px]"
           }`}
         >
-          <div className="space-y-4 lg:sticky lg:top-24 lg:flex lg:h-[calc(100vh-6rem)] lg:flex-col lg:overflow-y-auto lg:pr-1">
+          <div className="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-4rem)] lg:self-start lg:flex lg:flex-col lg:overflow-y-auto lg:pr-1">
             <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
               <span>Task dock</span>
               <button
