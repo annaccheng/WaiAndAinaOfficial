@@ -9,6 +9,9 @@ export default function AdminPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<Array<{ id: string; name: string }>>([]);
+  const [capabilityName, setCapabilityName] = useState("");
+  const [capabilityMessage, setCapabilityMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const session = loadSession();
@@ -24,6 +27,42 @@ export default function AdminPage() {
       setMessage("You need admin access to view admin tools.");
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    const loadCapabilities = async () => {
+      try {
+        const res = await fetch("/api/capabilities");
+        const json = await res.json();
+        setCapabilities(json.capabilities || []);
+      } catch (err) {
+        console.error("Failed to load capabilities", err);
+      }
+    };
+    loadCapabilities();
+  }, [authorized]);
+
+  const handleCreateCapability = async () => {
+    const trimmed = capabilityName.trim();
+    if (!trimmed) return;
+    setCapabilityMessage(null);
+    try {
+      const res = await fetch("/api/capabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw new Error("Failed to add capability");
+      setCapabilityName("");
+      const refreshed = await fetch("/api/capabilities");
+      const json = await refreshed.json();
+      setCapabilities(json.capabilities || []);
+      setCapabilityMessage("Capability added.");
+    } catch (err: any) {
+      console.error("Failed to add capability", err);
+      setCapabilityMessage(err?.message || "Could not add capability.");
+    }
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
@@ -56,63 +95,123 @@ export default function AdminPage() {
       </div>
 
       {authorized && (
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Schedule</p>
-            <h2 className="text-lg font-semibold text-[#314123]">Admin schedule</h2>
-            <p className="mt-2 text-sm text-[#5f5a3b]">
-              Edit the staging schedule, drag tasks, and publish updates.
-            </p>
-            <Link
-              href="/hub/admin/schedule"
-              className="mt-4 inline-flex items-center justify-center rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
-            >
-              Open schedule editor
-            </Link>
+        <>
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Schedule</p>
+              <h2 className="text-lg font-semibold text-[#314123]">Admin schedule</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Edit the staging schedule, drag tasks, and publish updates.
+              </p>
+              <Link
+                href="/hub/admin/schedule"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+              >
+                Open schedule editor
+              </Link>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Shifts</p>
+              <h2 className="text-lg font-semibold text-[#314123]">Shift editor</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Update shift names, times, and ordering in one place.
+              </p>
+              <Link
+                href="/hub/admin/shifts"
+                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+              >
+                Open shift editor
+              </Link>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Tasks</p>
+              <h2 className="text-lg font-semibold text-[#314123]">Task editor</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Organize recurring tasks, update statuses, and tune task types.
+              </p>
+              <Link
+                href="/hub/admin/tasks"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#6f8f3d] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
+              >
+                Open task editor
+              </Link>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">People</p>
+              <h2 className="text-lg font-semibold text-[#314123]">User management</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Add new teammates, edit roles, and manage access in one view.
+              </p>
+              <Link
+                href="/hub/admin/users"
+                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+              >
+                Open user management
+              </Link>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Analytics</p>
+              <h2 className="text-lg font-semibold text-[#314123]">Admin analytics</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Review daily and weekly workload trends across the farm.
+              </p>
+              <Link
+                href="/hub/admin/analytics"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
+              >
+                Open analytics
+              </Link>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Shifts</p>
-            <h2 className="text-lg font-semibold text-[#314123]">Shift editor</h2>
-            <p className="mt-2 text-sm text-[#5f5a3b]">
-              Update shift names, times, and ordering in one place.
-            </p>
-            <Link
-              href="/hub/admin/shifts"
-              className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-            >
-              Open shift editor
-            </Link>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Tags</p>
+                <h2 className="text-lg font-semibold text-[#314123]">Capability tags</h2>
+                <p className="text-sm text-[#5f5a3b]">
+                  Add and review shared capability tags for tasks and users.
+                </p>
+              </div>
+            </div>
+            {capabilityMessage && (
+              <p className="mt-3 text-sm font-semibold text-[#4b5133]">{capabilityMessage}</p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <input
+                value={capabilityName}
+                onChange={(e) => setCapabilityName(e.target.value)}
+                className="flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                placeholder="Add new capability"
+              />
+              <button
+                type="button"
+                onClick={handleCreateCapability}
+                className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+              >
+                Add tag
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-[#4f5730]">
+              {capabilities.length ? (
+                capabilities.map((capability) => (
+                  <span
+                    key={capability.id}
+                    className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-[2px] font-semibold"
+                  >
+                    {capability.name}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-[#7a7f54]">No capability tags yet.</span>
+              )}
+            </div>
           </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Tasks</p>
-            <h2 className="text-lg font-semibold text-[#314123]">Task editor</h2>
-            <p className="mt-2 text-sm text-[#5f5a3b]">
-              Organize recurring tasks, update statuses, and tune task types.
-            </p>
-            <Link
-              href="/hub/admin/tasks"
-              className="mt-4 inline-flex items-center justify-center rounded-md bg-[#6f8f3d] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
-            >
-              Open task editor
-            </Link>
-          </div>
-
-          <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">People</p>
-            <h2 className="text-lg font-semibold text-[#314123]">User management</h2>
-            <p className="mt-2 text-sm text-[#5f5a3b]">
-              Add new teammates, edit roles, and manage access in one view.
-            </p>
-            <Link
-              href="/hub/admin/users"
-              className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-            >
-              Open user management
-            </Link>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

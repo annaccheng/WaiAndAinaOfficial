@@ -15,7 +15,8 @@ export async function GET() {
   try {
     const data = await supabaseRequest<any[]>("users", {
       query: {
-        select: "id,display_name,phone_number,active,user_role:user_roles(name)",
+        select:
+          "id,display_name,phone_number,active,user_role:user_roles(name),user_capabilities:user_capabilities(capability:capabilities(id,name))",
         order: "display_name.asc",
       },
     });
@@ -27,6 +28,9 @@ export async function GET() {
         number: user.phone_number ?? "",
         userType: user.user_role?.name ?? "",
         active: Boolean(user.active),
+        capabilities: (user.user_capabilities || [])
+          .map((entry: any) => entry.capability)
+          .filter(Boolean),
       })) ?? [];
 
     return NextResponse.json({ users });
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   const body = await req.json().catch(() => null);
-  const { id, userType, name, password, number, active } = body || {};
+  const { id, userType, name, password, number, active, capabilityIds } = body || {};
 
   if (!id) {
     return NextResponse.json({ error: "Missing user id" }, { status: 400 });
@@ -76,6 +80,9 @@ export async function PATCH(req: Request) {
 
   try {
     const updates: Record<string, unknown> = {};
+    const normalizedCapabilities = Array.isArray(capabilityIds)
+      ? capabilityIds.map((capabilityId: string) => String(capabilityId)).filter(Boolean)
+      : null;
 
     if (typeof name === "string") {
       updates.display_name = name.trim();
@@ -99,6 +106,23 @@ export async function PATCH(req: Request) {
     }
 
     if (Object.keys(updates).length === 0) {
+      if (normalizedCapabilities) {
+        await supabaseRequest("user_capabilities", {
+          method: "DELETE",
+          query: { user_id: `eq.${id}` },
+        });
+
+        if (normalizedCapabilities.length) {
+          await supabaseRequest("user_capabilities", {
+            method: "POST",
+            body: normalizedCapabilities.map((capabilityId) => ({
+              user_id: id,
+              capability_id: capabilityId,
+            })),
+          });
+        }
+      }
+
       return NextResponse.json({ success: true });
     }
 
@@ -107,6 +131,23 @@ export async function PATCH(req: Request) {
       query: { id: `eq.${id}` },
       body: updates,
     });
+
+    if (normalizedCapabilities) {
+      await supabaseRequest("user_capabilities", {
+        method: "DELETE",
+        query: { user_id: `eq.${id}` },
+      });
+
+      if (normalizedCapabilities.length) {
+        await supabaseRequest("user_capabilities", {
+          method: "POST",
+          body: normalizedCapabilities.map((capabilityId) => ({
+            user_id: id,
+            capability_id: capabilityId,
+          })),
+        });
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

@@ -21,6 +21,19 @@ create table if not exists users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists capabilities (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists user_capabilities (
+  user_id uuid references users(id) on delete cascade,
+  capability_id uuid references capabilities(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, capability_id)
+);
+
 insert into user_roles (name)
 values
   ('Admin'),
@@ -47,6 +60,49 @@ create table if not exists task_types (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists animal_types (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  color text not null default 'default',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists animal_genders (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  color text not null default 'default',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists animals (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  summary text,
+  daily_care_notes text,
+  birthday date,
+  age_label text,
+  age_months integer,
+  milking_method text,
+  get_milked boolean not null default false,
+  breed text,
+  behaviors text[] not null default '{}',
+  stats jsonb not null default '{}'::jsonb,
+  animal_type_id uuid references animal_types(id) on delete set null,
+  animal_gender_id uuid references animal_genders(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists animal_photos (
+  id uuid primary key default gen_random_uuid(),
+  animal_id uuid references animals(id) on delete cascade,
+  name text,
+  path text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists animal_photos_animal_id_idx on animal_photos(animal_id);
+
 create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -70,6 +126,13 @@ create table if not exists tasks (
   parent_task_id uuid references tasks(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists task_capabilities (
+  task_id uuid references tasks(id) on delete cascade,
+  capability_id uuid references capabilities(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (task_id, capability_id)
 );
 
 insert into task_types (name, color)
@@ -118,8 +181,20 @@ create table if not exists schedule_cells (
   shift_id uuid references shifts(id) on delete cascade,
   tasks text[] not null default '{}',
   note text,
+  blocked boolean not null default false,
   created_at timestamptz not null default now(),
   unique (schedule_id, person_id, shift_id)
+);
+
+create table if not exists schedule_reports (
+  id uuid primary key default gen_random_uuid(),
+  report_date date not null,
+  date_label text not null,
+  report_title text,
+  data jsonb not null default '{}'::jsonb,
+  summary jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  created_by text
 );
 
 insert into shifts (label, time_range, order_index)

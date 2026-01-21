@@ -23,6 +23,7 @@ type TaskRow = {
   extra_notes?: string[] | null;
   task_type_id?: string | null;
   task_type?: { id: string; name: string; color: string } | null;
+  task_capabilities?: { capability?: { id: string; name: string } | null }[] | null;
 };
 
 export async function POST(req: Request) {
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     const existing = await supabaseRequest<TaskRow[]>("tasks", {
       query: {
         select:
-          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color)",
+          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
         parent_task_id: `eq.${seriesId}`,
         occurrence_date: `eq.${occurrenceDate}`,
         limit: 1,
@@ -48,13 +49,21 @@ export async function POST(req: Request) {
     });
 
     if (existing?.[0]) {
-      return NextResponse.json({ task: existing[0] });
+      const existingTask = existing[0];
+      return NextResponse.json({
+        task: {
+          ...existingTask,
+          capabilities: (existingTask.task_capabilities || [])
+            .map((entry) => entry.capability)
+            .filter(Boolean),
+        },
+      });
     }
 
     const [series] = await supabaseRequest<TaskRow[]>("tasks", {
       query: {
         select:
-          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type_id,task_type:task_types(id,name,color)",
+          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type_id,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
         id: `eq.${seriesId}`,
         limit: 1,
       },
@@ -69,7 +78,7 @@ export async function POST(req: Request) {
       prefer: "return=representation",
       query: {
         select:
-          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color)",
+          "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
       },
       body: {
         name: series.name,
@@ -101,7 +110,28 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ task: created });
+    const capabilityIds =
+      series.task_capabilities
+        ?.map((entry) => entry.capability?.id)
+        .filter(Boolean) || [];
+    if (capabilityIds.length) {
+      await supabaseRequest("task_capabilities", {
+        method: "POST",
+        body: capabilityIds.map((capabilityId) => ({
+          task_id: created.id,
+          capability_id: capabilityId,
+        })),
+      });
+    }
+
+    return NextResponse.json({
+      task: {
+        ...created,
+        capabilities: (series.task_capabilities || [])
+          .map((entry) => entry.capability)
+          .filter(Boolean),
+      },
+    });
   } catch (err) {
     console.error("Failed to create recurring occurrence", err);
     return NextResponse.json(

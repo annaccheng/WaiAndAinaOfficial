@@ -23,6 +23,7 @@ type ScheduleCellRow = {
   shift_id: string;
   tasks: string[];
   note: string | null;
+  blocked?: boolean | null;
 };
 
 type TaskRow = {
@@ -240,7 +241,7 @@ async function ensureScheduleCells(scheduleId: string, people: SchedulePersonRow
   if (missing.length) {
     await supabaseRequest("schedule_cells", {
       method: "POST",
-      body: missing.map((cell) => ({ ...cell, tasks: [], note: null })),
+      body: missing.map((cell) => ({ ...cell, tasks: [], note: null, blocked: false })),
     });
   }
 }
@@ -306,7 +307,7 @@ export async function GET(req: Request) {
     await ensureScheduleCells(scheduleId, schedulePeople, slots);
     const cells = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
       query: {
-        select: "id,person_id,shift_id,tasks,note",
+        select: "id,person_id,shift_id,tasks,note,blocked",
         schedule_id: `eq.${scheduleId}`,
       },
     });
@@ -343,6 +344,7 @@ export async function GET(req: Request) {
         return {
           tasks,
           note: (cell.note || "").trim(),
+          blocked: Boolean(cell.blocked),
         };
       })
     );
