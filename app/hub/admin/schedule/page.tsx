@@ -2294,11 +2294,11 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 ${
+          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start ${
             canvasExpanded ? "lg:w-[280px]" : "lg:w-[360px]"
           }`}
         >
-          <div className="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-4rem)] lg:self-start lg:flex lg:flex-col lg:overflow-y-auto lg:pr-1">
+          <div className="space-y-4 lg:flex lg:h-full lg:flex-col lg:overflow-y-auto lg:pr-1">
             <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
               <span>Task dock</span>
               <button
