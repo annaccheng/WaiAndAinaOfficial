@@ -298,18 +298,30 @@ export async function POST(req: Request) {
 
     const volunteers = await fetchVolunteers();
     const people = await ensureSchedulePeople(scheduleId, volunteers);
+    const activeVolunteerSet = new Set(
+      volunteers.map((name) => name.trim().toLowerCase())
+    );
+    const activePeople = people.filter((entry) =>
+      activeVolunteerSet.has(entry.name.trim().toLowerCase())
+    );
     const normalizedPerson = String(person).trim();
-    const personEntry = people.find(
+    const personEntry = activePeople.find(
       (entry) => entry.name.trim() === normalizedPerson
     );
     console.log("schedule.update people lookup", {
       normalizedPerson,
-      peopleCount: people.length,
+      peopleCount: activePeople.length,
       personFound: Boolean(personEntry),
     });
 
     let resolvedPerson = personEntry;
     if (!resolvedPerson) {
+      if (!activeVolunteerSet.has(normalizedPerson.toLowerCase())) {
+        return NextResponse.json(
+          { error: "Inactive users cannot be scheduled." },
+          { status: 400 }
+        );
+      }
       const created = await supabaseRequest<SchedulePersonRow[]>(
         "schedule_people",
         {
@@ -318,7 +330,7 @@ export async function POST(req: Request) {
           body: {
             schedule_id: scheduleId,
             name: normalizedPerson,
-            order_index: people.length + 1,
+            order_index: activePeople.length + 1,
           },
         }
       );

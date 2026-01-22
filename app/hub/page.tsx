@@ -1057,14 +1057,13 @@ export default function HubSchedulePage() {
       });
     });
 
-    const missing = Array.from(uniqueTasks).filter(
-      (name) => !taskMetaMap[name]
-    );
-    if (missing.length === 0) return;
+    const names = Array.from(uniqueTasks);
+    if (names.length === 0) return;
+    let cancelled = false;
 
     (async () => {
       const results = await Promise.all(
-        missing.map(async (name) => {
+        names.map(async (name) => {
           try {
             const res = await fetch(
               `/api/task?name=${encodeURIComponent(name)}`
@@ -1085,6 +1084,8 @@ export default function HubSchedulePage() {
           }
         })
       );
+
+      if (cancelled) return;
 
       setTaskMetaMap((prev) => {
         const next = { ...prev } as Record<string, TaskMeta>;
@@ -1107,7 +1108,11 @@ export default function HubSchedulePage() {
         return next;
       });
     })();
-  }, [data, taskMetaMap]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
 
   // Split slots
   const mealSlots = useMemo(
