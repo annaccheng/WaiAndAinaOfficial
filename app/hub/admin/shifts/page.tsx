@@ -96,6 +96,28 @@ export default function AdminShiftEditorPage() {
     }
   };
 
+  const deleteShift = async (shiftId: string) => {
+    const confirmed = window.confirm("Delete this shift?");
+    if (!confirmed) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/shifts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: shiftId }),
+      });
+      if (!res.ok) throw new Error("Failed to delete shift.");
+      const json = await res.json();
+      setShifts(json.shifts || []);
+      setMessage("Shift deleted.");
+    } catch (err: any) {
+      setMessage(err?.message || "Unable to delete shift.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!authorized) {
     return (
       <div className="mx-auto max-w-4xl p-6 text-sm text-[#7a7f54]">
@@ -182,6 +204,13 @@ export default function AdminShiftEditorPage() {
                   className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase text-[#4f5730] shadow-sm"
                 >
                   Down
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteShift(shift.id)}
+                  className="rounded-md border border-red-200 bg-white px-3 py-2 font-semibold uppercase text-red-700 shadow-sm"
+                >
+                  Delete
                 </button>
               </div>
             </div>

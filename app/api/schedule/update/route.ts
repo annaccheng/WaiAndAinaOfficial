@@ -157,6 +157,7 @@ async function upsertScheduleCell(params: {
   slotId: string;
   tasks: string[];
   note: string | null;
+  blocked: boolean;
 }) {
   const existing = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
     query: {
@@ -175,6 +176,7 @@ async function upsertScheduleCell(params: {
       body: {
         tasks: params.tasks,
         note: params.note,
+        blocked: params.blocked,
       },
     });
     return;
@@ -188,13 +190,14 @@ async function upsertScheduleCell(params: {
       shift_id: params.slotId,
       tasks: params.tasks,
       note: params.note,
+      blocked: params.blocked,
     },
   });
 }
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
-  const { person, slotId, replaceValue, dateLabel, tasks, note } = body || {};
+  const { person, slotId, replaceValue, dateLabel, tasks, note, blocked } = body || {};
 
   if (!person || !slotId) {
     return NextResponse.json(
@@ -214,6 +217,7 @@ export async function POST(req: Request) {
   try {
     let resolvedTasks: string[] = [];
     let resolvedNote = typeof note === "string" ? note : "";
+    const isBlocked = Boolean(blocked);
 
     if (Array.isArray(tasks)) {
       resolvedTasks = tasks
@@ -229,7 +233,13 @@ export async function POST(req: Request) {
       resolvedNote = parsed.note;
     }
 
-    const hasContent = resolvedTasks.length > 0 || resolvedNote.trim().length > 0;
+    if (isBlocked) {
+      resolvedTasks = [];
+      resolvedNote = "";
+    }
+
+    const hasContent =
+      isBlocked || resolvedTasks.length > 0 || resolvedNote.trim().length > 0;
     console.log("schedule.update payload", {
       isoDate,
       person: String(person).trim(),
@@ -288,18 +298,30 @@ export async function POST(req: Request) {
 
     const volunteers = await fetchVolunteers();
     const people = await ensureSchedulePeople(scheduleId, volunteers);
+    const activeVolunteerSet = new Set(
+      volunteers.map((name) => name.trim().toLowerCase())
+    );
+    const activePeople = people.filter((entry) =>
+      activeVolunteerSet.has(entry.name.trim().toLowerCase())
+    );
     const normalizedPerson = String(person).trim();
-    const personEntry = people.find(
+    const personEntry = activePeople.find(
       (entry) => entry.name.trim() === normalizedPerson
     );
     console.log("schedule.update people lookup", {
       normalizedPerson,
-      peopleCount: people.length,
+      peopleCount: activePeople.length,
       personFound: Boolean(personEntry),
     });
 
     let resolvedPerson = personEntry;
     if (!resolvedPerson) {
+      if (!activeVolunteerSet.has(normalizedPerson.toLowerCase())) {
+        return NextResponse.json(
+          { error: "Inactive users cannot be scheduled." },
+          { status: 400 }
+        );
+      }
       const created = await supabaseRequest<SchedulePersonRow[]>(
         "schedule_people",
         {
@@ -308,7 +330,7 @@ export async function POST(req: Request) {
           body: {
             schedule_id: scheduleId,
             name: normalizedPerson,
-            order_index: people.length + 1,
+            order_index: activePeople.length + 1,
           },
         }
       );
@@ -325,7 +347,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!hasContent) {
+    if (!hasContent && !isBlocked) {
       await supabaseRequest("schedule_cells", {
         method: "DELETE",
         query: {
@@ -362,6 +384,7 @@ export async function POST(req: Request) {
       slotId,
       tasks: resolvedTasks,
       note: resolvedNote.trim() || null,
+      blocked: isBlocked,
     });
     console.log("schedule.update cell upserted", {
       scheduleId,

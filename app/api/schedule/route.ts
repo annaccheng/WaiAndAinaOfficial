@@ -23,6 +23,7 @@ type ScheduleCellRow = {
   shift_id: string;
   tasks: string[];
   note: string | null;
+  blocked?: boolean | null;
 };
 
 type TaskRow = {
@@ -240,7 +241,7 @@ async function ensureScheduleCells(scheduleId: string, people: SchedulePersonRow
   if (missing.length) {
     await supabaseRequest("schedule_cells", {
       method: "POST",
-      body: missing.map((cell) => ({ ...cell, tasks: [], note: null })),
+      body: missing.map((cell) => ({ ...cell, tasks: [], note: null, blocked: false })),
     });
   }
 }
@@ -303,10 +304,16 @@ export async function GET(req: Request) {
     }
 
     const schedulePeople = await syncSchedulePeople(scheduleId, volunteers);
-    await ensureScheduleCells(scheduleId, schedulePeople, slots);
+    const activeVolunteerSet = new Set(
+      volunteers.map((name) => name.trim().toLowerCase())
+    );
+    const activeSchedulePeople = schedulePeople.filter((person) =>
+      activeVolunteerSet.has(person.name.trim().toLowerCase())
+    );
+    await ensureScheduleCells(scheduleId, activeSchedulePeople, slots);
     const cells = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
       query: {
-        select: "id,person_id,shift_id,tasks,note",
+        select: "id,person_id,shift_id,tasks,note,blocked",
         schedule_id: `eq.${scheduleId}`,
       },
     });
@@ -329,7 +336,7 @@ export async function GET(req: Request) {
       : [];
     const taskMap = new Map(taskRows.map((task) => [task.id, task.name]));
 
-    const detailedMatrix = schedulePeople.map((person) =>
+    const detailedMatrix = activeSchedulePeople.map((person) =>
       slots.map((slot) => {
         const cell = cellMap.get(`${person.id}-${slot.id}`);
         if (!cell) return { tasks: [], note: "" };
@@ -343,6 +350,7 @@ export async function GET(req: Request) {
         return {
           tasks,
           note: (cell.note || "").trim(),
+          blocked: Boolean(cell.blocked),
         };
       })
     );
@@ -354,12 +362,12 @@ export async function GET(req: Request) {
         return `${names.join(", ")}\n${cell.note}`.trim();
       })
     );
-    const existsMatrix = schedulePeople.map((person) =>
+    const existsMatrix = activeSchedulePeople.map((person) =>
       slots.map((slot) => cellMap.has(`${person.id}-${slot.id}`))
     );
 
     return NextResponse.json({
-      people: schedulePeople.map((person) => person.name),
+      people: activeSchedulePeople.map((person) => person.name),
       slots,
       cells: isStaging ? detailedMatrix : stringMatrix,
       cellExists: isStaging ? existsMatrix : undefined,

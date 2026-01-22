@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
 
@@ -71,6 +72,57 @@ const STATUS_COLORS: Record<string, string> = {
   "In Progress": "border-l-[#8fae4c] bg-[#f3f7e7]",
   Completed: "border-l-[#6fa3d9] bg-[#eef4fb]",
 };
+const PRIORITY_COLORS: Record<string, string> = {
+  High: "border-l-[#d97956] bg-[#fff4ee]",
+  Medium: "border-l-[#d1b458] bg-[#fff8e4]",
+  Low: "border-l-[#7aac86] bg-[#eef7f0]",
+};
+const TYPE_COLORS: Record<string, string> = {
+  default: "border-l-[#d0c9a4] bg-[#fdfaf1]",
+  gray: "border-l-[#a8a8a8] bg-[#f6f6f6]",
+  brown: "border-l-[#b27a53] bg-[#f7eee6]",
+  orange: "border-l-[#f2a05b] bg-[#fff0e1]",
+  yellow: "border-l-[#e8d46a] bg-[#fffbe5]",
+  green: "border-l-[#7fb27c] bg-[#eef8ef]",
+  blue: "border-l-[#6fa3d9] bg-[#eef4fb]",
+  purple: "border-l-[#9b7fb2] bg-[#f3eff8]",
+  pink: "border-l-[#d989b6] bg-[#fbf0f6]",
+  red: "border-l-[#d97956] bg-[#fff0ed]",
+  emerald: "border-l-[#5dbf9b] bg-[#eafaf3]",
+};
+
+function renderTextWithAnimalLinks(text?: string | null): ReactNode {
+  if (!text) return "No description provided.";
+  const regex = /\[animal:([^\]]+)\]/gi;
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const prefix = text.slice(lastIndex, match.index);
+    if (prefix) {
+      parts.push(prefix);
+    }
+    const animalName = match[1].trim();
+    parts.push(
+      <Link
+        key={`${match.index}-${animalName}`}
+        href={`/hub/guides/animalpedia?search=${encodeURIComponent(animalName)}`}
+        className="font-semibold text-[#47612a] underline decoration-dotted"
+      >
+        🐾 {animalName}
+      </Link>
+    );
+    lastIndex = regex.lastIndex;
+  }
+
+  const tail = text.slice(lastIndex);
+  if (tail) {
+    parts.push(tail);
+  }
+
+  return parts;
+}
 
 export default function TaskEditorPage() {
   const router = useRouter();
@@ -98,6 +150,13 @@ export default function TaskEditorPage() {
     end: "",
     includeOccurrences: "true",
   });
+  const [taskColorMode, setTaskColorMode] = useState<
+    "status" | "priority" | "type"
+  >("status");
+  const [taskSortMode, setTaskSortMode] = useState<
+    "priority" | "status" | "name"
+  >("priority");
+  const [recurringOverrides, setRecurringOverrides] = useState<Record<string, TaskItem>>({});
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [applyTo, setApplyTo] = useState<"single" | "future" | "all">("single");
@@ -269,6 +328,33 @@ export default function TaskEditorPage() {
     }
   }
 
+  async function loadRecurringOverrides(date: string) {
+    if (!date) {
+      setRecurringOverrides({});
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        recurring: "true",
+        includeOccurrences: "true",
+        start: date,
+        end: date,
+      });
+      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const json = await res.json();
+      const overrides = (json.tasks || []).reduce((acc: Record<string, TaskItem>, task: TaskItem) => {
+        if (!task.recurring) return acc;
+        const normalized = normalizeTask(task);
+        const seriesId = normalized.parent_task_id || normalized.id;
+        if (seriesId) acc[seriesId] = normalized;
+        return acc;
+      }, {});
+      setRecurringOverrides(overrides);
+    } catch (err) {
+      console.error("Failed to load recurring overrides", err);
+    }
+  }
+
   useEffect(() => {
     if (!authorized) return;
     loadTaskTypes();
@@ -281,6 +367,12 @@ export default function TaskEditorPage() {
     const timeout = setTimeout(() => loadTasks(), 200);
     return () => clearTimeout(timeout);
   }, [filters, authorized]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    const timeout = setTimeout(() => loadRecurringOverrides(recurringEditDate), 200);
+    return () => clearTimeout(timeout);
+  }, [authorized, recurringEditDate]);
 
   function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
@@ -388,10 +480,14 @@ export default function TaskEditorPage() {
       extra_notes: draft.extra_notes || [],
       capabilityIds: draft.capability_ids || [],
     };
+    if (isEditingRecurringSeries) {
+      delete payload.origin_date;
+      delete payload.occurrence_date;
+    }
 
     try {
       if (editing?.id) {
-        await fetch("/api/tasks", {
+        const res = await fetch("/api/tasks", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -402,18 +498,27 @@ export default function TaskEditorPage() {
             ...payload,
           }),
         });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error || "Unable to update task.");
+        }
         setMessage("Task updated.");
       } else {
-        await fetch("/api/tasks", {
+        const res = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error || "Unable to create task.");
+        }
         setMessage("Task created.");
       }
       setEditorOpen(false);
       setShowValidation(false);
       await loadTasks();
+      await loadRecurringOverrides(recurringEditDate);
     } catch (err) {
       console.error("Failed to save task", err);
       setMessage("Unable to save task.");
@@ -477,7 +582,7 @@ export default function TaskEditorPage() {
           }
         }
       }
-      await fetch("/api/tasks", {
+      const res = await fetch("/api/tasks", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -486,6 +591,10 @@ export default function TaskEditorPage() {
           occurrenceDate: deletePrompt.occurrenceDate,
         }),
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Unable to delete task.");
+      }
       setMessage("Task deleted.");
       setDeletePrompt({ task: null, mode: "single", occurrenceDate: null });
       await loadTasks();
@@ -497,14 +606,58 @@ export default function TaskEditorPage() {
     }
   }
 
+  const priorityRank = (priority?: string) => {
+    if (!priority) return 3;
+    if (priority === "High") return 0;
+    if (priority === "Medium") return 1;
+    if (priority === "Low") return 2;
+    return 3;
+  };
+
+  const statusRank = (status?: string) => {
+    if (!status) return 3;
+    if (status === "Not Started") return 0;
+    if (status === "In Progress") return 1;
+    if (status === "Completed") return 2;
+    return 3;
+  };
+
+  const sortTasks = useMemo(() => {
+    return (a: TaskItem, b: TaskItem) => {
+      if (taskSortMode === "priority") {
+        const diff = priorityRank(a.priority) - priorityRank(b.priority);
+        if (diff !== 0) return diff;
+      }
+      if (taskSortMode === "status") {
+        const diff = statusRank(a.status) - statusRank(b.status);
+        if (diff !== 0) return diff;
+      }
+      return a.name.localeCompare(b.name);
+    };
+  }, [taskSortMode]);
+
+  const taskCardClasses = (task: TaskItem) => {
+    if (taskColorMode === "priority") {
+      return PRIORITY_COLORS[task.priority] || "border-l-[#d0c9a4] bg-white/90";
+    }
+    if (taskColorMode === "type") {
+      const color = task.task_type?.color || "default";
+      return TYPE_COLORS[color] || TYPE_COLORS.default;
+    }
+    return STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90";
+  };
+
   const filteredTasks = useMemo(() => tasks, [tasks]);
   const recurringTasks = useMemo(
-    () => filteredTasks.filter((task) => task.recurring && !task.parent_task_id),
-    [filteredTasks]
+    () =>
+      filteredTasks
+        .filter((task) => task.recurring && !task.parent_task_id)
+        .sort(sortTasks),
+    [filteredTasks, sortTasks]
   );
   const oneOffTasks = useMemo(
-    () => filteredTasks.filter((task) => !task.recurring),
-    [filteredTasks]
+    () => filteredTasks.filter((task) => !task.recurring).sort(sortTasks),
+    [filteredTasks, sortTasks]
   );
   const editingDateLabel =
     draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
@@ -553,6 +706,15 @@ export default function TaskEditorPage() {
               placeholder="Search tasks"
             />
             <select
+              value={taskSortMode}
+              onChange={(e) => setTaskSortMode(e.target.value as typeof taskSortMode)}
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
+            >
+              <option value="priority">Sort by priority</option>
+              <option value="status">Sort by status</option>
+              <option value="name">Sort by name</option>
+            </select>
+            <select
               value={filters.status}
               onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
               className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
@@ -587,6 +749,15 @@ export default function TaskEditorPage() {
                   {priority}
                 </option>
               ))}
+            </select>
+            <select
+              value={taskColorMode}
+              onChange={(e) => setTaskColorMode(e.target.value as typeof taskColorMode)}
+              className="w-full rounded-md border border-[#d0c9a4] px-3 py-1.5 text-xs"
+            >
+              <option value="status">Color by status</option>
+              <option value="priority">Color by priority</option>
+              <option value="type">Color by task type</option>
             </select>
             <select
               value={filters.recurring}
@@ -649,30 +820,32 @@ export default function TaskEditorPage() {
                     </div>
                   </div>
                   <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                    {recurringTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
-                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                        }`}
-                      >
+                    {recurringTasks.map((task) => {
+                      const displayTask = recurringOverrides[task.id] || task;
+                      return (
+                        <div
+                          key={task.id}
+                          className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
+                            displayTask
+                          )}`}
+                        >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
                             <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {task.name}
+                              {displayTask.name}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
-                              {task.description || "No description provided."}
+                              {renderTextWithAnimalLinks(displayTask.description)}
                             </p>
                           </div>
                           <div className="flex flex-row items-center gap-1.5 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
                               <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                                {task.status}
+                                {displayTask.status}
                               </span>
                               <div className="text-[8px] leading-tight text-[#4b5133]">
-                                <div>{task.priority || "Priority unset"}</div>
-                                <div>{task.task_type?.name || "Unassigned"}</div>
+                                <div>{displayTask.priority || "Priority unset"}</div>
+                                <div>{displayTask.task_type?.name || "Unassigned"}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
@@ -700,7 +873,8 @@ export default function TaskEditorPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {!recurringTasks.length && (
                     <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
@@ -720,9 +894,9 @@ export default function TaskEditorPage() {
                     {oneOffTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${
-                          STATUS_COLORS[task.status] || "border-l-[#d0c9a4] bg-white/90"
-                        }`}
+                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
+                          task
+                        )}`}
                       >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
@@ -730,7 +904,7 @@ export default function TaskEditorPage() {
                               {task.name}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
-                              {task.description || "No description provided."}
+                              {renderTextWithAnimalLinks(task.description)}
                             </p>
                           </div>
                           <div className="flex flex-row items-center gap-1.5 md:flex-col md:items-end">
@@ -1048,8 +1222,14 @@ export default function TaskEditorPage() {
                         onChange={(e) =>
                           setDraft((prev) => ({ ...prev, origin_date: e.target.value }))
                         }
-                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                        disabled={Boolean(editing?.recurring || editing?.parent_task_id)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm disabled:bg-[#f6f1dd] disabled:text-[#7a7f54]"
                       />
+                      {editing?.recurring && (
+                        <p className="text-[10px] text-[#6f754f]">
+                          Series start is locked for recurring edits.
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <label className="text-[11px] uppercase text-[#6b6f4c]">
@@ -1060,19 +1240,25 @@ export default function TaskEditorPage() {
                         value={draft.occurrence_date || ""}
                         onChange={(e) => {
                           const nextDate = e.target.value;
-                          setDraft((prev) => ({ ...prev, occurrence_date: nextDate }));
-                          if (editing?.recurring && nextDate) {
+                          if (!editing?.recurring && !editing?.parent_task_id) {
+                            setDraft((prev) => ({ ...prev, occurrence_date: nextDate }));
+                          }
+                          if ((editing?.recurring || editing?.parent_task_id) && nextDate) {
                             const seriesId = editing.parent_task_id || editing.id;
                             if (seriesId) {
                               void loadOccurrence(seriesId, nextDate);
                             }
                           }
                         }}
-                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${
+                          editing?.recurring || editing?.parent_task_id
+                            ? "border-[#d0c9a4] bg-[#f6f1dd] text-[#7a7f54]"
+                            : "border-[#d0c9a4]"
+                        }`}
                       />
                       {editing?.recurring && (
                         <p className="text-[11px] text-[#6f754f]">
-                          Switching dates loads the saved occurrence so each day stays unique.
+                          Pick a date to load that occurrence (the date itself is locked).
                         </p>
                       )}
                     </div>

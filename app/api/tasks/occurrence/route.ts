@@ -73,6 +73,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Series not found" }, { status: 404 });
     }
 
+    const seriesOccurrence = series.occurrence_date || series.origin_date;
+    if (seriesOccurrence && seriesOccurrence === occurrenceDate) {
+      return NextResponse.json({
+        task: {
+          ...series,
+          capabilities: (series.task_capabilities || [])
+            .map((entry) => entry.capability)
+            .filter(Boolean),
+        },
+      });
+    }
+
     const [created] = await supabaseRequest<TaskRow[]>("tasks", {
       method: "POST",
       prefer: "return=representation",

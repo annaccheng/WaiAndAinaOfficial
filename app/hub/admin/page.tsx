@@ -152,6 +152,20 @@ export default function AdminPage() {
                 Open user management
               </Link>
             </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Analytics</p>
+              <h2 className="text-lg font-semibold text-[#314123]">Admin analytics</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Review daily and weekly workload trends across the farm.
+              </p>
+              <Link
+                href="/hub/admin/analytics"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
+              >
+                Open analytics
+              </Link>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">

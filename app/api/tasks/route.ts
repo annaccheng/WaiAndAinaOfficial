@@ -14,6 +14,13 @@ function normalizeCapabilityIds(input: unknown): string[] {
   return input.map((id) => String(id)).filter(Boolean);
 }
 
+function normalizePersonCount(input: unknown) {
+  if (input === null || input === undefined || input === "") return 1;
+  const value = Number(input);
+  if (Number.isNaN(value)) return 1;
+  return Math.max(1, Math.round(value));
+}
+
 async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
   if (!taskIds.length) return;
 
@@ -132,6 +139,7 @@ export async function POST(req: Request) {
       origin_date: originDate,
       occurrence_date: originDate,
       recurring: isRecurring,
+      person_count: normalizePersonCount(payloadBody.person_count),
     });
 
     const createOccurrences = async (parentId: string, payloadBody: Record<string, unknown>) => {
@@ -164,6 +172,7 @@ export async function POST(req: Request) {
           occurrence_date: nextDate.toISOString().slice(0, 10),
           parent_task_id: parentId,
           recurring: true,
+          person_count: normalizePersonCount(payloadBody.person_count),
         });
       }
 
@@ -247,6 +256,7 @@ export async function POST(req: Request) {
               occurrence_date: nextDate.toISOString().slice(0, 10),
               parent_task_id: parentId,
               recurring: true,
+              person_count: normalizePersonCount(fallbackBody.person_count),
             });
           }
 
@@ -267,6 +277,7 @@ export async function POST(req: Request) {
             origin_date: originDate,
             occurrence_date: originDate,
             recurring: isRecurring,
+            person_count: normalizePersonCount(fallbackBody.person_count),
           },
         });
         if (parent?.id) {
@@ -312,16 +323,21 @@ export async function PATCH(req: Request) {
   delete updates.occurrenceDate;
   delete updates.deleteOccurrences;
   delete (updates as Record<string, unknown>).capabilityIds;
+  const hasDateUpdates =
+    Object.prototype.hasOwnProperty.call(updates, "occurrence_date") ||
+    Object.prototype.hasOwnProperty.call(updates, "origin_date");
+  if (Object.prototype.hasOwnProperty.call(updates, "person_count")) {
+    updates.person_count = normalizePersonCount(updates.person_count);
+  }
   const normalizedCapabilities = Array.isArray(capabilityIds)
     ? normalizeCapabilityIds(capabilityIds)
     : null;
 
-  try {
-    if (applyTo === "single") {
+  const applyUpdates = async (query: Record<string, string>) => {
     try {
       await supabaseRequest("tasks", {
         method: "PATCH",
-        query: { id: `eq.${id}` },
+        query,
         body: updates,
       });
     } catch (err: any) {
@@ -331,13 +347,27 @@ export async function PATCH(req: Request) {
         delete (fallbackUpdates as Record<string, unknown>).comments;
         await supabaseRequest("tasks", {
           method: "PATCH",
-          query: { id: `eq.${id}` },
+          query,
           body: fallbackUpdates,
         });
       } else {
         throw err;
       }
     }
+  };
+
+  try {
+    if (applyTo === "single") {
+      if (hasDateUpdates) {
+        const [current] = await supabaseRequest<any[]>("tasks", {
+          query: { select: "recurring,parent_task_id", id: `eq.${id}`, limit: 1 },
+        });
+        if (current?.recurring || current?.parent_task_id) {
+          delete (updates as Record<string, unknown>).occurrence_date;
+          delete (updates as Record<string, unknown>).origin_date;
+        }
+      }
+      await applyUpdates({ id: `eq.${id}` });
 
       if (updates.recurring === false && deleteOccurrences) {
         await supabaseRequest("tasks", {
@@ -370,38 +400,15 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const filters: Record<string, string> = {};
-    if (applyTo === "all") {
-      filters.or = `id.eq.${seriesRoot},parent_task_id.eq.${seriesRoot}`;
-    } else if (applyTo === "future") {
-      filters.or = `id.eq.${seriesRoot},parent_task_id.eq.${seriesRoot}`;
-      if (compareDate) {
-        filters.occurrence_date = `gte.${compareDate}`;
-      }
-    } else {
-      filters.id = `eq.${id}`;
+    const occurrenceFilters: Record<string, string> = {
+      parent_task_id: `eq.${seriesRoot}`,
+    };
+    if (applyTo === "future" && compareDate) {
+      occurrenceFilters.occurrence_date = `gte.${compareDate}`;
     }
 
-    try {
-      await supabaseRequest("tasks", {
-        method: "PATCH",
-        query: filters,
-        body: updates,
-      });
-    } catch (err: any) {
-      const message = String(err?.message || "");
-      if (message.includes("comments")) {
-        const fallbackUpdates = { ...updates };
-        delete (fallbackUpdates as Record<string, unknown>).comments;
-        await supabaseRequest("tasks", {
-          method: "PATCH",
-          query: filters,
-          body: fallbackUpdates,
-        });
-      } else {
-        throw err;
-      }
-    }
+    await applyUpdates({ id: `eq.${seriesRoot}` });
+    await applyUpdates(occurrenceFilters);
 
     if (updates.recurring === false && deleteOccurrences) {
       const deleteFilters: Record<string, string> = {};
@@ -421,10 +428,21 @@ export async function PATCH(req: Request) {
     }
 
     if (normalizedCapabilities) {
-      const updatedTasks = await supabaseRequest<any[]>("tasks", {
-        query: { select: "id", ...filters },
+      const occurrenceQuery: Record<string, string> = {
+        select: "id",
+        parent_task_id: `eq.${seriesRoot}`,
+      };
+      if (applyTo === "future" && compareDate) {
+        occurrenceQuery.occurrence_date = `gte.${compareDate}`;
+      }
+      const occurrences = await supabaseRequest<any[]>("tasks", {
+        query: occurrenceQuery,
       });
-      const taskIds = (updatedTasks || []).map((task) => task.id).filter(Boolean);
+      const taskIds = Array.from(
+        new Set(
+          [seriesRoot, ...(occurrences || []).map((task) => task.id)].filter(Boolean)
+        )
+      );
       await syncTaskCapabilities(taskIds, normalizedCapabilities);
     }
 
@@ -443,7 +461,11 @@ export async function DELETE(req: Request) {
     );
   }
   const body = await req.json().catch(() => null);
-  const { id, applyTo = "single", occurrenceDate } = body || {};
+  const url = new URL(req.url);
+  const id = body?.id || url.searchParams.get("id");
+  const applyTo = body?.applyTo || url.searchParams.get("applyTo") || "single";
+  const occurrenceDate =
+    body?.occurrenceDate || url.searchParams.get("occurrenceDate");
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -459,7 +481,11 @@ export async function DELETE(req: Request) {
     }
 
     const seriesData = await supabaseRequest<any[]>("tasks", {
-      query: { select: "id,parent_task_id,occurrence_date", id: `eq.${id}`, limit: 1 },
+      query: {
+        select: "id,parent_task_id,occurrence_date,origin_date",
+        id: `eq.${id}`,
+        limit: 1,
+      },
     });
     const target = seriesData?.[0];
     if (!target) {
@@ -467,22 +493,40 @@ export async function DELETE(req: Request) {
     }
 
     const seriesRoot = target.parent_task_id || target.id;
-    const compareDate = occurrenceDate || target.occurrence_date;
+    const compareDate =
+      occurrenceDate || target.occurrence_date || target.origin_date;
 
-    const filters: Record<string, string> = {};
-    if (applyTo === "all") {
-      filters.or = `id.eq.${seriesRoot},parent_task_id.eq.${seriesRoot}`;
-    } else {
-      filters.parent_task_id = `eq.${seriesRoot}`;
-      if (compareDate) {
-        filters.occurrence_date = `gte.${compareDate}`;
-      }
+    if (applyTo === "future" && !compareDate) {
+      return NextResponse.json(
+        { error: "Missing occurrence date for future deletes." },
+        { status: 400 }
+      );
+    }
+
+    const occurrenceFilters: Record<string, string> = {
+      parent_task_id: `eq.${seriesRoot}`,
+    };
+    if (applyTo === "future" && compareDate) {
+      occurrenceFilters.occurrence_date = `gte.${compareDate}`;
     }
 
     await supabaseRequest("tasks", {
       method: "DELETE",
-      query: filters,
+      query: occurrenceFilters,
     });
+
+    if (
+      applyTo === "all" ||
+      (applyTo === "future" &&
+        compareDate &&
+        target.occurrence_date &&
+        compareDate <= target.occurrence_date)
+    ) {
+      await supabaseRequest("tasks", {
+        method: "DELETE",
+        query: { id: `eq.${seriesRoot}` },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
