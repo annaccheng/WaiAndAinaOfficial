@@ -156,6 +156,7 @@ export default function TaskEditorPage() {
   const [taskSortMode, setTaskSortMode] = useState<
     "priority" | "status" | "name"
   >("priority");
+  const [recurringOverrides, setRecurringOverrides] = useState<Record<string, TaskItem>>({});
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [applyTo, setApplyTo] = useState<"single" | "future" | "all">("single");
@@ -327,6 +328,33 @@ export default function TaskEditorPage() {
     }
   }
 
+  async function loadRecurringOverrides(date: string) {
+    if (!date) {
+      setRecurringOverrides({});
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        recurring: "true",
+        includeOccurrences: "true",
+        start: date,
+        end: date,
+      });
+      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const json = await res.json();
+      const overrides = (json.tasks || []).reduce((acc: Record<string, TaskItem>, task: TaskItem) => {
+        if (!task.recurring) return acc;
+        const normalized = normalizeTask(task);
+        const seriesId = normalized.parent_task_id || normalized.id;
+        if (seriesId) acc[seriesId] = normalized;
+        return acc;
+      }, {});
+      setRecurringOverrides(overrides);
+    } catch (err) {
+      console.error("Failed to load recurring overrides", err);
+    }
+  }
+
   useEffect(() => {
     if (!authorized) return;
     loadTaskTypes();
@@ -339,6 +367,12 @@ export default function TaskEditorPage() {
     const timeout = setTimeout(() => loadTasks(), 200);
     return () => clearTimeout(timeout);
   }, [filters, authorized]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    const timeout = setTimeout(() => loadRecurringOverrides(recurringEditDate), 200);
+    return () => clearTimeout(timeout);
+  }, [authorized, recurringEditDate]);
 
   function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
@@ -484,6 +518,7 @@ export default function TaskEditorPage() {
       setEditorOpen(false);
       setShowValidation(false);
       await loadTasks();
+      await loadRecurringOverrides(recurringEditDate);
     } catch (err) {
       console.error("Failed to save task", err);
       setMessage("Unable to save task.");
@@ -785,30 +820,32 @@ export default function TaskEditorPage() {
                     </div>
                   </div>
                   <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                    {recurringTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
-                          task
-                        )}`}
-                      >
+                    {recurringTasks.map((task) => {
+                      const displayTask = recurringOverrides[task.id] || task;
+                      return (
+                        <div
+                          key={task.id}
+                          className={`rounded-xl border border-[#e2d7b5] border-l-4 px-2 py-1 shadow-sm ${taskCardClasses(
+                            displayTask
+                          )}`}
+                        >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
                             <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {task.name}
+                              {displayTask.name}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
-                              {renderTextWithAnimalLinks(task.description)}
+                              {renderTextWithAnimalLinks(displayTask.description)}
                             </p>
                           </div>
                           <div className="flex flex-row items-center gap-1.5 md:flex-col md:items-end">
                             <div className="flex flex-col items-end gap-1 text-right">
                               <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
-                                {task.status}
+                                {displayTask.status}
                               </span>
                               <div className="text-[8px] leading-tight text-[#4b5133]">
-                                <div>{task.priority || "Priority unset"}</div>
-                                <div>{task.task_type?.name || "Unassigned"}</div>
+                                <div>{displayTask.priority || "Priority unset"}</div>
+                                <div>{displayTask.task_type?.name || "Unassigned"}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
@@ -836,7 +873,8 @@ export default function TaskEditorPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {!recurringTasks.length && (
                     <p className="text-sm text-[#7a7f54]">No recurring tasks found.</p>
