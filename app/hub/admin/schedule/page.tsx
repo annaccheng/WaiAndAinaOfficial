@@ -2133,25 +2133,11 @@ export default function AdminScheduleEditorPage() {
                                             loadTaskDetail(task.id, task.name);
                                           }
                                         }}
-                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[11px] ${typeColorClasses(
+                                        className={`flex w-full flex-col gap-0.5 rounded-lg border px-2.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[11px] ${typeColorClasses(
                                           meta?.typeColor
                                         )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                       >
-                                        <span className="line-clamp-2 font-semibold text-[#2f3b21]">
-                                          {task.name}
-                                        </span>
-                                        <span className="flex items-center gap-1 text-[9px] text-[#4f4f31]">
-                                          <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
-                                            {assignedCount}/{neededCount}
-                                          </span>
-                                          {hasEnoughPeople && (
-                                            <span
-                                              className="text-sm text-emerald-600"
-                                              title="Enough people assigned"
-                                            >
-                                              ✅
-                                            </span>
-                                          )}
+                                        <span className="flex items-center gap-2">
                                           <button
                                             type="button"
                                             draggable={false}
@@ -2166,6 +2152,22 @@ export default function AdminScheduleEditorPage() {
                                           >
                                             ✕
                                           </button>
+                                          <span className="line-clamp-1 text-[10px] font-semibold text-[#2f3b21] sm:text-[11px]">
+                                            {task.name}
+                                          </span>
+                                        </span>
+                                        <span className="flex items-center gap-2 text-[9px] text-[#4f4f31]">
+                                          <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
+                                            {assignedCount}/{neededCount}
+                                          </span>
+                                          {hasEnoughPeople && (
+                                            <span
+                                              className="text-[11px] text-emerald-600"
+                                              title="Enough people assigned"
+                                            >
+                                              ✅
+                                            </span>
+                                          )}
                                         </span>
                                       </div>
                                       {dropLine(idx + 1)}
