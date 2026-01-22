@@ -2033,7 +2033,7 @@ export default function AdminScheduleEditorPage() {
                           }}
                         >
                           <div
-                            className="flex h-full w-full flex-col gap-1"
+                            className="flex h-full w-full flex-col gap-0.5"
                             onDragOver={(e) => {
                               if (isBlocked) return;
                               handleDragOverEvent(e, person, slot.id, content.tasks.length);
@@ -2133,7 +2133,7 @@ export default function AdminScheduleEditorPage() {
                                             loadTaskDetail(task.id, task.name);
                                           }
                                         }}
-                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1 text-left text-[11px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[12px] ${typeColorClasses(
+                                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[11px] ${typeColorClasses(
                                           meta?.typeColor
                                         )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                                       >
