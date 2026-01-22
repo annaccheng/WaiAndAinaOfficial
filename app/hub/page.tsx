@@ -1060,14 +1060,17 @@ export default function HubSchedulePage() {
     const names = Array.from(uniqueTasks);
     if (names.length === 0) return;
     let cancelled = false;
+    const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
 
     (async () => {
       const results = await Promise.all(
         names.map(async (name) => {
           try {
-            const res = await fetch(
-              `/api/task?name=${encodeURIComponent(name)}`
-            );
+            const search = new URLSearchParams({ name });
+            if (occurrenceParam) {
+              search.set("occurrenceDate", occurrenceParam);
+            }
+            const res = await fetch(`/api/task?${search.toString()}`);
             if (!res.ok) return null;
             const json = await res.json();
             return {
@@ -1112,7 +1115,7 @@ export default function HubSchedulePage() {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, scheduleDateLabel]);
 
   // Split slots
   const mealSlots = useMemo(
