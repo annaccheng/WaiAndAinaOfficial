@@ -638,6 +638,63 @@ export default function AdminScheduleEditorPage() {
     };
   }, [oneOffTasks, recurringTasks, scheduleData]);
 
+  const dayOverview = useMemo(() => {
+    if (!scheduleData) return null;
+
+    const taskLookup = new Map<string, TaskCatalogItem>();
+    [...recurringTasks, ...oneOffTasks].forEach((task) => {
+      const name = task.name.trim().toLowerCase();
+      if (name) taskLookup.set(name, task);
+    });
+
+    const taskMap = new Map<
+      string,
+      { name: string; status: string; notes: Set<string>; assignments: number }
+    >();
+    const standaloneNotes = new Set<string>();
+
+    scheduleData.cells.forEach((row) => {
+      row.forEach((cell) => {
+        const note = cell.note?.trim();
+        if (!cell.tasks.length && note) {
+          standaloneNotes.add(note);
+        }
+        cell.tasks.forEach((task) => {
+          const name = task.name.trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          if (!taskMap.has(key)) {
+            const meta = taskLookup.get(key);
+            taskMap.set(key, {
+              name,
+              status: meta?.status || "Not Started",
+              notes: new Set<string>(),
+              assignments: 0,
+            });
+          }
+          const entry = taskMap.get(key);
+          if (!entry) return;
+          entry.assignments += 1;
+          if (note) entry.notes.add(note);
+        });
+      });
+    });
+
+    const tasks = Array.from(taskMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    const completed = tasks.filter(
+      (task) => task.status.toLowerCase() === "completed"
+    ).length;
+    return {
+      tasks,
+      total: tasks.length,
+      completed,
+      open: tasks.length - completed,
+      standaloneNotes: Array.from(standaloneNotes),
+    };
+  }, [oneOffTasks, recurringTasks, scheduleData]);
+
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
       if (!person || !slotId || !data) return null;
