@@ -2671,42 +2671,62 @@ export default function HubSchedulePage() {
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
                                     >
                                       {isAdmin ? (
-                                        columnHeaderType === "text" ? (
-                                          <input
-                                            value={header}
-                                            onChange={(event) =>
-                                              updateCustomTableState(table.id, (prev) => {
-                                                const next = [...prev.columnHeaders];
-                                                next[colIdx] = event.target.value;
-                                                return { ...prev, columnHeaders: next };
-                                              })
+                                        <div className="flex items-center gap-2">
+                                          {columnHeaderType === "text" ? (
+                                            <input
+                                              value={header}
+                                              onChange={(event) =>
+                                                updateCustomTableState(table.id, (prev) => {
+                                                  const next = [...prev.columnHeaders];
+                                                  next[colIdx] = event.target.value;
+                                                  return { ...prev, columnHeaders: next };
+                                                })
+                                              }
+                                              className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                              placeholder={`Column ${colIdx + 1}`}
+                                            />
+                                          ) : (
+                                            <select
+                                              value={header}
+                                              onChange={(event) =>
+                                                updateCustomTableState(table.id, (prev) => {
+                                                  const next = [...prev.columnHeaders];
+                                                  next[colIdx] = event.target.value;
+                                                  return { ...prev, columnHeaders: next };
+                                                })
+                                              }
+                                              className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                            >
+                                              <option value="">—</option>
+                                              {(columnHeaderType === "user"
+                                                ? userOptions
+                                                : taskNameOptions
+                                              ).map((name) => (
+                                                <option key={`${table.id}-col-${name}`} value={name}>
+                                                  {name}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              updateCustomTableState(table.id, (prev) => ({
+                                                ...prev,
+                                                columnHeaders: prev.columnHeaders.filter(
+                                                  (_, index) => index !== colIdx
+                                                ),
+                                                cells: prev.cells.map((row) =>
+                                                  row.filter((_, index) => index !== colIdx)
+                                                ),
+                                              }))
                                             }
-                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
-                                            placeholder={`Column ${colIdx + 1}`}
-                                          />
-                                        ) : (
-                                          <select
-                                            value={header}
-                                            onChange={(event) =>
-                                              updateCustomTableState(table.id, (prev) => {
-                                                const next = [...prev.columnHeaders];
-                                                next[colIdx] = event.target.value;
-                                                return { ...prev, columnHeaders: next };
-                                              })
-                                            }
-                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                            className="rounded-full border border-red-200 bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-red-700"
+                                            aria-label={`Delete column ${colIdx + 1}`}
                                           >
-                                            <option value="">—</option>
-                                            {(columnHeaderType === "user"
-                                              ? userOptions
-                                              : taskNameOptions
-                                            ).map((name) => (
-                                              <option key={`${table.id}-col-${name}`} value={name}>
-                                                {name}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        )
+                                            ✕
+                                          </button>
+                                        </div>
                                       ) : columnHeaderType === "text" ? (
                                         <span className="font-semibold text-[#4b5133]">
                                           {header || `Column ${colIdx + 1}`}
@@ -2770,42 +2790,60 @@ export default function HubSchedulePage() {
                                   <tr key={`${table.id}-row-${rowIdx}`}>
                                     <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
                                       {isAdmin ? (
-                                        rowHeaderType === "text" ? (
-                                          <input
-                                            value={rowHeader}
-                                            onChange={(event) =>
-                                              updateCustomTableState(table.id, (prev) => {
-                                                const next = [...prev.rowHeaders];
-                                                next[rowIdx] = event.target.value;
-                                                return { ...prev, rowHeaders: next };
-                                              })
+                                        <div className="flex items-center gap-2">
+                                          {rowHeaderType === "text" ? (
+                                            <input
+                                              value={rowHeader}
+                                              onChange={(event) =>
+                                                updateCustomTableState(table.id, (prev) => {
+                                                  const next = [...prev.rowHeaders];
+                                                  next[rowIdx] = event.target.value;
+                                                  return { ...prev, rowHeaders: next };
+                                                })
+                                              }
+                                              className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
+                                              placeholder={`Row ${rowIdx + 1}`}
+                                            />
+                                          ) : (
+                                            <select
+                                              value={rowHeader}
+                                              onChange={(event) =>
+                                                updateCustomTableState(table.id, (prev) => {
+                                                  const next = [...prev.rowHeaders];
+                                                  next[rowIdx] = event.target.value;
+                                                  return { ...prev, rowHeaders: next };
+                                                })
+                                              }
+                                              className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                            >
+                                              <option value="">—</option>
+                                              {(rowHeaderType === "user"
+                                                ? userOptions
+                                                : taskNameOptions
+                                              ).map((name) => (
+                                                <option key={`${table.id}-row-${name}`} value={name}>
+                                                  {name}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              updateCustomTableState(table.id, (prev) => ({
+                                                ...prev,
+                                                rowHeaders: prev.rowHeaders.filter(
+                                                  (_, index) => index !== rowIdx
+                                                ),
+                                                cells: prev.cells.filter((_, index) => index !== rowIdx),
+                                              }))
                                             }
-                                            className="w-full bg-transparent text-[11px] font-semibold text-[#4b5133]"
-                                            placeholder={`Row ${rowIdx + 1}`}
-                                          />
-                                        ) : (
-                                          <select
-                                            value={rowHeader}
-                                            onChange={(event) =>
-                                              updateCustomTableState(table.id, (prev) => {
-                                                const next = [...prev.rowHeaders];
-                                                next[rowIdx] = event.target.value;
-                                                return { ...prev, rowHeaders: next };
-                                              })
-                                            }
-                                            className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                            className="rounded-full border border-red-200 bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-red-700"
+                                            aria-label={`Delete row ${rowIdx + 1}`}
                                           >
-                                            <option value="">—</option>
-                                            {(rowHeaderType === "user"
-                                              ? userOptions
-                                              : taskNameOptions
-                                            ).map((name) => (
-                                              <option key={`${table.id}-row-${name}`} value={name}>
-                                                {name}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        )
+                                            ✕
+                                          </button>
+                                        </div>
                                       ) : rowHeaderType === "text" ? (
                                         <span className="font-semibold text-[#4b5133]">
                                           {rowHeader || `Row ${rowIdx + 1}`}

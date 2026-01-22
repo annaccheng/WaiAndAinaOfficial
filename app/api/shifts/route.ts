@@ -115,3 +115,31 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Unable to update shifts" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => null);
+  const { id } = body || {};
+  if (!id) {
+    return NextResponse.json({ error: "Missing shift id" }, { status: 400 });
+  }
+
+  try {
+    await supabaseRequest("shifts", {
+      method: "DELETE",
+      query: { id: `eq.${id}` },
+    });
+
+    const data = await supabaseRequest<any[]>("shifts", {
+      query: { select: "id,label,time_range,order_index", order: "order_index.asc" },
+    });
+    const shifts = (data || []).map((shift) => ({
+      id: shift.id,
+      label: shift.label,
+      timeRange: shift.time_range || "",
+    }));
+    return NextResponse.json({ shifts });
+  } catch (err) {
+    console.error("Failed to delete shift:", err);
+    return NextResponse.json({ error: "Unable to delete shift" }, { status: 500 });
+  }
+}
