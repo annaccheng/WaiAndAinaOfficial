@@ -2211,10 +2211,7 @@ export default function AdminScheduleEditorPage() {
       ✕
     </button>
 
-   <span
-  className="min-w-0 whitespace-normal break-normal font-semibold text-[#2f3b21] leading-tight"
-  style={{ wordBreak: "normal", overflowWrap: "normal", hyphens: "auto" }}
->
+   <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
   {task.name}
 </span>
 
@@ -2551,9 +2548,10 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
-                              task.typeColor
-                            )}`}
+                            className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
+                              meta?.typeColor
+                            )} ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
+
                           >
                             <div>
                               <div className="font-semibold">{task.name}</div>
@@ -2566,6 +2564,68 @@ export default function AdminScheduleEditorPage() {
                             {taskHandled.hasEnoughPeople && (
                               <span className="text-2xl text-emerald-600">✅</span>
                             )}
+
+                            {(() => {
+  const status = meta?.status || "Not Started";
+  const priority = meta?.priority || "";
+  const type = meta?.type || "";
+  const completed = status.toLowerCase() === "completed";
+
+  return (
+    <div
+      className="
+        pointer-events-none absolute left-1 top-full z-50 mt-1 w-[240px]
+        rounded-lg border border-[#d0c9a4] bg-white px-2 py-2 shadow-xl
+        opacity-0 translate-y-1 transition
+        group-hover:opacity-100 group-hover:translate-y-0
+        group-focus-within:opacity-100 group-focus-within:translate-y-0
+      "
+    >
+      <div className="text-[11px] font-semibold text-[#314123]">
+        {task.name}
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <span
+          className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase ${statusBadgeClasses(
+            status
+          )}`}
+        >
+          {status}
+        </span>
+
+        {priority && (
+          <span className="rounded-full border border-[#e2d7b5] bg-[#faf7eb] px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+            {priority}
+          </span>
+        )}
+
+        {type && (
+          <span className="rounded-full border border-[#e2d7b5] bg-[#faf7eb] px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+            {type}
+          </span>
+        )}
+
+        <span className="rounded-full border border-[#e2d7b5] bg-[#faf7eb] px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+          {assignedCount}/{neededCount || 0} assigned
+        </span>
+
+        {completed && (
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-[2px] text-[10px] font-semibold text-emerald-800">
+            Completed
+          </span>
+        )}
+      </div>
+
+      {meta?.description && (
+        <p className="mt-2 line-clamp-3 text-[10px] text-[#5f5a3b]">
+          {meta.description}
+        </p>
+      )}
+    </div>
+  );
+})()}
+
                           </button>
                         );
                       })}
