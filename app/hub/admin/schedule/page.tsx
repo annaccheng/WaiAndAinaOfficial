@@ -1744,7 +1744,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-screen flex-col bg-[#fdfbf4]">
+    <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
@@ -1986,7 +1986,7 @@ export default function AdminScheduleEditorPage() {
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
           <div
-            className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
+            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
               scheduleLoading ? "pointer-events-none opacity-80" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
           >
