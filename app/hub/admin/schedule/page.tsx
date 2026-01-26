@@ -1995,17 +1995,17 @@ export default function AdminScheduleEditorPage() {
                 Loading schedule…
               </div>
             )}
-            <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
+            <table className="w-full table-fixed border-collapse text-[9px] sm:text-[10px]">
               <thead className="bg-[#e5e7c5]">
                 <tr>
-                  <th className="w-[90px] sm:w-[120px] border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
+                  <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
                     Person
                   </th>
                   {scheduleData?.slots.map((slot) => (
                     <th
-                      key={slot.id}
-                      className="w-[110px] sm:w-[130px] border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
-                    >
+  key={slot.id}
+  className="w-[92px] sm:w-[110px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+>
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <div>{slot.label}</div>
@@ -2063,11 +2063,12 @@ export default function AdminScheduleEditorPage() {
                       return (
                         <td
                           key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] min-h-[38px] p-1 align-top transition-colors duration-150 ${
-                            isSelected ? "bg-[#f0f4de]" : ""
-                          } ${saving ? "animate-pulse" : ""} ${
-                            cellExists ? "" : "opacity-60"
-                          } ${isBlocked ? "bg-[#2f3b21]/10" : ""}`}
+                          className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
+  isSelected ? "bg-[#f0f4de]" : ""
+} ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
+  isBlocked ? "bg-[#2f3b21]/10" : ""
+}`}
+
                           onClick={() => selectCell(person, slot)}
                           onDragOver={(e) => {
                             if (isBlocked) return;
@@ -2209,9 +2210,9 @@ export default function AdminScheduleEditorPage() {
                                           >
                                             ✕
                                           </button>
-                                          <span className="line-clamp-1 text-[10px] font-semibold text-[#2f3b21] sm:text-[11px]">
-                                            {task.name}
-                                          </span>
+                                          <span className="text-[9px] sm:text-[10px] font-semibold text-[#2f3b21] leading-snug break-words whitespace-normal">
+  {task.name}
+</span>
                                         </span>
                                         <span className="flex items-center gap-2 text-[9px] text-[#4f4f31]">
                                           <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
