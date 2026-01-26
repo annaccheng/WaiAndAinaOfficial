@@ -1945,16 +1945,16 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-      <div
+     <div
   className={`flex min-w-0 flex-1 flex-col gap-3 px-2 py-3 pb-24 lg:flex-row lg:pb-32 ${
-    canvasExpanded ? "lg:min-h-[calc(100vh-10rem)]" : ""
+    canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
   }`}
 >
         <div
-  className={`flex min-h-0 min-w-0 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md bg-white
-    ${canvasExpanded ? "lg:flex-[5]" : "lg:flex-[4]"}
-  `}
->
+          className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
+  canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
+}`}
+        >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -1986,7 +1986,7 @@ export default function AdminScheduleEditorPage() {
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
           <div
-            className={`relative mt-2 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
+            className={`relative mt-3 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
               scheduleLoading ? "pointer-events-none opacity-80" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
           >
@@ -2052,7 +2052,7 @@ export default function AdminScheduleEditorPage() {
                             e.stopPropagation();
                             handleDropEvent(e, person, slot, index);
                           }}
-                          className={`h-2 rounded-full transition-all duration-150 ${
+                          className={`h-1 rounded-full transition-all duration-150 ${
                             pendingInsert?.person === person && pendingInsert.slotId === slot.id && pendingInsert.index === index
                               ? "bg-[#c8d99a] shadow-[0_0_0_2px_rgba(200,217,154,0.6)]"
                               : "bg-transparent"
@@ -2191,43 +2191,42 @@ export default function AdminScheduleEditorPage() {
                                             loadTaskDetail(task.id, task.name);
                                           }
                                         }}
-                                        className={`flex w-full flex-col gap-0.5 rounded-lg border px-2.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[11px] ${typeColorClasses(
-                                          meta?.typeColor
-                                        )} ${isDraggingThis ? "scale-[1.02] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
-                                      >
-                                        <span className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            draggable={false}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              removeTaskFromCell({ person, slotId: slot.id }, task, idx);
-                                            }}
-                                            onMouseDown={(e) => {
-                                              e.stopPropagation();
-                                            }}
-                                            className="rounded-full border border-[#d1d4aa] bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#a05252] hover:bg-[#f7e3e3]"
-                                          >
-                                            ✕
-                                          </button>
-                                          <span className="text-[9px] sm:text-[10px] font-semibold text-[#2f3b21] leading-snug break-words whitespace-normal">
-  {task.name}
-</span>
-                                        </span>
-                                        <span className="flex items-center gap-2 text-[9px] text-[#4f4f31]">
-                                          <span className="rounded-full bg-white/80 px-1.5 py-[1px] font-semibold">
-                                            {assignedCount}/{neededCount}
-                                          </span>
-                                          {hasEnoughPeople && (
-                                            <span
-                                              className="text-[11px] text-emerald-600"
-                                              title="Enough people assigned"
-                                            >
-                                              ✅
-                                            </span>
-                                          )}
-                                        </span>
-                                      </div>
+                                        className={`flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
+  meta?.typeColor
+)} ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
+>
+  <div className="flex min-w-0 items-center gap-1">
+    <button
+      type="button"
+      draggable={false}
+      onClick={(e) => {
+        e.stopPropagation();
+        removeTaskFromCell({ person, slotId: slot.id }, task, idx);
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="shrink-0 rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252] hover:bg-[#f7e3e3]"
+      title="Remove"
+    >
+      ✕
+    </button>
+
+    <span className="min-w-0 whitespace-normal break-words font-semibold text-[#2f3b21]">
+      {task.name}
+    </span>
+  </div>
+
+  <div className="flex shrink-0 items-center gap-1">
+    <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
+      {assignedCount}/{neededCount}
+    </span>
+    {hasEnoughPeople && (
+      <span className="text-[11px] text-emerald-600" title="Enough people assigned">
+        ✅
+      </span>
+    )}
+  </div>
+</div>
+
                                       {dropLine(idx + 1)}
                                     </React.Fragment>
                                   );
@@ -2356,11 +2355,11 @@ export default function AdminScheduleEditorPage() {
           )}
         </div>
 
-       <div
-  className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-4 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
-    canvasExpanded ? "lg:w-[240px]" : "lg:w-[280px]"
-  }`}
->
+        <div
+          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
+            canvasExpanded ? "lg:w-[240px]" : "lg:w-[300px]"
+          }`}
+        >
           <div className="space-y-4 lg:flex lg:h-full lg:flex-col lg:overflow-y-auto lg:pr-1">
             <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
               <span>Task dock</span>
