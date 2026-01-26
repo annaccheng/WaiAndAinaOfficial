@@ -1995,7 +1995,7 @@ export default function AdminScheduleEditorPage() {
                 Loading schedule…
               </div>
             )}
-            <table className="w-full table-fixed border-collapse text-[9px] sm:text-[10px]">
+            <table className="w-full border-collapse text-[10px] sm:text-[11px]" style={{ minWidth: 980 }}>
               <thead className="bg-[#e5e7c5]">
                 <tr>
                   <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
@@ -2004,7 +2004,8 @@ export default function AdminScheduleEditorPage() {
                   {scheduleData?.slots.map((slot) => (
                     <th
   key={slot.id}
-  className="w-[92px] sm:w-[110px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+ className="min-w-[140px] sm:min-w-[170px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+
 >
                       <div className="flex items-center justify-between gap-2">
                         <div>
@@ -2210,9 +2211,13 @@ export default function AdminScheduleEditorPage() {
       ✕
     </button>
 
-    <span className="min-w-0 whitespace-normal break-words font-semibold text-[#2f3b21]">
-      {task.name}
-    </span>
+   <span
+  className="min-w-0 whitespace-normal break-normal font-semibold text-[#2f3b21] leading-tight"
+  style={{ wordBreak: "normal", overflowWrap: "normal", hyphens: "auto" }}
+>
+  {task.name}
+</span>
+
   </div>
 
   <div className="flex shrink-0 items-center gap-1">
