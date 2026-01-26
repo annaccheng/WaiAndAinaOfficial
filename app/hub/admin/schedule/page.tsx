@@ -1744,7 +1744,7 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
+    <div className="flex min-h-screen w-screen flex-col bg-[#fdfbf4]">
       <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
@@ -1945,8 +1945,8 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-     <div
-  className={`flex min-w-0 flex-1 flex-col gap-3 px-2 py-3 pb-24 lg:flex-row lg:pb-32 ${
+    <div
+  className={`flex min-w-0 flex-1 flex-col gap-3 px-3 py-3 pb-24 lg:flex-row lg:px-6 lg:pb-32 ${
     canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
   }`}
 >
@@ -1995,7 +1995,7 @@ export default function AdminScheduleEditorPage() {
                 Loading schedule…
               </div>
             )}
-            <table className="w-full border-collapse text-[10px] sm:text-[11px]" style={{ minWidth: 980 }}>
+            <table className="w-full border-collapse text-[10px] sm:text-[11px]">
               <thead className="bg-[#e5e7c5]">
                 <tr>
                   <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
