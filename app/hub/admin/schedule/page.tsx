@@ -2063,11 +2063,11 @@ export default function AdminScheduleEditorPage() {
           return (
             <td
               key={`${person}-${slot.id}`}
-              className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 overflow-hidden ${
+              className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
                 isSelected ? "bg-[#f0f4de]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
-              }`}
+              } relative`}
               onClick={() => selectCell(person, slot)}
               onDragOver={(e) => {
                 if (isBlocked) return;
@@ -2090,7 +2090,7 @@ export default function AdminScheduleEditorPage() {
               }}
             >
               <div
-                className="flex h-full w-full flex-col gap-0.5 min-w-0 overflow-hidden"
+                className="flex h-full w-full flex-col gap-0.5"
                 onDragOver={(e) => {
                   if (isBlocked) return;
                   handleDragOverEvent(e, person, slot.id, content.tasks.length);
@@ -2237,8 +2237,8 @@ export default function AdminScheduleEditorPage() {
                               )}
                             </div>
 
-                            {/* Hover tooltip with full task details */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b]">
+                            {/* Hover tooltip with full task details - HIGH Z-INDEX TO APPEAR ON TOP */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[9999] bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] pointer-events-none">
                               <div className="font-semibold mb-1.5">{task.name}</div>
                               <div className="text-[9px] text-gray-300 space-y-0.5">
                                 <div><span className="text-gray-400">Type:</span> {taskType}</div>
