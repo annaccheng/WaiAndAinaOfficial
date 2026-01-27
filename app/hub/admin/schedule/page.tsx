@@ -2002,22 +2002,21 @@ export default function AdminScheduleEditorPage() {
                     Person
                   </th>
                   {scheduleData?.slots.map((slot) => (
-                    <th
-  key={slot.id}
- className="min-w-[140px] sm:min-w-[170px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
-
->
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div>{slot.label}</div>
-                          {slot.timeRange && (
-                            <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
-                          )}
-                        </div>
-                        {slot.isMeal && <span className="text-lg">🍽️</span>}
-                      </div>
-                    </th>
-                  ))}
+  <th
+    key={slot.id}
+    className="min-w-[120px] sm:min-w-[150px] max-w-[180px] sm:max-w-[220px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+  >
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <div className="truncate">{slot.label}</div>
+        {slot.timeRange && (
+          <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
+        )}
+      </div>
+      {slot.isMeal && <span className="text-lg shrink-0">🍽️</span>}
+    </div>
+  </th>
+))}
                 </tr>
               </thead>
               <tbody>
@@ -2063,12 +2062,12 @@ export default function AdminScheduleEditorPage() {
 
                       return (
                         <td
-                          key={`${person}-${slot.id}`}
-                          className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
-  isSelected ? "bg-[#f0f4de]" : ""
-} ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
-  isBlocked ? "bg-[#2f3b21]/10" : ""
-}`}
+                           key={`${person}-${slot.id}`}
+  className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 overflow-hidden ${
+    isSelected ? "bg-[#f0f4de]" : ""
+  } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
+    isBlocked ? "bg-[#2f3b21]/10" : ""
+  }`}
 
                           onClick={() => selectCell(person, slot)}
                           onDragOver={(e) => {
@@ -2139,109 +2138,123 @@ export default function AdminScheduleEditorPage() {
                               <>
                                 {dropLine(0)}
                                 {content.tasks.map((task, idx) => {
-                                  const meta = taskMetaById.get(task.id);
-                                  const isDraggingThis =
-                                    draggingTask?.taskId === task.id &&
-                                    draggingTask?.fromPerson === person &&
-                                    draggingTask?.fromSlotId === slot.id;
-                                  const assignedCount =
-                                    taskPeopleCountById.byId.get(task.id) ??
-                                    taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
-                                    0;
-                                  const neededCount = meta?.personCount ?? 0;
-                                  const hasEnoughPeople =
-                                    neededCount > 0 ? assignedCount >= neededCount : false;
+  const meta = taskMetaById.get(task.id);
+  const isDraggingThis =
+    draggingTask?.taskId === task.id &&
+    draggingTask?.fromPerson === person &&
+    draggingTask?.fromSlotId === slot.id;
+  const assignedCount =
+    taskPeopleCountById.byId.get(task.id) ??
+    taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
+    0;
+  const neededCount = meta?.personCount ?? 0;
+  const hasEnoughPeople =
+    neededCount > 0 ? assignedCount >= neededCount : false;
+  const taskStatus = meta?.status || "Not Started";
+  const taskType = meta?.type || "Uncategorized";
 
-                                  return (
-                                    <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
-                                      <div
-  role="button"
-  tabIndex={0}
-  draggable
-  onDragStart={(e) => {
-    setDraggingTask({
-      taskId: task.id,
-      taskName: task.name,
-      fromPerson: person,
-      fromSlotId: slot.id,
-      fromIndex: idx,
-    });
-    e.dataTransfer.setData("text/task-name", task.name);
-    e.dataTransfer.setData("text/plain", task.name);
-    e.dataTransfer.setData(
-      DRAG_DATA_TYPE,
-      JSON.stringify({
-        taskId: task.id,
-        taskName: task.name,
-        fromPerson: person,
-        fromSlotId: slot.id,
-        fromIndex: idx,
-      })
-    );
-    e.dataTransfer.effectAllowed = "move";
-  }}
-  onDragEnd={() => {
-    setDraggingTask(null);
-    setPendingInsert(null);
-  }}
-  onClick={() => {
-    selectCell(person, slot);
-    loadTaskDetail(task.id, task.name);
-  }}
-  onKeyDown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      selectCell(person, slot);
-      loadTaskDetail(task.id, task.name);
-    }
-  }}
-  className={`group flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px]
-    ${typeColorClasses(meta?.typeColor)}
-    ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
-  `}
->
-  <div className="flex min-w-0 items-center gap-1">
-    {/* Remove button: hidden until hover */}
-    <button
-      type="button"
-      draggable={false}
-      onClick={(e) => {
-        e.stopPropagation();
-        removeTaskFromCell({ person, slotId: slot.id }, task, idx);
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-      className="shrink-0 rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252]
-                 opacity-0 pointer-events-none
-                 group-hover:opacity-100 group-hover:pointer-events-auto
-                 hover:bg-[#f7e3e3] transition"
-      title="Remove"
-    >
-      ✕
-    </button>
+  return (
+    <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
+      <div
+        role="button"
+        tabIndex={0}
+        draggable
+        onDragStart={(e) => {
+          setDraggingTask({
+            taskId: task.id,
+            taskName: task.name,
+            fromPerson: person,
+            fromSlotId: slot.id,
+            fromIndex: idx,
+          });
+          e.dataTransfer.setData("text/task-name", task.name);
+          e.dataTransfer.setData("text/plain", task.name);
+          e.dataTransfer.setData(
+            DRAG_DATA_TYPE,
+            JSON.stringify({
+              taskId: task.id,
+              taskName: task.name,
+              fromPerson: person,
+              fromSlotId: slot.id,
+              fromIndex: idx,
+            })
+          );
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragEnd={() => {
+          setDraggingTask(null);
+          setPendingInsert(null);
+        }}
+        onClick={() => {
+          selectCell(person, slot);
+          loadTaskDetail(task.id, task.name);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            selectCell(person, slot);
+            loadTaskDetail(task.id, task.name);
+          }
+        }}
+        className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px]
+          ${typeColorClasses(meta?.typeColor)}
+          ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
+        `}
+      >
+        <div className="flex min-w-0 items-center gap-1 flex-1">
+          {/* Remove button: hidden until hover */}
+          <button
+            type="button"
+            draggable={false}
+            onClick={(e) => {
+              e.stopPropagation();
+              removeTaskFromCell({ person, slotId: slot.id }, task, idx);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="shrink-0 rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252]
+                       opacity-0 pointer-events-none
+                       group-hover:opacity-100 group-hover:pointer-events-auto
+                       hover:bg-[#f7e3e3] transition"
+            title="Remove"
+          >
+            ✕
+          </button>
 
-    <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
-      {task.name}
-    </span>
-  </div>
+          {/* Task name - truncated */}
+          <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
+            {task.name}
+          </span>
+        </div>
 
-  <div className="flex shrink-0 items-center gap-1">
-    <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
-      {assignedCount}/{neededCount}
-    </span>
-    {hasEnoughPeople && (
-      <span className="text-[11px] text-emerald-600" title="Enough people assigned">
-        ✅
-      </span>
-    )}
-  </div>
-</div>
+        {/* Assignment counter and completion indicator */}
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
+            {assignedCount}/{neededCount}
+          </span>
+          {hasEnoughPeople && (
+            <span className="text-[11px] text-emerald-600" title="Enough people assigned">
+              ✅
+            </span>
+          )}
+        </div>
 
+        {/* Hover tooltip with full task details */}
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] whitespace-nowrap">
+          <div className="font-semibold mb-1.5 max-w-xs">{task.name}</div>
+          <div className="text-[9px] text-gray-300 space-y-0.5">
+            <div><span className="text-gray-400">Type:</span> {taskType}</div>
+            <div><span className="text-gray-400">Status:</span> {taskStatus}</div>
+            <div><span className="text-gray-400">Assigned:</span> {assignedCount}/{neededCount}</div>
+          </div>
+          {/* Arrow pointer */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2f3b21]"></div>
+        </div>
+      </div>
 
-                                      {dropLine(idx + 1)}
-                                    </React.Fragment>
-                                  );
-                                })}
-
+      {dropLine(idx + 1)}
+    </React.Fragment>
+  );
+})}
                                 {content.note && (
                                   <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
                                 )}
