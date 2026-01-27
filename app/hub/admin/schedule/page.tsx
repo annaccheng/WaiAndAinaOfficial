@@ -2004,7 +2004,7 @@ export default function AdminScheduleEditorPage() {
       {scheduleData?.slots.map((slot) => (
         <th
           key={slot.id}
-          className="min-w-[200px] sm:min-w-[240px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
+          className="min-w-[280px] sm:min-w-[320px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
         >
           <div className="flex items-center justify-between gap-2">
             <div>
