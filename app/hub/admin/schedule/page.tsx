@@ -1995,7 +1995,7 @@ export default function AdminScheduleEditorPage() {
                 Loading schedule…
               </div>
             )}
-            <table className="w-full border-collapse text-[10px] sm:text-[11px] table-fixed">
+            <table className="w-full border-collapse text-[10px] sm:text-[11px]">
   <thead className="bg-[#e5e7c5]">
     <tr>
       <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
