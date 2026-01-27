@@ -17,7 +17,6 @@ export async function GET() {
       query: {
         select:
           "id,display_name,phone_number,active,user_role:user_roles(name),user_capabilities:user_capabilities(capability:capabilities(id,name))",
-        active: "eq.true",
         order: "display_name.asc",
       },
     });
