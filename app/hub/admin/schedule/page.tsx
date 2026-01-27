@@ -1984,325 +1984,323 @@ export default function AdminScheduleEditorPage() {
 
           {scheduleLoading && (
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
-          )}
-          <div
-            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
-              scheduleLoading ? "pointer-events-none opacity-80" : ""
-            } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
-          >
-            {scheduleLoading && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
-                Loading schedule…
-              </div>
-            )}
-            <table className="w-full border-collapse text-[10px] sm:text-[11px]">
-              <thead className="bg-[#e5e7c5]">
-                <tr>
-                  <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
-                    Person
-                  </th>
-                  {scheduleData?.slots.map((slot) => (
-  <th
-    key={slot.id}
-    className="min-w-[120px] sm:min-w-[150px] max-w-[180px] sm:max-w-[220px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
-  >
-    <div className="flex items-center justify-between gap-2">
-      <div>
-        <div className="truncate">{slot.label}</div>
-        {slot.timeRange && (
-          <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
-        )}
-      </div>
-      {slot.isMeal && <span className="text-lg shrink-0">🍽️</span>}
+          )}// STEP 1: Update the table container to prevent horizontal expansion
+<div
+  className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
+    scheduleLoading ? "pointer-events-none opacity-80" : ""
+  } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
+>
+  {scheduleLoading && (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
+      Loading schedule…
     </div>
-  </th>
-))}
-                </tr>
-              </thead>
-              <tbody>
-                {scheduleData?.people.map((person, rowIdx) => (
-                    <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
-                    <td className="border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 align-top text-[10px] sm:text-[11px] font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{person}</span>
-                        <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
-                      </div>
-                    </td>
-                    {scheduleData.slots.map((slot, colIdx) => {
-                      const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || { tasks: [], note: "" };
-                      const content = cell;
-                      const isSelected =
-                        selectedCell?.person === person && selectedCell?.slotId === slot.id;
-                      const saving = pendingCells.has(`${person}-${slot.id}`);
-                      const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
-                      const isBlocked = Boolean(content.blocked);
-
-                      const dropLine = (index: number) => (
-                        <div
-                          key={`${person}-${slot.id}-drop-${index}`}
-                          onDragOver={(e) => handleDragOverEvent(e, person, slot.id, index)}
-                          onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, index)}
-                          onDragLeave={(e) => {
-                            e.preventDefault();
-                            if (pendingInsert?.person === person && pendingInsert.slotId === slot.id && pendingInsert.index === index) {
-                              setPendingInsert(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.stopPropagation();
-                            handleDropEvent(e, person, slot, index);
-                          }}
-                          className={`h-1 rounded-full transition-all duration-150 ${
-                            pendingInsert?.person === person && pendingInsert.slotId === slot.id && pendingInsert.index === index
-                              ? "bg-[#c8d99a] shadow-[0_0_0_2px_rgba(200,217,154,0.6)]"
-                              : "bg-transparent"
-                          }`}
-                        />
-                      );
-
-                      return (
-                        <td
-                           key={`${person}-${slot.id}`}
-  className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 overflow-hidden ${
-    isSelected ? "bg-[#f0f4de]" : ""
-  } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
-    isBlocked ? "bg-[#2f3b21]/10" : ""
-  }`}
-
-                          onClick={() => selectCell(person, slot)}
-                          onDragOver={(e) => {
-                            if (isBlocked) return;
-                            handleDragOverEvent(e, person, slot.id, content.tasks.length);
-                          }}
-                          onDragEnter={(e) => {
-                            if (isBlocked) return;
-                            handleDragOverEvent(e, person, slot.id, content.tasks.length);
-                          }}
-                          onDragLeave={(e) => {
-                            e.preventDefault();
-                            if (pendingInsert?.person === person && pendingInsert.slotId === slot.id) {
-                              setPendingInsert(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            if (isBlocked) return;
-                            handleDropEvent(e, person, slot, content.tasks.length);
-                            setPendingInsert(null);
-                          }}
-                        >
-                          <div
-                            className="flex h-full w-full flex-col gap-0.5"
-                            onDragOver={(e) => {
-                              if (isBlocked) return;
-                              handleDragOverEvent(e, person, slot.id, content.tasks.length);
-                            }}
-                            onDragEnter={(e) => {
-                              if (isBlocked) return;
-                              handleDragOverEvent(e, person, slot.id, content.tasks.length);
-                            }}
-                            onDrop={(e) => {
-                              if (isBlocked) return;
-                              if (!cellExists) {
-                                setSaveLog({
-                                  status: "error",
-                                  message: "This cell is still loading from Supabase.",
-                                  lastAttempt: new Date().toLocaleTimeString(),
-                                  payload: { person, slotId: slot.id },
-                                });
-                                return;
-                              }
-                              const targetIndex =
-                                pendingInsert?.person === person && pendingInsert?.slotId === slot.id
-                                  ? pendingInsert.index
-                                  : content.tasks.length;
-                              handleDropEvent(e, person, slot, targetIndex);
-                              setPendingInsert(null);
-                            }}
-                          >
-                            {!cellExists && (
-                              <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-2 py-2 text-[11px] text-[#7a7f54]">
-                                🔒 Cell not loaded yet. Please wait for the schedule to finish syncing.
-                              </div>
-                            )}
-                            {isBlocked ? (
-                              <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-3 text-center text-[11px] text-[#2f3b21]">
-                                <span className="text-base">🛑</span>
-                                <span className="font-semibold uppercase tracking-[0.12em]">
-                                  Blackout
-                                </span>
-                                <span className="text-[10px] text-[#4f5730]">
-                                  No scheduling in this slot
-                                </span>
-                              </div>
-                            ) : (
-                              <>
-                                {dropLine(0)}
-                                {content.tasks.map((task, idx) => {
-  const meta = taskMetaById.get(task.id);
-  const isDraggingThis =
-    draggingTask?.taskId === task.id &&
-    draggingTask?.fromPerson === person &&
-    draggingTask?.fromSlotId === slot.id;
-  const assignedCount =
-    taskPeopleCountById.byId.get(task.id) ??
-    taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
-    0;
-  const neededCount = meta?.personCount ?? 0;
-  const hasEnoughPeople =
-    neededCount > 0 ? assignedCount >= neededCount : false;
-  const taskStatus = meta?.status || "Not Started";
-  const taskType = meta?.type || "Uncategorized";
-
-  return (
-    <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
-      <div
-        role="button"
-        tabIndex={0}
-        draggable
-        onDragStart={(e) => {
-          setDraggingTask({
-            taskId: task.id,
-            taskName: task.name,
-            fromPerson: person,
-            fromSlotId: slot.id,
-            fromIndex: idx,
-          });
-          e.dataTransfer.setData("text/task-name", task.name);
-          e.dataTransfer.setData("text/plain", task.name);
-          e.dataTransfer.setData(
-            DRAG_DATA_TYPE,
-            JSON.stringify({
-              taskId: task.id,
-              taskName: task.name,
-              fromPerson: person,
-              fromSlotId: slot.id,
-              fromIndex: idx,
-            })
-          );
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => {
-          setDraggingTask(null);
-          setPendingInsert(null);
-        }}
-        onClick={() => {
-          selectCell(person, slot);
-          loadTaskDetail(task.id, task.name);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            selectCell(person, slot);
-            loadTaskDetail(task.id, task.name);
-          }
-        }}
-        className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px]
-          ${typeColorClasses(meta?.typeColor)}
-          ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
-        `}
-      >
-        <div className="flex min-w-0 items-center gap-1 flex-1">
-          {/* Remove button: hidden until hover */}
-          <button
-            type="button"
-            draggable={false}
-            onClick={(e) => {
-              e.stopPropagation();
-              removeTaskFromCell({ person, slotId: slot.id }, task, idx);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="shrink-0 rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252]
-                       opacity-0 pointer-events-none
-                       group-hover:opacity-100 group-hover:pointer-events-auto
-                       hover:bg-[#f7e3e3] transition"
-            title="Remove"
+  )}
+  <table className="w-full border-collapse text-[10px] sm:text-[11px] table-fixed">
+    {/* table-fixed ensures columns stay consistent width */}
+    <thead className="bg-[#e5e7c5]">
+      <tr>
+        <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5] overflow-hidden">
+          Person
+        </th>
+        {scheduleData?.slots.map((slot) => (
+          <th
+            key={slot.id}
+            className="border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5] overflow-hidden"
           >
-            ✕
-          </button>
-
-          {/* Task name - truncated */}
-          <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
-            {task.name}
-          </span>
-        </div>
-
-        {/* Assignment counter and completion indicator */}
-        <div className="flex shrink-0 items-center gap-1">
-          <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
-            {assignedCount}/{neededCount}
-          </span>
-          {hasEnoughPeople && (
-            <span className="text-[11px] text-emerald-600" title="Enough people assigned">
-              ✅
-            </span>
-          )}
-        </div>
-
-        {/* Hover tooltip with full task details */}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] whitespace-nowrap">
-          <div className="font-semibold mb-1.5 max-w-xs">{task.name}</div>
-          <div className="text-[9px] text-gray-300 space-y-0.5">
-            <div><span className="text-gray-400">Type:</span> {taskType}</div>
-            <div><span className="text-gray-400">Status:</span> {taskStatus}</div>
-            <div><span className="text-gray-400">Assigned:</span> {assignedCount}/{neededCount}</div>
-          </div>
-          {/* Arrow pointer */}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2f3b21]"></div>
-        </div>
-      </div>
-
-      {dropLine(idx + 1)}
-    </React.Fragment>
-  );
-})}
-                                {content.note && (
-                                  <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
-                                )}
-                                {isSelected && cellExists && (
-                                  <input
-                                    list="task-options"
-                                    value={customTask}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => setCustomTask(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        void handleCustomAdd();
-                                      }
-                                      if (e.key === "Escape") {
-                                        setCustomTask("");
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      if (customTask.trim()) {
-                                        void handleCustomAdd();
-                                      }
-                                    }}
-                                    placeholder="Type task + Enter"
-                                    className="w-full rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
-                                  />
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                {!scheduleData?.people?.length && (
-                  <tr>
-                    <td
-                      colSpan={(scheduleData?.slots?.length || 0) + 1}
-                      className="px-3 py-4 text-center text-sm text-[#7a7f54]"
-                    >
-                      No schedule found. Try refreshing.
-                    </td>
-                  </tr>
+            <div className="flex items-center justify-between gap-1 min-w-0">
+              <div className="min-w-0 truncate">
+                <div className="truncate">{slot.label}</div>
+                {slot.timeRange && (
+                  <div className="text-[9px] text-[#7a7f54] normal-case truncate">{slot.timeRange}</div>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+              {slot.isMeal && <span className="text-lg shrink-0">🍽️</span>}
+            </div>
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {scheduleData?.people.map((person, rowIdx) => (
+        <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
+          <td className="border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 align-top text-[10px] sm:text-[11px] font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3] overflow-hidden">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <span className="truncate">{person}</span>
+              <span className="text-[10px] text-[#7a7f54] shrink-0">{rowIdx + 1}</span>
+            </div>
+          </td>
+          {scheduleData.slots.map((slot, colIdx) => {
+            const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || { tasks: [], note: "" };
+            const content = cell;
+            const isSelected =
+              selectedCell?.person === person && selectedCell?.slotId === slot.id;
+            const saving = pendingCells.has(`${person}-${slot.id}`);
+            const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
+            const isBlocked = Boolean(content.blocked);
+
+            const dropLine = (index: number) => (
+              <div
+                key={`${person}-${slot.id}-drop-${index}`}
+                onDragOver={(e) => handleDragOverEvent(e, person, slot.id, index)}
+                onDragEnter={(e) => handleDragOverEvent(e, person, slot.id, index)}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  if (pendingInsert?.person === person && pendingInsert.slotId === slot.id && pendingInsert.index === index) {
+                    setPendingInsert(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.stopPropagation();
+                  handleDropEvent(e, person, slot, index);
+                }}
+                className={`h-1 rounded-full transition-all duration-150 ${
+                  pendingInsert?.person === person && pendingInsert.slotId === slot.id && pendingInsert.index === index
+                    ? "bg-[#c8d99a] shadow-[0_0_0_2px_rgba(200,217,154,0.6)]"
+                    : "bg-transparent"
+                }`}
+              />
+            );
+
+            return (
+              <td
+                key={`${person}-${slot.id}`}
+                className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 overflow-hidden ${
+                  isSelected ? "bg-[#f0f4de]" : ""
+                } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
+                  isBlocked ? "bg-[#2f3b21]/10" : ""
+                }`}
+                onClick={() => selectCell(person, slot)}
+                onDragOver={(e) => {
+                  if (isBlocked) return;
+                  handleDragOverEvent(e, person, slot.id, content.tasks.length);
+                }}
+                onDragEnter={(e) => {
+                  if (isBlocked) return;
+                  handleDragOverEvent(e, person, slot.id, content.tasks.length);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  if (pendingInsert?.person === person && pendingInsert.slotId === slot.id) {
+                    setPendingInsert(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  if (isBlocked) return;
+                  handleDropEvent(e, person, slot, content.tasks.length);
+                  setPendingInsert(null);
+                }}
+              >
+                <div
+                  className="flex h-full w-full flex-col gap-0.5 min-w-0 overflow-hidden"
+                  onDragOver={(e) => {
+                    if (isBlocked) return;
+                    handleDragOverEvent(e, person, slot.id, content.tasks.length);
+                  }}
+                  onDragEnter={(e) => {
+                    if (isBlocked) return;
+                    handleDragOverEvent(e, person, slot.id, content.tasks.length);
+                  }}
+                  onDrop={(e) => {
+                    if (isBlocked) return;
+                    if (!cellExists) {
+                      setSaveLog({
+                        status: "error",
+                        message: "This cell is still loading from Supabase.",
+                        lastAttempt: new Date().toLocaleTimeString(),
+                        payload: { person, slotId: slot.id },
+                      });
+                      return;
+                    }
+                    const targetIndex =
+                      pendingInsert?.person === person && pendingInsert?.slotId === slot.id
+                        ? pendingInsert.index
+                        : content.tasks.length;
+                    handleDropEvent(e, person, slot, targetIndex);
+                    setPendingInsert(null);
+                  }}
+                >
+                  {!cellExists && (
+                    <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-2 py-2 text-[11px] text-[#7a7f54] truncate">
+                      🔒 Cell loading...
+                    </div>
+                  )}
+                  {isBlocked ? (
+                    <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-3 text-center text-[11px] text-[#2f3b21]">
+                      <span className="text-base">🛑</span>
+                      <span className="font-semibold uppercase tracking-[0.12em] truncate">
+                        Blackout
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      {dropLine(0)}
+                      {content.tasks.map((task, idx) => {
+                        const meta = taskMetaById.get(task.id);
+                        const isDraggingThis =
+                          draggingTask?.taskId === task.id &&
+                          draggingTask?.fromPerson === person &&
+                          draggingTask?.fromSlotId === slot.id;
+                        const assignedCount =
+                          taskPeopleCountById.byId.get(task.id) ??
+                          taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
+                          0;
+                        const neededCount = meta?.personCount ?? 0;
+                        const hasEnoughPeople =
+                          neededCount > 0 ? assignedCount >= neededCount : false;
+                        const taskStatus = meta?.status || "Not Started";
+                        const taskType = meta?.type || "Uncategorized";
+
+                        return (
+                          <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggingTask({
+                                  taskId: task.id,
+                                  taskName: task.name,
+                                  fromPerson: person,
+                                  fromSlotId: slot.id,
+                                  fromIndex: idx,
+                                });
+                                e.dataTransfer.setData("text/task-name", task.name);
+                                e.dataTransfer.setData("text/plain", task.name);
+                                e.dataTransfer.setData(
+                                  DRAG_DATA_TYPE,
+                                  JSON.stringify({
+                                    taskId: task.id,
+                                    taskName: task.name,
+                                    fromPerson: person,
+                                    fromSlotId: slot.id,
+                                    fromIndex: idx,
+                                  })
+                                );
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragEnd={() => {
+                                setDraggingTask(null);
+                                setPendingInsert(null);
+                              }}
+                              onClick={() => {
+                                selectCell(person, slot);
+                                loadTaskDetail(task.id, task.name);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  selectCell(person, slot);
+                                  loadTaskDetail(task.id, task.name);
+                                }
+                              }}
+                              className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 overflow-hidden
+                                ${typeColorClasses(meta?.typeColor)}
+                                ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
+                              `}
+                            >
+                              <div className="flex min-w-0 items-center gap-1 flex-1">
+                                {/* Remove button: hidden until hover */}
+                                <button
+                                  type="button"
+                                  draggable={false}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeTaskFromCell({ person, slotId: slot.id }, task, idx);
+                                  }}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className="shrink-0 rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252]
+                                             opacity-0 pointer-events-none
+                                             group-hover:opacity-100 group-hover:pointer-events-auto
+                                             hover:bg-[#f7e3e3] transition"
+                                  title="Remove"
+                                >
+                                  ✕
+                                </button>
+
+                                {/* Task name - truncated with ellipsis */}
+                                <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
+                                  {task.name}
+                                </span>
+                              </div>
+
+                              {/* Assignment counter and completion indicator */}
+                              <div className="flex shrink-0 items-center gap-1">
+                                <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21] whitespace-nowrap">
+                                  {assignedCount}/{neededCount}
+                                </span>
+                                {hasEnoughPeople && (
+                                  <span className="text-[11px] text-emerald-600 shrink-0" title="Enough people assigned">
+                                    ✅
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Hover tooltip with full task details */}
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] whitespace-nowrap">
+                                <div className="font-semibold mb-1.5 max-w-xs truncate">{task.name}</div>
+                                <div className="text-[9px] text-gray-300 space-y-0.5">
+                                  <div><span className="text-gray-400">Type:</span> {taskType}</div>
+                                  <div><span className="text-gray-400">Status:</span> {taskStatus}</div>
+                                  <div><span className="text-gray-400">Assigned:</span> {assignedCount}/{neededCount}</div>
+                                </div>
+                                {/* Arrow pointer */}
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2f3b21]"></div>
+                              </div>
+                            </div>
+
+                            {dropLine(idx + 1)}
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {content.note && (
+                        <p className="text-[10px] text-[#4f4b33] opacity-90 truncate">{content.note}</p>
+                      )}
+                      {isSelected && cellExists && (
+                        <input
+                          list="task-options"
+                          value={customTask}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setCustomTask(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleCustomAdd();
+                            }
+                            if (e.key === "Escape") {
+                              setCustomTask("");
+                            }
+                          }}
+                          onBlur={() => {
+                            if (customTask.trim()) {
+                              void handleCustomAdd();
+                            }
+                          }}
+                          placeholder="Type task + Enter"
+                          className="w-full rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+              </td>
+            );
+          })}
+        </tr>
+      ))}
+      {!scheduleData?.people?.length && (
+        <tr>
+          <td
+            colSpan={(scheduleData?.slots?.length || 0) + 1}
+            className="px-3 py-4 text-center text-sm text-[#7a7f54]"
+          >
+            No schedule found. Try refreshing.
+          </td>
+        </tr>
+      )}
+    </tbody>
+  </table>
+</div>
           <datalist id="task-options">
             {taskNameOptions.map((name) => (
               <option key={name} value={name} />
