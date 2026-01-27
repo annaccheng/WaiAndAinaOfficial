@@ -2005,7 +2005,7 @@ export default function AdminScheduleEditorPage() {
        <th
   key={slot.id}
   className="border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
-  style={{ minWidth: '200px', maxWidth: '200px' }}
+  style={{ minWidth: '100px', maxWidth: '100px' }}
 >
           <div className="flex items-center justify-between gap-2">
             <div>
