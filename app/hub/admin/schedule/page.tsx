@@ -2002,10 +2002,9 @@ export default function AdminScheduleEditorPage() {
         Person
       </th>
       {scheduleData?.slots.map((slot) => (
-       <th
+ <th
   key={slot.id}
-  className="border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
-  style={{ minWidth: '100px', maxWidth: '100px' }}
+  className="w-[300px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-20 bg-[#e5e7c5]"
 >
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -2196,10 +2195,10 @@ export default function AdminScheduleEditorPage() {
                                 loadTaskDetail(task.id, task.name);
                               }
                             }}
-                           className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 max-w-0
-  ${typeColorClasses(meta?.typeColor)}
-  ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
-`}
+                           className={`group relative flex w-[300px] items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0
+    ${typeColorClasses(meta?.typeColor)}
+    ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
+  `}
                           >
                             <div className="flex min-w-0 items-center gap-1 flex-1">
                               {/* Remove button: hidden until hover */}
