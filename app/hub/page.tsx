@@ -260,6 +260,7 @@ export default function HubSchedulePage() {
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
   const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
   const [viewMode, setViewMode] = useState<"tasks" | "schedule">("tasks");
+  const [adminViewAsVolunteer, setAdminViewAsVolunteer] = useState(false);
   const scheduleFetchInFlight = useRef(false);
   const scheduleLastFetchAt = useRef(0);
   const scheduleRefreshIntervalMs = 120_000;
@@ -1268,7 +1269,7 @@ export default function HubSchedulePage() {
   }, [data, weekdayWorkSlots]);
 
   const showStandardSection = true;
-  const basicOnly = false;
+  const basicOnly = adminViewAsVolunteer;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -2194,76 +2195,15 @@ export default function HubSchedulePage() {
     return (
       <div className="space-y-8">
         {isAdmin && (
-          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
-                Admin debug console
-              </p>
-              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
-                Admin only
-              </span>
-            </div>
-            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
-                Diagnostics
-              </p>
-              <ul className="list-disc space-y-1 pl-4">
-                {!currentUserName && (
-                  <li>No session detected. Schedule requests will be anonymous.</li>
-                )}
-                {loading && !data && !error && (
-                  <li>Initial schedule load is still in flight.</li>
-                )}
-                {error && (
-                  <li>Schedule request failed: {error}</li>
-                )}
-                {data?.message && (
-                  <li>{data.message}</li>
-                )}
-                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
-                  <li>
-                    Schedule response is empty. This typically means the schedule date has no
-                    entries or Supabase access is blocked.
-                  </li>
-                )}
-                {scheduleFetchInFlight.current && (
-                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
-                )}
-                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
-                  <li>
-                    Last fetch completed at{" "}
-                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
-                  </li>
-                )}
-                {!scheduleLastFetchAt.current && (
-                  <li>No successful schedule fetch recorded yet.</li>
-                )}
-                {scheduleDateLabel && (
-                  <li>Active schedule date: {scheduleDateLabel}.</li>
-                )}
-              </ul>
-            </div>
-            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
-              {JSON.stringify(
-                {
-                  user: currentUserName,
-                  scheduleDateLabel,
-                  loading,
-                  error,
-                  scheduleMessage: data?.message || null,
-                  peopleCount: data?.people?.length ?? 0,
-                  slotCount: data?.slots?.length ?? 0,
-                  hasData: Boolean(data),
-                  fetchInFlight: scheduleFetchInFlight.current,
-                  lastFetchAt: scheduleLastFetchAt.current
-                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
-                    : null,
-                },
-                null,
-                2
-              )}
-            </pre>
-          </section>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setAdminViewAsVolunteer(false)}
+              className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+            >
+              Exit volunteer view
+            </button>
+          </div>
         )}
         <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
           <div>
@@ -2380,76 +2320,15 @@ export default function HubSchedulePage() {
     <>
       <div className="space-y-8">
         {isAdmin && (
-          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
-                Admin debug console
-              </p>
-              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
-                Admin only
-              </span>
-            </div>
-            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
-                Diagnostics
-              </p>
-              <ul className="list-disc space-y-1 pl-4">
-                {!currentUserName && (
-                  <li>No session detected. Schedule requests will be anonymous.</li>
-                )}
-                {loading && !data && !error && (
-                  <li>Initial schedule load is still in flight.</li>
-                )}
-                {error && (
-                  <li>Schedule request failed: {error}</li>
-                )}
-                {data?.message && (
-                  <li>{data.message}</li>
-                )}
-                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
-                  <li>
-                    Schedule response is empty. This typically means the schedule date has no
-                    entries or Supabase access is blocked.
-                  </li>
-                )}
-                {scheduleFetchInFlight.current && (
-                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
-                )}
-                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
-                  <li>
-                    Last fetch completed at{" "}
-                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
-                  </li>
-                )}
-                {!scheduleLastFetchAt.current && (
-                  <li>No successful schedule fetch recorded yet.</li>
-                )}
-                {scheduleDateLabel && (
-                  <li>Active schedule date: {scheduleDateLabel}.</li>
-                )}
-              </ul>
-            </div>
-            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
-              {JSON.stringify(
-                {
-                  user: currentUserName,
-                  scheduleDateLabel,
-                  loading,
-                  error,
-                  scheduleMessage: data?.message || null,
-                  peopleCount: data?.people?.length ?? 0,
-                  slotCount: data?.slots?.length ?? 0,
-                  hasData: Boolean(data),
-                  fetchInFlight: scheduleFetchInFlight.current,
-                  lastFetchAt: scheduleLastFetchAt.current
-                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
-                    : null,
-                },
-                null,
-                2
-              )}
-            </pre>
-          </section>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setAdminViewAsVolunteer(true)}
+              className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+            >
+              View as volunteer
+            </button>
+          </div>
         )}
         {!loading && data?.message && !hasWeekdayScheduleContent && (
             <div className="rounded-lg border border-[#e4dcb8] bg-white/80 px-4 py-3 text-sm text-[#6a6748]">
@@ -2599,7 +2478,7 @@ export default function HubSchedulePage() {
                 </div>
 
                 <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                  {isAdmin && (
+                  {isAdmin && !adminViewAsVolunteer && (
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-[#3b4224]">

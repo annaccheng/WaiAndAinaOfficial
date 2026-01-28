@@ -274,25 +274,25 @@ export default function AdminScheduleEditorPage() {
   const [yesterdayLoading, setYesterdayLoading] = useState(false);
   const [carryOverTaskId, setCarryOverTaskId] = useState<string | null>(null);
 
-  const formatDateInput = (value: string) => {
+  const formatDateInput = useCallback((value: string) => {
     if (!value) return "";
     const [year, month, day] = value.split("-");
     if (!year || !month || !day) return value;
     return `${month}/${day}/${year}`;
-  };
+  }, []);
 
-  const formatLabelToInput = (label: string) => {
+  const formatLabelToInput = useCallback((label: string) => {
     const [month, day, year] = label.split("/");
     if (!month || !day || !year) return "";
     return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  };
+  }, []);
 
-  const addDaysToIso = (isoDate: string, days: number) => {
+  const addDaysToIso = useCallback((isoDate: string, days: number) => {
     const base = isoDate ? new Date(isoDate) : new Date();
     const next = new Date(base);
     next.setDate(next.getDate() + days);
     return next.toISOString().slice(0, 10);
-  };
+  }, []);
 
   const buildNotesText = (notes: string[]) => notes.filter(Boolean).join("\n");
 
@@ -3200,6 +3200,60 @@ export default function AdminScheduleEditorPage() {
           </datalist>
           {(dayOverviewSummary || yesterdayOverviewSummary) && (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {yesterdayOverviewSummary && (
+                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                      <p className="text-[11px] text-[#6a6c4d]">
+                        Outstanding tasks from {yesterdayLabel || "yesterday"}.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
+                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
+                        {yesterdayOverviewSummary.total} tasks
+                      </span>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+                        {yesterdayOverviewSummary.open} open
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2">
+                    {yesterdayLoading ? (
+                      <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
+                    ) : yesterdayOverviewSummary.tasks.length ? (
+                      yesterdayOverviewSummary.tasks
+                        .filter((task) => task.status.toLowerCase() !== "completed")
+                        .map((task) => (
+                          <div
+                            key={task.name}
+                            className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                              className="truncate text-left font-semibold hover:underline"
+                            >
+                              {task.name}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCarryOverTask(task)}
+                              disabled={!task.id || carryOverTaskId === task.id}
+                              className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
+                            >
+                              {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
+                            </button>
+                          </div>
+                        ))
+                    ) : (
+                      <p className="text-[11px] text-[#7a7f54]">
+                        No outstanding tasks from yesterday.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
               {dayOverviewSummary && (
                 <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -3256,60 +3310,6 @@ export default function AdminScheduleEditorPage() {
                       </ul>
                     </div>
                   )}
-                </div>
-              )}
-              {yesterdayOverviewSummary && (
-                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
-                      <p className="text-[11px] text-[#6a6c4d]">
-                        Outstanding tasks from {yesterdayLabel || "yesterday"}.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
-                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
-                        {yesterdayOverviewSummary.total} tasks
-                      </span>
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
-                        {yesterdayOverviewSummary.open} open
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    {yesterdayLoading ? (
-                      <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
-                    ) : yesterdayOverviewSummary.tasks.length ? (
-                      yesterdayOverviewSummary.tasks
-                        .filter((task) => task.status.toLowerCase() !== "completed")
-                        .map((task) => (
-                          <div
-                            key={task.name}
-                            className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                              className="truncate text-left font-semibold hover:underline"
-                            >
-                              {task.name}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleCarryOverTask(task)}
-                              disabled={!task.id || carryOverTaskId === task.id}
-                              className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
-                            >
-                              {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
-                            </button>
-                          </div>
-                        ))
-                    ) : (
-                      <p className="text-[11px] text-[#7a7f54]">
-                        No outstanding tasks from yesterday.
-                      </p>
-                    )}
-                  </div>
                 </div>
               )}
             </div>
