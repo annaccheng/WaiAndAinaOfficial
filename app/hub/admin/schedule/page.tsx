@@ -66,6 +66,15 @@ type UndoEntry = {
   label: string;
   changes: UndoChange[];
 };
+type OverviewTaskEntry = {
+  id: string | null;
+  name: string;
+  status: string;
+  notes: Set<string>;
+  assignments: number;
+  recurring: boolean;
+  parentTaskId: string | null;
+};
 
 const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
@@ -259,6 +268,11 @@ export default function AdminScheduleEditorPage() {
   const [cellClipboard, setCellClipboard] = useState<CellContent | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
+  const [yesterdayScheduleData, setYesterdayScheduleData] =
+    useState<ScheduleResponse | null>(null);
+  const [yesterdayRecurringTasks, setYesterdayRecurringTasks] = useState<TaskCatalogItem[]>([]);
+  const [yesterdayLoading, setYesterdayLoading] = useState(false);
+  const [carryOverTaskId, setCarryOverTaskId] = useState<string | null>(null);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -403,6 +417,13 @@ export default function AdminScheduleEditorPage() {
     return `Editing Staging - ${selectedDate}`;
   }, [selectedDate]);
 
+  const yesterdayLabel = useMemo(() => {
+    if (!selectedDate) return "";
+    const selectedIso = formatLabelToInput(selectedDate);
+    if (!selectedIso) return "";
+    return formatDateInput(addDaysToIso(selectedIso, -1));
+  }, [addDaysToIso, formatLabelToInput, formatDateInput, selectedDate]);
+
   const scheduleOptions = useMemo(() => {
     const options = [...availableSchedules];
     if (selectedDate && !options.find((entry) => entry.dateLabel === selectedDate)) {
@@ -478,6 +499,70 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, selectedDate]);
+
+  useEffect(() => {
+    if (!authorized || !yesterdayLabel || scheduleMode !== "page") {
+      setYesterdayScheduleData(null);
+      setYesterdayRecurringTasks([]);
+      return;
+    }
+    let cancelled = false;
+    setYesterdayLoading(true);
+
+    const loadYesterday = async () => {
+      try {
+        const dateParam = formatLabelToInput(yesterdayLabel);
+        if (!dateParam) return;
+        const [scheduleRes, recurringRes] = await Promise.all([
+          fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`),
+          fetch(
+            `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
+          ),
+        ]);
+        if (cancelled) return;
+        if (scheduleRes.ok) {
+          const json = await scheduleRes.json();
+          setYesterdayScheduleData(json);
+        } else {
+          setYesterdayScheduleData(null);
+        }
+        if (recurringRes.ok) {
+          const json = await recurringRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            priority: task.priority || "",
+            occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
+            description: task.description || null,
+            personCount: task.person_count ?? null,
+            timeSlots: task.time_slots || [],
+            estimatedTime: task.estimated_time || null,
+          }));
+          setYesterdayRecurringTasks(items);
+        } else {
+          setYesterdayRecurringTasks([]);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load yesterday overview", err);
+          setYesterdayScheduleData(null);
+          setYesterdayRecurringTasks([]);
+        }
+      } finally {
+        if (!cancelled) setYesterdayLoading(false);
+      }
+    };
+
+    loadYesterday();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized, formatLabelToInput, scheduleMode, yesterdayLabel]);
 
   const taskPeopleCountById = useMemo(() => {
     if (!scheduleData) {
@@ -625,119 +710,103 @@ export default function AdminScheduleEditorPage() {
     sortTasks,
   ]);
 
-  const dayOverviewSummary = useMemo(() => {
-    if (!scheduleData) return null;
+  const buildDayOverviewSummary = useCallback(
+    (
+      data: ScheduleResponse | null,
+      metaById: Map<string, TaskCatalogItem>,
+      metaByName: Map<string, TaskCatalogItem>
+    ) => {
+      if (!data) return null;
 
-    const taskLookup = new Map<string, TaskCatalogItem>();
-    [...recurringTasks, ...oneOffTasks].forEach((task) => {
-      const name = task.name.trim().toLowerCase();
-      if (name) taskLookup.set(name, task);
-    });
+      const taskMap = new Map<string, OverviewTaskEntry>();
+      const standaloneNotes = new Set<string>();
 
-    const taskMap = new Map<
-      string,
-      { name: string; status: string; notes: Set<string>; assignments: number }
-    >();
-    const standaloneNotes = new Set<string>();
-
-    scheduleData.cells.forEach((row) => {
-      row.forEach((cell) => {
-        const note = cell.note?.trim();
-        if (!cell.tasks.length && note) {
-          standaloneNotes.add(note);
-        }
-        cell.tasks.forEach((task) => {
-          const name = task.name.trim();
-          if (!name) return;
-          const key = name.toLowerCase();
-          if (!taskMap.has(key)) {
-            const meta = taskLookup.get(key);
-            taskMap.set(key, {
-              name,
-              status: meta?.status || "Not Started",
-              notes: new Set<string>(),
-              assignments: 0,
-            });
+      data.cells.forEach((row) => {
+        row.forEach((cell) => {
+          const note = cell.note?.trim();
+          if (!cell.tasks.length && note) {
+            standaloneNotes.add(note);
           }
-          const entry = taskMap.get(key);
-          if (!entry) return;
-          entry.assignments += 1;
-          if (note) entry.notes.add(note);
+          cell.tasks.forEach((task) => {
+            const name = task.name.trim();
+            if (!name) return;
+            const key = name.toLowerCase();
+            if (!taskMap.has(key)) {
+              const meta =
+                metaById.get(task.id) || metaByName.get(key) || ({} as TaskCatalogItem);
+              taskMap.set(key, {
+                id: task.id || meta?.id || null,
+                name,
+                status: meta?.status || "Not Started",
+                notes: new Set<string>(),
+                assignments: 0,
+                recurring: Boolean(meta?.recurring),
+                parentTaskId: meta?.parentTaskId || null,
+              });
+            }
+            const entry = taskMap.get(key);
+            if (!entry) return;
+            entry.assignments += 1;
+            if (note) entry.notes.add(note);
+            if (!entry.id && task.id) {
+              entry.id = task.id;
+            }
+          });
         });
       });
-    });
 
-    const tasks = Array.from(taskMap.values()).sort((a, b) =>
-      a.name.localeCompare(b.name)
+      const tasks = Array.from(taskMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      const completed = tasks.filter(
+        (task) => task.status.toLowerCase() === "completed"
+      ).length;
+      return {
+        tasks,
+        total: tasks.length,
+        completed,
+        open: tasks.length - completed,
+        standaloneNotes: Array.from(standaloneNotes),
+      };
+    },
+    []
+  );
+
+  const todayTaskMetaByName = useMemo(() => {
+    const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
+      (task) => [task.name.trim().toLowerCase(), task]
     );
-    const completed = tasks.filter(
-      (task) => task.status.toLowerCase() === "completed"
-    ).length;
-    return {
-      tasks,
-      total: tasks.length,
-      completed,
-      open: tasks.length - completed,
-      standaloneNotes: Array.from(standaloneNotes),
-    };
-  }, [oneOffTasks, recurringTasks, scheduleData]);
+    return new Map<string, TaskCatalogItem>(entries);
+  }, [oneOffTasks, recurringTasks]);
 
-  const dayOverview = useMemo(() => {
-    if (!scheduleData) return null;
-
-    const taskLookup = new Map<string, TaskCatalogItem>();
-    [...recurringTasks, ...oneOffTasks].forEach((task) => {
-      const name = task.name.trim().toLowerCase();
-      if (name) taskLookup.set(name, task);
-    });
-
-    const taskMap = new Map<
-      string,
-      { name: string; status: string; notes: Set<string>; assignments: number }
-    >();
-    const standaloneNotes = new Set<string>();
-
-    scheduleData.cells.forEach((row) => {
-      row.forEach((cell) => {
-        const note = cell.note?.trim();
-        if (!cell.tasks.length && note) {
-          standaloneNotes.add(note);
-        }
-        cell.tasks.forEach((task) => {
-          const name = task.name.trim();
-          if (!name) return;
-          const key = name.toLowerCase();
-          if (!taskMap.has(key)) {
-            const meta = taskLookup.get(key);
-            taskMap.set(key, {
-              name,
-              status: meta?.status || "Not Started",
-              notes: new Set<string>(),
-              assignments: 0,
-            });
-          }
-          const entry = taskMap.get(key);
-          if (!entry) return;
-          entry.assignments += 1;
-          if (note) entry.notes.add(note);
-        });
-      });
-    });
-
-    const tasks = Array.from(taskMap.values()).sort((a, b) =>
-      a.name.localeCompare(b.name)
+  const yesterdayTaskMetaById = useMemo(() => {
+    const entries: Array<[string, TaskCatalogItem]> = [...yesterdayRecurringTasks, ...oneOffTasks].map(
+      (task) => [task.id, task]
     );
-    const completed = tasks.filter(
-      (task) => task.status.toLowerCase() === "completed"
-    ).length;
-    return {
-      tasks,
-      total: tasks.length,
-      completed,
-      open: tasks.length - completed,
-      standaloneNotes: Array.from(standaloneNotes),
-    };
-  }, [oneOffTasks, recurringTasks, scheduleData]);
+    return new Map<string, TaskCatalogItem>(entries);
+  }, [oneOffTasks, yesterdayRecurringTasks]);
+
+  const yesterdayTaskMetaByName = useMemo(() => {
+    const entries: Array<[string, TaskCatalogItem]> = [...yesterdayRecurringTasks, ...oneOffTasks].map(
+      (task) => [task.name.trim().toLowerCase(), task]
+    );
+    return new Map<string, TaskCatalogItem>(entries);
+  }, [oneOffTasks, yesterdayRecurringTasks]);
+
+  const dayOverviewSummary = useMemo(
+    () => buildDayOverviewSummary(scheduleData, taskMetaById, todayTaskMetaByName),
+    [buildDayOverviewSummary, scheduleData, taskMetaById, todayTaskMetaByName]
+  );
+
+  const yesterdayOverviewSummary = useMemo(
+    () =>
+      buildDayOverviewSummary(
+        yesterdayScheduleData,
+        yesterdayTaskMetaById,
+        yesterdayTaskMetaByName
+      ),
+    [buildDayOverviewSummary, yesterdayScheduleData, yesterdayTaskMetaById, yesterdayTaskMetaByName]
+  );
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
@@ -1514,6 +1583,7 @@ export default function AdminScheduleEditorPage() {
     [findCoord, pushUndoEntry, scheduleData, selectedDate]
   );
 
+
   const applyBlackoutRange = useCallback(async () => {
     if (!scheduleData) {
       setMessage("Load a schedule before applying blackout ranges.");
@@ -1838,6 +1908,83 @@ export default function AdminScheduleEditorPage() {
       setMessage("Unable to refresh schedule. Try again soon.");
     }
   };
+
+  const handleCarryOverTask = useCallback(
+    async (task: OverviewTaskEntry) => {
+      if (!selectedDate) return;
+      const targetIso = formatLabelToInput(selectedDate);
+      if (!targetIso || !task.id) return;
+      setCarryOverTaskId(task.id);
+      try {
+        if (task.recurring) {
+          const res = await fetch("/api/tasks/occurrence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              seriesId: task.parentTaskId || task.id,
+              occurrenceDate: targetIso,
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            throw new Error(json.error || "Failed to carry over recurring task.");
+          }
+          if (json?.task?.id) {
+            setRecurringTasks((prev) => {
+              if (prev.some((item) => item.id === json.task.id)) return prev;
+              return [
+                {
+                  id: json.task.id,
+                  name: json.task.name,
+                  type: json.task.task_type?.name || "",
+                  typeColor: json.task.task_type?.color || "default",
+                  status: json.task.status || "",
+                  priority: json.task.priority || "",
+                  occurrenceDate: json.task.occurrence_date || targetIso,
+                  recurring: Boolean(json.task.recurring),
+                  parentTaskId: json.task.parent_task_id || null,
+                  description: json.task.description || null,
+                  personCount: json.task.person_count ?? null,
+                  timeSlots: json.task.time_slots || [],
+                  estimatedTime: json.task.estimated_time || null,
+                },
+                ...prev,
+              ];
+            });
+          }
+        } else {
+          const res = await fetch("/api/tasks", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: task.id,
+              applyTo: "single",
+              occurrence_date: targetIso,
+            }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(json.error || "Failed to carry over task.");
+          }
+          setOneOffTasks((prev) =>
+            prev.map((item) =>
+              item.id === task.id
+                ? { ...item, occurrenceDate: targetIso }
+                : item
+            )
+          );
+        }
+        setMessage(`Moved "${task.name}" to ${selectedDate}.`);
+        refreshSchedule();
+      } catch (err) {
+        console.error("Failed to carry over task", err);
+        setMessage("Unable to move task to today.");
+      } finally {
+        setCarryOverTaskId(null);
+      }
+    },
+    [formatLabelToInput, refreshSchedule, selectedDate]
+  );
 
   const publishSchedule = async () => {
     if (scheduleMode !== "page") return;
@@ -3051,71 +3198,118 @@ export default function AdminScheduleEditorPage() {
               <option key={name} value={name} />
             ))}
           </datalist>
-          {dayOverviewSummary && (
-            <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-base font-semibold text-[#314123]">Day overview</h3>
-                  <p className="text-xs text-[#6a6c4d]">
-                    Tasks issued for {scheduleData?.scheduleDate || "this day"} with status and
-                    notes.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 text-[11px] text-[#4b5133]">
-                  <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-1 font-semibold">
-                    {dayOverviewSummary.total} tasks
-                  </span>
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">
-                    {dayOverviewSummary.completed} completed
-                  </span>
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-800">
-                    {dayOverviewSummary.open} open
-                  </span>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {dayOverviewSummary.tasks.length ? (
-                  dayOverviewSummary.tasks.map((task) => (
-                    <div
-                      key={task.name}
-                      className="rounded-lg border border-[#e2d7b5] bg-[#faf7eb] px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-[#314123]">{task.name}</div>
-                        <span
-                          className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase ${statusBadgeClasses(
-                            task.status
-                          )}`}
-                        >
-                          {task.status || "Not Started"}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-[#6a6c4d]">
-                        Assigned {task.assignments} time{task.assignments === 1 ? "" : "s"}.
+          {(dayOverviewSummary || yesterdayOverviewSummary) && (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {dayOverviewSummary && (
+                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#314123]">Day overview</h3>
+                      <p className="text-[11px] text-[#6a6c4d]">
+                        Tasks issued for {scheduleData?.scheduleDate || "this day"}.
                       </p>
-                      {task.notes.size > 0 && (
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-[#4b5133]">
-                          {Array.from(task.notes).map((note) => (
-                            <li key={note}>{note}</li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-[#7a7f54]">No tasks listed for this day yet.</p>
-                )}
-              </div>
-              {dayOverviewSummary.standaloneNotes.length > 0 && (
-                <div className="mt-4 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px] text-[#4b5133]">
-                  <p className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
-                    Notes without tasks
-                  </p>
-                  <ul className="mt-2 list-disc space-y-1 pl-4">
-                    {dayOverviewSummary.standaloneNotes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
+                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
+                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
+                        {dayOverviewSummary.total} tasks
+                      </span>
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">
+                        {dayOverviewSummary.completed} done
+                      </span>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+                        {dayOverviewSummary.open} open
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2">
+                    {dayOverviewSummary.tasks.length ? (
+                      dayOverviewSummary.tasks.map((task) => (
+                        <button
+                          key={task.name}
+                          type="button"
+                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                          className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
+                        >
+                          <span className="truncate font-semibold">{task.name}</span>
+                          <span
+                            className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
+                              task.status
+                            )}`}
+                          >
+                            {task.status || "Not Started"}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="text-[11px] text-[#7a7f54]">No tasks listed for this day yet.</p>
+                    )}
+                  </div>
+                  {dayOverviewSummary.standaloneNotes.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px] text-[#4b5133]">
+                      <p className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                        Notes without tasks
+                      </p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4">
+                        {dayOverviewSummary.standaloneNotes.map((note) => (
+                          <li key={note}>{note}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+              {yesterdayOverviewSummary && (
+                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                      <p className="text-[11px] text-[#6a6c4d]">
+                        Outstanding tasks from {yesterdayLabel || "yesterday"}.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
+                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
+                        {yesterdayOverviewSummary.total} tasks
+                      </span>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+                        {yesterdayOverviewSummary.open} open
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2">
+                    {yesterdayLoading ? (
+                      <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
+                    ) : yesterdayOverviewSummary.tasks.length ? (
+                      yesterdayOverviewSummary.tasks
+                        .filter((task) => task.status.toLowerCase() !== "completed")
+                        .map((task) => (
+                          <div
+                            key={task.name}
+                            className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                              className="truncate text-left font-semibold hover:underline"
+                            >
+                              {task.name}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCarryOverTask(task)}
+                              disabled={!task.id || carryOverTaskId === task.id}
+                              className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
+                            >
+                              {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
+                            </button>
+                          </div>
+                        ))
+                    ) : (
+                      <p className="text-[11px] text-[#7a7f54]">
+                        No outstanding tasks from yesterday.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
