@@ -2949,13 +2949,14 @@ export default function AdminScheduleEditorPage() {
               <option key={name} value={name} />
             ))}
           </datalist>
-            {dayOverviewSummary && (
-              <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
+          {dayOverviewSummary && (
+            <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-[#314123]">Day overview</h3>
                   <p className="text-xs text-[#6a6c4d]">
-                    Tasks issued for {scheduleData?.scheduleDate || "this day"} with status and notes.
+                    Tasks issued for {scheduleData?.scheduleDate || "this day"} with status and
+                    notes.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px] text-[#4b5133]">
@@ -2996,9 +2997,8 @@ export default function AdminScheduleEditorPage() {
                             <li key={note}>{note}</li>
                           ))}
                         </ul>
-            )}
-          </div>
-        </div>
+                      )}
+                    </div>
                   ))
                 ) : (
                   <p className="text-sm text-[#7a7f54]">No tasks listed for this day yet.</p>
