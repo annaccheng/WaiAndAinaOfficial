@@ -1822,12 +1822,12 @@ export default function AdminScheduleEditorPage() {
       const targetRecurringTasks = Array.isArray(targetRecurringJson.tasks)
         ? targetRecurringJson.tasks
         : [];
-      const sourceRecurringSeries = new Map(
-        sourceRecurringTasks.map((task: any) => [
-          task.id,
-          task.parent_task_id || task.id,
-        ])
-      );
+      const sourceRecurringSeries = new Map<string, string>();
+      sourceRecurringTasks.forEach((task: any) => {
+        const taskId = String(task.id);
+        const seriesId = String(task.parent_task_id ?? task.id);
+        sourceRecurringSeries.set(taskId, seriesId);
+      });
       const targetRecurringBySeries = new Map<string, string>();
       targetRecurringTasks.forEach((task: any) => {
         const seriesId = task.parent_task_id || task.id;
@@ -1843,7 +1843,7 @@ export default function AdminScheduleEditorPage() {
           if (!cell) return;
           const mappedTasks = cell.tasks
             .map((task) => {
-              const seriesId = sourceRecurringSeries.get(task.id);
+              const seriesId = sourceRecurringSeries.get(String(task.id));
               if (!seriesId) return task.id;
               const targetTaskId = targetRecurringBySeries.get(seriesId);
               return targetTaskId || null;
