@@ -98,6 +98,8 @@ type CustomTable = {
   id: string;
   title: string;
   scheduleDate?: string;
+  visibleStart?: string | null;
+  visibleEnd?: string | null;
   columnHeaders: string[];
   rowHeaders: string[];
   cells: string[][];
@@ -250,6 +252,7 @@ export default function HubSchedulePage() {
   const [customTablesAnchorDate, setCustomTablesAnchorDate] = useState<string | null>(null);
   const [requestedDate, setRequestedDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
+  const [customTablesDeleting, setCustomTablesDeleting] = useState<string | null>(null);
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -369,6 +372,7 @@ export default function HubSchedulePage() {
     if (requestedDate) return requestedDate;
     return toIsoDateLabel(scheduleDateLabel) || "";
   }, [requestedDate, scheduleDateLabel]);
+  const scheduleDateIso = scheduleDateInputValue || toIsoDateLabel(scheduleDateLabel) || "";
 
   const normalizeCustomTable = useCallback((table: any): CustomTable => {
     const columnHeaders = Array.isArray(table?.columnHeaders)
@@ -388,11 +392,25 @@ export default function HubSchedulePage() {
       const row = Array.isArray(rawCells[rowIdx]) ? rawCells[rowIdx] : [];
       return sanitizedColumns.map((_header: string, colIdx: number) => String(row[colIdx] ?? ""));
     });
+    const hasVisibilityDates =
+      table?.visibleStart !== undefined ||
+      table?.visibleEnd !== undefined ||
+      table?.visible_start_date !== undefined ||
+      table?.visible_end_date !== undefined;
+    const fallbackDate = String(table?.scheduleDate ?? table?.schedule_date ?? "");
+    const visibleStart = hasVisibilityDates
+      ? String(table?.visibleStart ?? table?.visible_start_date ?? "")
+      : fallbackDate;
+    const visibleEnd = hasVisibilityDates
+      ? String(table?.visibleEnd ?? table?.visible_end_date ?? "")
+      : fallbackDate;
 
     return {
       id: String(table?.id ?? ""),
       title: String(table?.title ?? "Custom Table"),
       scheduleDate: String(table?.scheduleDate ?? table?.schedule_date ?? ""),
+      visibleStart,
+      visibleEnd,
       columnHeaders: sanitizedColumns,
       rowHeaders: sanitizedRows,
       cells: normalizedCells,
@@ -428,6 +446,17 @@ export default function HubSchedulePage() {
             : "user",
     };
   }, []);
+
+  const visibleCustomTables = useMemo(() => {
+    if (!scheduleDateIso) return customTables;
+    return customTables.filter((table) => {
+      const start = table.visibleStart || "";
+      const end = table.visibleEnd || "";
+      if (start && scheduleDateIso < start) return false;
+      if (end && scheduleDateIso > end) return false;
+      return true;
+    });
+  }, [customTables, scheduleDateIso]);
 
   const loadCustomTables = useCallback(
     async (dateLabel?: string | null) => {
@@ -958,7 +987,11 @@ export default function HubSchedulePage() {
       const res = await fetch("/api/schedule/custom-tables", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleDate: isoDate }),
+        body: JSON.stringify({
+          scheduleDate: isoDate,
+          visibleStart: isoDate,
+          visibleEnd: isoDate,
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -989,6 +1022,8 @@ export default function HubSchedulePage() {
             rowHeaderType: table.rowHeaderType,
             columnHeaderType: table.columnHeaderType,
             cellType: table.cellType,
+            visibleStart: table.visibleStart || null,
+            visibleEnd: table.visibleEnd || null,
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -998,6 +1033,38 @@ export default function HubSchedulePage() {
         setCustomTablesError("Unable to save custom table.");
       } finally {
         setCustomTablesSaving((prev) => ({ ...prev, [table.id]: false }));
+      }
+    },
+    [isAdmin]
+  );
+
+  const handleDeleteCustomTable = useCallback(
+    async (tableId: string) => {
+      if (!isAdmin) return;
+      const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
+      if (!confirmed) return;
+      setCustomTablesDeleting(tableId);
+      try {
+        const res = await fetch(`/api/schedule/custom-tables?id=${encodeURIComponent(tableId)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setCustomTables((prev) => prev.filter((table) => table.id !== tableId));
+        setCustomTablesDirty((prev) => {
+          const next = { ...prev };
+          delete next[tableId];
+          return next;
+        });
+        setCustomTablesSaving((prev) => {
+          const next = { ...prev };
+          delete next[tableId];
+          return next;
+        });
+      } catch (err) {
+        console.error("Failed to delete custom table:", err);
+        setCustomTablesError("Unable to delete custom table.");
+      } finally {
+        setCustomTablesDeleting(null);
       }
     },
     [isAdmin]
@@ -2561,16 +2628,17 @@ export default function HubSchedulePage() {
                   {customTablesError && (
                     <p className="mt-3 text-sm text-red-700">{customTablesError}</p>
                   )}
-                  {!customTablesLoading && customTables.length === 0 && (
+                  {!customTablesLoading && visibleCustomTables.length === 0 && (
                     <p className="mt-3 text-sm text-[#7a7f54]">
-                      No custom tables yet.
+                      No custom tables available for this date.
                     </p>
                   )}
 
                   <div className="mt-4 space-y-4">
-                    {customTables.map((table) => {
+                    {visibleCustomTables.map((table) => {
                       const isSaving = Boolean(customTablesSaving[table.id]);
                       const isDirty = Boolean(customTablesDirty[table.id]);
+                      const isDeleting = customTablesDeleting === table.id;
                       const rowHeaderType = table.rowHeaderType;
                       const columnHeaderType = table.columnHeaderType;
                       const cellType = table.cellType;
@@ -2674,12 +2742,52 @@ export default function HubSchedulePage() {
                                       ? "Save Table"
                                       : "Saved"}
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomTable(table.id)}
+                                  disabled={isDeleting}
+                                  className="rounded-full border border-red-200 bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isDeleting ? "Deleting…" : "Delete"}
+                                </button>
                               </div>
                             )}
                           </div>
 
                           {isAdmin && (
                             <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Visible from
+                                </span>
+                                <input
+                                  type="date"
+                                  value={table.visibleStart || ""}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      visibleStart: event.target.value,
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                />
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Visible until
+                                </span>
+                                <input
+                                  type="date"
+                                  value={table.visibleEnd || ""}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      visibleEnd: event.target.value,
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                />
+                              </label>
                               <label className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-[0.12em]">
                                   Row headers

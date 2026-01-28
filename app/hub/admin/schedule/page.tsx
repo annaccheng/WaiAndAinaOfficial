@@ -2462,13 +2462,6 @@ export default function AdminScheduleEditorPage() {
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={refreshSchedule}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-              >
-                Refresh
-              </button>
-              <button
-                type="button"
                 onClick={undoLastChange}
                 disabled={!undoStack.length}
                 className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
@@ -2493,16 +2486,6 @@ export default function AdminScheduleEditorPage() {
               </button>
               <button
                 type="button"
-                onClick={autoGenerateSchedule}
-                disabled={autoGenerating || !scheduleData}
-                className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
-              >
-                {autoGenerating ? "Auto-generating…" : "Auto-generate"}
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
                 onClick={() => setBlackoutMode((prev) => !prev)}
                 className={`rounded-md border px-4 py-2 font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
                   blackoutMode
@@ -2512,24 +2495,46 @@ export default function AdminScheduleEditorPage() {
               >
                 {blackoutMode ? "Blackout mode: On" : "Blackout mode"}
               </button>
-              <Link
-                href="/hub/admin/tasks"
-                className="rounded-md bg-[#6f8f3d] px-4 py-2 font-semibold uppercase tracking-[0.08em] text-white shadow-md transition hover:bg-[#5f7f35]"
-              >
-                Task editor
-              </Link>
-              <Link
-                href="/hub/admin/shifts"
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#f1edd8]"
-              >
-                Shift editor
-              </Link>
-              <Link
-                href="/hub/admin"
-                className="rounded-md border border-[#d0c9a4] bg-[#f6f1dd] px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#4b5133] shadow-sm transition hover:bg-[#ede6c6]"
-              >
-                Back to admin
-              </Link>
+              <details className="relative">
+                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
+                  More actions
+                </summary>
+                <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={refreshSchedule}
+                    className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={autoGenerateSchedule}
+                    disabled={autoGenerating || !scheduleData}
+                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                  >
+                    {autoGenerating ? "Auto-generating…" : "Auto-generate"}
+                  </button>
+                  <Link
+                    href="/hub/admin/tasks"
+                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                  >
+                    Task editor
+                  </Link>
+                  <Link
+                    href="/hub/admin/shifts"
+                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                  >
+                    Shift editor
+                  </Link>
+                  <Link
+                    href="/hub/admin"
+                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                  >
+                    Back to admin
+                  </Link>
+                </div>
+              </details>
             </div>
           </div>
         </div>
