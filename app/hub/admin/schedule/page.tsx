@@ -3019,6 +3019,7 @@ export default function AdminScheduleEditorPage() {
             </div>
           )}
         </div>
+        </div>
 
         <div
           className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
@@ -3056,31 +3057,31 @@ export default function AdminScheduleEditorPage() {
                     </div>
                   </div>
                   <div className="space-y-2 p-3 text-sm">
-              <div className="grid gap-2 md:grid-cols-2">
-                <input
-                  value={taskSearch}
-                  onChange={(e) => setTaskSearch(e.target.value)}
-                  placeholder="Search tasks"
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                />
-                <select
-                  value={taskTypeFilter}
-                  onChange={(e) => setTaskTypeFilter(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                >
-                  <option value="">All types</option>
-                  {taskTypes.map((opt) => (
-                    <option key={opt.name} value={opt.name}>
-                      {opt.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <select
-                value={taskStatusFilter}
-                onChange={(e) => setTaskStatusFilter(e.target.value)}
-                className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-              >
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <input
+                        value={taskSearch}
+                        onChange={(e) => setTaskSearch(e.target.value)}
+                        placeholder="Search tasks"
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      />
+                      <select
+                        value={taskTypeFilter}
+                        onChange={(e) => setTaskTypeFilter(e.target.value)}
+                        className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                      >
+                        <option value="">All types</option>
+                        {taskTypes.map((opt) => (
+                          <option key={opt.name} value={opt.name}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <select
+                      value={taskStatusFilter}
+                      onChange={(e) => setTaskStatusFilter(e.target.value)}
+                      className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+                    >
                       <option value="">All statuses</option>
                       {statusOptions.map((opt) => (
                         <option key={opt.name} value={opt.name}>
@@ -3192,7 +3193,8 @@ export default function AdminScheduleEditorPage() {
                     >
                       {filteredRecurringTasks.map((task) => {
                         const taskHandled = isTaskHandled(task);
-                      const isDraggingThis = draggingTask?.taskId === task.id && !draggingTask?.fromPerson;
+                        const isDraggingThis =
+                          draggingTask?.taskId === task.id && !draggingTask?.fromPerson;
                         return (
                           <button
                             key={task.id}
@@ -3212,11 +3214,9 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px]
-  ${typeColorClasses(task.typeColor)}
-  ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}
-`}
-
+                            className={`group relative flex w-full items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
+                              task.typeColor
+                            )} ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                           >
                             <div>
                               <div className="font-semibold">{task.name}</div>
@@ -3229,9 +3229,6 @@ export default function AdminScheduleEditorPage() {
                             {taskHandled.hasEnoughPeople && (
                               <span className="text-2xl text-emerald-600">✅</span>
                             )}
-
-                            
-
                           </button>
                         );
                       })}
