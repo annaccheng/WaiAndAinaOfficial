@@ -30,8 +30,9 @@ type TaskCatalogItem = {
   timeSlots?: string[] | null;
   estimatedTime?: string | null;
 };
-type TaskTypeOption = { name: string; color: string };
+type TaskTypeOption = { id?: string; name: string; color: string };
 type StatusOption = { name: string; color: string };
+type TaskLink = { label: string; url: string };
 type TaskDetail = {
   id: string;
   name: string;
@@ -41,6 +42,7 @@ type TaskDetail = {
   status?: string;
   priority?: string;
   taskType?: { name: string; color: string };
+  links?: TaskLink[];
   recurring?: boolean;
   occurrenceDate?: string | null;
   parentTaskId?: string | null;
@@ -54,6 +56,16 @@ type DragPayload = {
 };
 type CellContent = { tasks: ScheduledTask[]; note: string; blocked?: boolean };
 type AutoSlotChoice = { row: number; col: number; score: number };
+type UndoChange = {
+  person: string;
+  slotId: string;
+  previous: CellContent;
+  next: CellContent;
+};
+type UndoEntry = {
+  label: string;
+  changes: UndoChange[];
+};
 
 const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
@@ -143,6 +155,16 @@ function safeIndex(length: number, index?: number) {
   return Math.min(Math.max(index, 0), length);
 }
 
+const MAX_UNDO_ENTRIES = 25;
+
+function cloneCellContent(cell: CellContent): CellContent {
+  return {
+    tasks: cell.tasks.map((task) => ({ ...task })),
+    note: cell.note,
+    blocked: cell.blocked,
+  };
+}
+
 
 export default function AdminScheduleEditorPage() {
   const router = useRouter();
@@ -188,9 +210,26 @@ export default function AdminScheduleEditorPage() {
   const [copyingSchedule, setCopyingSchedule] = useState(false);
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
   const [taskEditDraft, setTaskEditDraft] = useState({
+    name: "",
     description: "",
     extraNotes: "",
     personCount: "",
+    status: "",
+    priority: "",
+    taskType: "",
+    links: [] as TaskLink[],
+  });
+  const [taskEditSections, setTaskEditSections] = useState({
+    title: true,
+    description: true,
+    extraNotes: true,
+    personCount: true,
+    status: true,
+    priority: true,
+    taskType: true,
+    links: true,
+    photos: true,
+    recurrence: true,
   });
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
@@ -208,6 +247,8 @@ export default function AdminScheduleEditorPage() {
   const [showPastIncomplete, setShowPastIncomplete] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [photoDropActive, setPhotoDropActive] = useState(false);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
   const [saveLog, setSaveLog] = useState<{
     status: "idle" | "saving" | "success" | "error";
     message?: string;
@@ -215,6 +256,8 @@ export default function AdminScheduleEditorPage() {
     payload?: { person: string; slotId: string; dateLabel?: string };
   }>({ status: "idle" });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [cellClipboard, setCellClipboard] = useState<CellContent | null>(null);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -709,6 +752,15 @@ export default function AdminScheduleEditorPage() {
     []
   );
 
+  const pushUndoEntry = useCallback((entry: UndoEntry) => {
+    if (!entry.changes.length) return;
+    setUndoStack((prev) => {
+      const next = [...prev, entry];
+      if (next.length <= MAX_UNDO_ENTRIES) return next;
+      return next.slice(next.length - MAX_UNDO_ENTRIES);
+    });
+  }, []);
+
   const persistCell = useCallback(
     async (person: string, slotId: string, content: CellContent) => {
       const activeDate = selectedDate || scheduleData?.scheduleDate || "";
@@ -774,6 +826,26 @@ export default function AdminScheduleEditorPage() {
     },
     [scheduleData?.scheduleDate, scheduleMode, selectedDate]
   );
+
+  const undoLastChange = useCallback(async () => {
+    if (!scheduleData || !undoStack.length) return;
+    const last = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    const nextCells = scheduleData.cells.map((row) =>
+      row.map((cell) => cloneCellContent(cell))
+    );
+
+    last.changes.forEach((change) => {
+      const coord = findCoord(change.person, change.slotId, scheduleData);
+      if (!coord) return;
+      nextCells[coord.row][coord.col] = cloneCellContent(change.previous);
+    });
+
+    setScheduleData({ ...scheduleData, cells: nextCells });
+    await Promise.all(
+      last.changes.map((change) => persistCell(change.person, change.slotId, change.previous))
+    );
+  }, [findCoord, persistCell, scheduleData, undoStack]);
 
   const createQuickTask = useCallback(async () => {
     if (!quickTaskName.trim() || !selectedDate) return;
@@ -1106,6 +1178,26 @@ export default function AdminScheduleEditorPage() {
         content: targetContent,
       });
 
+      const changeMap = new Map<string, UndoChange>();
+      updates.forEach((update) => {
+        const coord = findCoord(update.person, update.slotId, scheduleData);
+        if (!coord) return;
+        const key = `${update.person}-${update.slotId}`;
+        const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
+        const next = cloneCellContent(nextCells[coord.row][coord.col]);
+        changeMap.set(key, {
+          person: update.person,
+          slotId: update.slotId,
+          previous,
+          next,
+        });
+      });
+
+      pushUndoEntry({
+        label: payload.fromPerson ? "Move task" : "Add task",
+        changes: Array.from(changeMap.values()),
+      });
+
       setScheduleData({ ...scheduleData, cells: nextCells });
 
       updates.forEach((u) => persistCell(u.person, u.slotId, u.content));
@@ -1116,7 +1208,7 @@ export default function AdminScheduleEditorPage() {
       setPendingInsert(null);
       setDraggingTask(null);
     },
-    [findCoord, persistCell, scheduleData]
+    [findCoord, persistCell, pushUndoEntry, scheduleData]
   );
 
   const removeTaskFromCell = useCallback(
@@ -1130,11 +1222,23 @@ export default function AdminScheduleEditorPage() {
       const content = nextCells[coord.row][coord.col];
       const idx = index ?? content.tasks.findIndex((t) => t.id === task.id);
       if (idx < 0) return;
+      const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
       content.tasks.splice(idx, 1);
+      pushUndoEntry({
+        label: "Remove task",
+        changes: [
+          {
+            person: cell.person,
+            slotId: cell.slotId,
+            previous,
+            next: cloneCellContent(content),
+          },
+        ],
+      });
       setScheduleData({ ...scheduleData, cells: nextCells });
       persistCell(cell.person, cell.slotId, content);
     },
-    [findCoord, persistCell, scheduleData]
+    [findCoord, persistCell, pushUndoEntry, scheduleData]
   );
 
   const handleDropEvent = useCallback(
@@ -1226,10 +1330,50 @@ export default function AdminScheduleEditorPage() {
     return { content };
   };
 
+  const handleCopyCell = useCallback(() => {
+    if (!selectedCell || !scheduleData) return;
+    const current = getCellValue(selectedCell);
+    if (!current) return;
+    setCellClipboard(cloneCellContent(current.content));
+    setMessage("Cell copied.");
+  }, [getCellValue, scheduleData, selectedCell]);
+
+  const handlePasteCell = useCallback(() => {
+    if (!selectedCell || !scheduleData || !cellClipboard) return;
+    const coord = findCoord(selectedCell.person, selectedCell.slotId, scheduleData);
+    if (!coord) return;
+    const nextCells = scheduleData.cells.map((row) =>
+      row.map((entry) => ({ ...entry, tasks: [...entry.tasks] }))
+    );
+    const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
+    const nextContent = cloneCellContent(cellClipboard);
+    nextCells[coord.row][coord.col] = nextContent;
+    pushUndoEntry({
+      label: "Paste cell",
+      changes: [
+        {
+          person: selectedCell.person,
+          slotId: selectedCell.slotId,
+          previous,
+          next: nextContent,
+        },
+      ],
+    });
+    setScheduleData({ ...scheduleData, cells: nextCells });
+    persistCell(selectedCell.person, selectedCell.slotId, nextContent);
+  }, [cellClipboard, findCoord, persistCell, pushUndoEntry, scheduleData, selectedCell]);
+
   const toggleBlackoutCell = useCallback(
     async (person: string, slot: Slot, nextBlocked: boolean) => {
       const activeDate = selectedDate || scheduleData?.scheduleDate || "";
       if (!activeDate) return;
+      const existing = scheduleData
+        ? findCoord(person, slot.id, scheduleData)
+        : null;
+      const previousContent =
+        existing && scheduleData?.cells?.[existing.row]?.[existing.col]
+          ? cloneCellContent(scheduleData.cells[existing.row][existing.col])
+          : { tasks: [], note: "", blocked: false };
       setPendingCells((prev) => new Set(prev).add(`${person}-${slot.id}`));
       try {
         await fetch("/api/schedule/update", {
@@ -1254,6 +1398,17 @@ export default function AdminScheduleEditorPage() {
               return { ...cell, tasks: [], note: "", blocked: nextBlocked };
             })
           );
+          pushUndoEntry({
+            label: nextBlocked ? "Block cell" : "Unblock cell",
+            changes: [
+              {
+                person,
+                slotId: slot.id,
+                previous: previousContent,
+                next: { tasks: [], note: "", blocked: nextBlocked },
+              },
+            ],
+          });
           return { ...prev, cells: nextCells };
         });
       } catch (err) {
@@ -1267,7 +1422,7 @@ export default function AdminScheduleEditorPage() {
         });
       }
     },
-    [findCoord, scheduleData?.scheduleDate, selectedDate]
+    [findCoord, pushUndoEntry, scheduleData, selectedDate]
   );
 
   const applyBlackoutRange = useCallback(async () => {
@@ -1380,10 +1535,22 @@ export default function AdminScheduleEditorPage() {
     setTaskDetailLoading(true);
     setTaskEditMessage(null);
     setPhotoMessage(null);
+    setPendingPhotoFile(null);
     try {
       const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load task details");
+      const normalizedLinks = Array.isArray(json.links)
+        ? json.links.map((link: any) => {
+            if (typeof link === "string") {
+              return { label: link, url: link };
+            }
+            return {
+              label: String(link?.label || ""),
+              url: String(link?.url || ""),
+            };
+          })
+        : [];
       const detail = {
         id: json.id || taskId,
         name: json.name || fallbackName || "Task",
@@ -1393,25 +1560,40 @@ export default function AdminScheduleEditorPage() {
         status: json.status || "",
         priority: json.priority || "",
         taskType: json.taskType,
+        links: normalizedLinks,
         recurring: json.recurring || false,
         occurrenceDate: json.occurrenceDate || null,
         parentTaskId: json.parentTaskId || null,
       };
       setTaskDetail(detail);
       setTaskEditDraft({
+        name: detail.name || "",
         description: detail.description || "",
         extraNotes: buildNotesText(detail.extraNotes || []),
         personCount:
           detail.personCount === null || detail.personCount === undefined
             ? ""
             : String(detail.personCount),
+        status: detail.status || "",
+        priority: detail.priority || "",
+        taskType: detail.taskType?.name || "",
+        links: normalizedLinks,
       });
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
       setMessage(friendly);
       setTaskDetail(null);
-      setTaskEditDraft({ description: "", extraNotes: "", personCount: "" });
+      setTaskEditDraft({
+        name: "",
+        description: "",
+        extraNotes: "",
+        personCount: "",
+        status: "",
+        priority: "",
+        taskType: "",
+        links: [],
+      });
     } finally {
       setTaskDetailLoading(false);
     }
@@ -1422,6 +1604,7 @@ export default function AdminScheduleEditorPage() {
     setTaskEditSaving(true);
     setTaskEditMessage(null);
     try {
+      const trimmedName = taskEditDraft.name.trim();
       const notesList = taskEditDraft.extraNotes
         .split("\n")
         .map((note) => note.trim())
@@ -1430,24 +1613,59 @@ export default function AdminScheduleEditorPage() {
         taskEditDraft.personCount.trim() === ""
           ? null
           : Number(taskEditDraft.personCount);
+      const links = taskEditDraft.links
+        .map((link) => ({
+          label: String(link.label || "").trim(),
+          url: String(link.url || "").trim(),
+        }))
+        .filter((link) => link.label || link.url);
+      const taskTypeMatch = taskTypes.find(
+        (type) => type.name === taskEditDraft.taskType
+      );
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: taskDetail.id,
+          name: trimmedName || taskDetail.name,
           description: taskEditDraft.description.trim(),
           extra_notes: notesList,
           person_count: Number.isNaN(personCount) ? null : personCount,
+          status: taskEditDraft.status || null,
+          priority: taskEditDraft.priority || null,
+          task_type_id: taskTypeMatch?.id || undefined,
+          links,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to update task");
       setTaskDetail({
         ...taskDetail,
+        name: trimmedName || taskDetail.name,
         description: taskEditDraft.description.trim(),
         extraNotes: notesList,
         personCount: Number.isNaN(personCount) ? null : personCount,
+        status: taskEditDraft.status || "",
+        priority: taskEditDraft.priority || "",
+        taskType: taskTypeMatch
+          ? { name: taskTypeMatch.name, color: taskTypeMatch.color }
+          : taskDetail.taskType,
+        links,
       });
+      if (trimmedName && trimmedName !== taskDetail.name && scheduleData) {
+        setScheduleData((prev) => {
+          if (!prev) return prev;
+          const nextCells = prev.cells.map((row) =>
+            row.map((cell) => ({
+              ...cell,
+              tasks: cell.tasks.map((task) =>
+                task.id === taskDetail.id ? { ...task, name: trimmedName } : task
+              ),
+            }))
+          );
+          return { ...prev, cells: nextCells };
+        });
+      }
       setTaskEditMessage("Task updated.");
     } catch (err) {
       console.error(err);
@@ -1458,12 +1676,12 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
-  const handlePhotoUpload = async () => {
+  const handlePhotoUpload = async (overrideFile?: File | null) => {
     if (!taskDetail?.id || !taskDetail?.name) {
       setPhotoMessage("Select a task before uploading a photo.");
       return;
     }
-    const file = photoInputRef.current?.files?.[0];
+    const file = overrideFile || pendingPhotoFile || photoInputRef.current?.files?.[0];
     if (!file) {
       setPhotoMessage("Choose an image to upload.");
       return;
@@ -1494,6 +1712,7 @@ export default function AdminScheduleEditorPage() {
       if (photoInputRef.current) {
         photoInputRef.current.value = "";
       }
+      setPendingPhotoFile(null);
       await loadTaskDetail(taskDetail.id, taskDetail.name);
     } catch (err) {
       console.error(err);
@@ -1581,12 +1800,57 @@ export default function AdminScheduleEditorPage() {
         return;
       }
 
+      const sourceIso = formatLabelToInput(copySourceDate);
+      const targetIso = formatLabelToInput(copyTargetDate);
+      const [sourceRecurringRes, targetRecurringRes] = await Promise.all([
+        fetch(
+          `/api/tasks?recurring=true&includeOccurrences=true&start=${sourceIso}&end=${sourceIso}`
+        ),
+        fetch(
+          `/api/tasks?recurring=true&includeOccurrences=true&start=${targetIso}&end=${targetIso}`
+        ),
+      ]);
+      const sourceRecurringJson = sourceRecurringRes.ok
+        ? await sourceRecurringRes.json()
+        : { tasks: [] };
+      const targetRecurringJson = targetRecurringRes.ok
+        ? await targetRecurringRes.json()
+        : { tasks: [] };
+      const sourceRecurringTasks = Array.isArray(sourceRecurringJson.tasks)
+        ? sourceRecurringJson.tasks
+        : [];
+      const targetRecurringTasks = Array.isArray(targetRecurringJson.tasks)
+        ? targetRecurringJson.tasks
+        : [];
+      const sourceRecurringSeries = new Map(
+        sourceRecurringTasks.map((task: any) => [
+          task.id,
+          task.parent_task_id || task.id,
+        ])
+      );
+      const targetRecurringBySeries = new Map<string, string>();
+      targetRecurringTasks.forEach((task: any) => {
+        const seriesId = task.parent_task_id || task.id;
+        if (!targetRecurringBySeries.has(seriesId)) {
+          targetRecurringBySeries.set(seriesId, task.id);
+        }
+      });
+
       const updates: Promise<void>[] = [];
       sourceData.people.forEach((person, rowIdx) => {
         sourceData.slots.forEach((slot, colIdx) => {
           const cell = sourceData.cells?.[rowIdx]?.[colIdx];
           if (!cell) return;
+          const mappedTasks = cell.tasks
+            .map((task) => {
+              const seriesId = sourceRecurringSeries.get(task.id);
+              if (!seriesId) return task.id;
+              const targetTaskId = targetRecurringBySeries.get(seriesId);
+              return targetTaskId || null;
+            })
+            .filter(Boolean) as string[];
           if (!cell.tasks.length && !cell.note && !cell.blocked) return;
+          if (!mappedTasks.length && !cell.note && !cell.blocked) return;
           updates.push(
             fetch("/api/schedule/update", {
               method: "POST",
@@ -1594,7 +1858,7 @@ export default function AdminScheduleEditorPage() {
               body: JSON.stringify({
                 person,
                 slotId: slot.id,
-                tasks: cell.tasks.map((task) => task.id),
+                tasks: mappedTasks,
                 note: cell.note,
                 blocked: cell.blocked,
                 dateLabel: copyTargetDate,
@@ -1735,6 +1999,348 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const taskDetailEditor = taskDetail ? (
+    <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-4 shadow-md">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
+            Task detail
+          </p>
+          <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
+        </div>
+        {taskDetailLoading && (
+          <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+        {taskDetail.status && (
+          <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+            {taskDetail.status}
+          </span>
+        )}
+        {taskDetail.priority && (
+          <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+            {taskDetail.priority} priority
+          </span>
+        )}
+        <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
+          {taskDetail.recurring ? "Recurring" : "One-off"}
+        </span>
+        {taskDetail.taskType?.name && (
+          <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
+            {taskDetail.taskType.name}
+          </span>
+        )}
+      </div>
+      {taskEditSections.recurrence && (taskDetail.recurring || taskDetail.occurrenceDate) && (
+        <div className="mt-2 space-y-1 text-[11px] text-[#6b6d4b]">
+          <p>
+            {taskDetail.recurring
+              ? taskDetail.parentTaskId
+                ? "Recurring series • this occurrence"
+                : "Recurring series"
+              : "One-off task"}
+            {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
+          </p>
+          {taskDetail.recurring && (
+            <p>Tip: update just this occurrence to avoid changing the full series.</p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-lg border border-[#e2d7b5] bg-white/70 p-3 text-[11px] text-[#6a6c4d]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">
+          Toggle edit fields
+        </p>
+        <div className="mt-2 flex flex-wrap gap-3">
+          {(
+            [
+              ["title", "Title"],
+              ["description", "Description"],
+              ["extraNotes", "Extra notes"],
+              ["personCount", "People needed"],
+              ["status", "Status"],
+              ["priority", "Priority"],
+              ["taskType", "Task type"],
+              ["links", "Links"],
+              ["photos", "Photos"],
+              ["recurrence", "Recurrence info"],
+            ] as Array<[keyof typeof taskEditSections, string]>
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={taskEditSections[key]}
+                onChange={() =>
+                  setTaskEditSections((prev) => ({ ...prev, [key]: !prev[key] }))
+                }
+                className="accent-[#8fae4c]"
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3 text-sm text-[#4b5133]">
+        {taskEditSections.title && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">Title</span>
+            <input
+              value={taskEditDraft.name}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, name: e.target.value }))
+              }
+              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+            />
+          </label>
+        )}
+        {taskEditSections.description && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              Description
+            </span>
+            <textarea
+              value={taskEditDraft.description}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, description: e.target.value }))
+              }
+              className="min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+            />
+          </label>
+        )}
+        {taskEditSections.extraNotes && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              Extra notes
+            </span>
+            <textarea
+              value={taskEditDraft.extraNotes}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, extraNotes: e.target.value }))
+              }
+              className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+              placeholder="One note per line"
+            />
+          </label>
+        )}
+        {taskEditSections.personCount && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              People needed
+            </span>
+            <input
+              type="number"
+              min={0}
+              value={taskEditDraft.personCount}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, personCount: e.target.value }))
+              }
+              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+            />
+          </label>
+        )}
+        {taskEditSections.status && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">Status</span>
+            <select
+              value={taskEditDraft.status}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, status: e.target.value }))
+              }
+              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+            >
+              <option value="">—</option>
+              {statusOptions.map((opt) => (
+                <option key={opt.name} value={opt.name}>
+                  {opt.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {taskEditSections.priority && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              Priority
+            </span>
+            <input
+              value={taskEditDraft.priority}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, priority: e.target.value }))
+              }
+              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+              placeholder="Low / Medium / High"
+            />
+          </label>
+        )}
+        {taskEditSections.taskType && (
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              Task type
+            </span>
+            <select
+              value={taskEditDraft.taskType}
+              onChange={(e) =>
+                setTaskEditDraft((prev) => ({ ...prev, taskType: e.target.value }))
+              }
+              className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+            >
+              <option value="">—</option>
+              {taskTypes.map((opt) => (
+                <option key={opt.name} value={opt.name}>
+                  {opt.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {taskEditSections.links && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] font-semibold text-[#5f5a3b]">Links</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setTaskEditDraft((prev) => ({
+                    ...prev,
+                    links: [...prev.links, { label: "", url: "" }],
+                  }))
+                }
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+              >
+                Add link
+              </button>
+            </div>
+            <div className="space-y-2">
+              {taskEditDraft.links.length ? (
+                taskEditDraft.links.map((link, idx) => (
+                  <div key={`${link.label}-${idx}`} className="flex flex-wrap gap-2">
+                    <input
+                      value={link.label}
+                      onChange={(e) =>
+                        setTaskEditDraft((prev) => {
+                          const nextLinks = [...prev.links];
+                          nextLinks[idx] = { ...nextLinks[idx], label: e.target.value };
+                          return { ...prev, links: nextLinks };
+                        })
+                      }
+                      className="flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-sm"
+                      placeholder="Link label"
+                    />
+                    <input
+                      value={link.url}
+                      onChange={(e) =>
+                        setTaskEditDraft((prev) => {
+                          const nextLinks = [...prev.links];
+                          nextLinks[idx] = { ...nextLinks[idx], url: e.target.value };
+                          return { ...prev, links: nextLinks };
+                        })
+                      }
+                      className="flex-[2] rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-sm"
+                      placeholder="https://..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTaskEditDraft((prev) => ({
+                          ...prev,
+                          links: prev.links.filter((_, linkIdx) => linkIdx !== idx),
+                        }))
+                      }
+                      className="rounded-full border border-red-200 bg-white/80 px-2 py-1 text-[10px] font-semibold text-red-700"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-[12px] text-[#6b6d4b]">
+                  No links added yet. Tip: you can also embed links in descriptions
+                  like <span className="font-semibold">(short text)[full link]</span>.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={saveTaskEdits}
+          disabled={taskEditSaving}
+          className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+        >
+          {taskEditSaving ? "Saving…" : "Save basic updates"}
+        </button>
+        {taskEditMessage && (
+          <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
+        )}
+        <Link
+          href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
+          className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+        >
+          Open in task editor
+        </Link>
+      </div>
+
+      {taskEditSections.photos && (
+        <div className="mt-4 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+            Upload task photo (150kb max)
+          </p>
+          <div
+            onDragOver={(event) => {
+              event.preventDefault();
+              setPhotoDropActive(true);
+            }}
+            onDragLeave={() => setPhotoDropActive(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setPhotoDropActive(false);
+              const file = event.dataTransfer.files?.[0];
+              if (file) {
+                setPendingPhotoFile(file);
+                setPhotoMessage(`Ready to upload ${file.name}.`);
+              }
+            }}
+            className={`rounded-md border-2 border-dashed px-3 py-4 text-center text-[12px] ${
+              photoDropActive
+                ? "border-[#8fae4c] bg-white text-[#4b5133]"
+                : "border-[#d0c9a4] bg-white/80 text-[#7a7f54]"
+            }`}
+          >
+            Drag & drop a photo here, or choose a file below.
+          </div>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(event) =>
+              setPendingPhotoFile(event.target.files?.[0] || null)
+            }
+            className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
+          />
+          {pendingPhotoFile && (
+            <p className="text-[12px] text-[#4b5133]">
+              Selected: {pendingPhotoFile.name}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => handlePhotoUpload()}
+            disabled={photoUploading}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+          >
+            {photoUploading ? "Uploading…" : "Upload photo"}
+          </button>
+          {photoMessage && <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   if (!authorized) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10 text-center text-sm text-[#7a7f54]">
@@ -1771,6 +2377,14 @@ export default function AdminScheduleEditorPage() {
                 className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
               >
                 Refresh
+              </button>
+              <button
+                type="button"
+                onClick={undoLastChange}
+                disabled={!undoStack.length}
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+              >
+                Undo
               </button>
               <button
                 type="button"
@@ -1950,11 +2564,13 @@ export default function AdminScheduleEditorPage() {
     canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
   }`}
 >
-        <div
-          className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
-  canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
-}`}
-        >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+          {taskDetailEditor}
+          <div
+            className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
+              canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
+            }`}
+          >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -2259,28 +2875,53 @@ export default function AdminScheduleEditorPage() {
                       <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
                     )}
                     {isSelected && cellExists && (
-                      <input
-                        list="task-options"
-                        value={customTask}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setCustomTask(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void handleCustomAdd();
-                          }
-                          if (e.key === "Escape") {
-                            setCustomTask("");
-                          }
-                        }}
-                        onBlur={() => {
-                          if (customTask.trim()) {
-                            void handleCustomAdd();
-                          }
-                        }}
-                        placeholder="Type task + Enter"
-                        className="w-full rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
-                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyCell();
+                            }}
+                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                          >
+                            Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePasteCell();
+                            }}
+                            disabled={!cellClipboard}
+                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] disabled:opacity-60"
+                          >
+                            Paste
+                          </button>
+                        </div>
+                        <input
+                          list="task-options"
+                          value={customTask}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setCustomTask(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleCustomAdd();
+                            }
+                            if (e.key === "Escape") {
+                              setCustomTask("");
+                            }
+                          }}
+                          onBlur={() => {
+                            if (customTask.trim()) {
+                              void handleCustomAdd();
+                            }
+                          }}
+                          placeholder="Type task + Enter"
+                          className="w-full rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] text-[#3f4630] focus:border-[#8fae4c] focus:outline-none"
+                        />
+                      </div>
                     )}
                   </>
                 )}
@@ -2308,8 +2949,8 @@ export default function AdminScheduleEditorPage() {
               <option key={name} value={name} />
             ))}
           </datalist>
-          {dayOverviewSummary && (
-            <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
+            {dayOverviewSummary && (
+              <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-[#314123]">Day overview</h3>
@@ -2355,8 +2996,9 @@ export default function AdminScheduleEditorPage() {
                             <li key={note}>{note}</li>
                           ))}
                         </ul>
-                      )}
-                    </div>
+            )}
+          </div>
+        </div>
                   ))
                 ) : (
                   <p className="text-sm text-[#7a7f54]">No tasks listed for this day yet.</p>
@@ -2736,135 +3378,6 @@ export default function AdminScheduleEditorPage() {
               </button>
             )}
 
-            {taskDetail && (
-              <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-3 shadow-md">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                      Task detail
-                    </p>
-                    <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
-                  </div>
-                  {taskDetailLoading && (
-                    <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                  {taskDetail.status && (
-                    <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                      {taskDetail.status}
-                    </span>
-                  )}
-                  {taskDetail.priority && (
-                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
-                      {taskDetail.priority} priority
-                    </span>
-                  )}
-                  <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-[#4b5133]">
-                    {taskDetail.recurring ? "Recurring" : "One-off"}
-                  </span>
-                  {taskDetail.taskType?.name && (
-                    <span className="rounded-full bg-[#f6f1dd] px-3 py-1 font-semibold text-[#4b5133]">
-                      {taskDetail.taskType.name}
-                    </span>
-                  )}
-                </div>
-                {(taskDetail.recurring || taskDetail.occurrenceDate) && (
-                  <p className="mt-2 text-[11px] text-[#6b6d4b]">
-                    {taskDetail.recurring
-                      ? taskDetail.parentTaskId
-                        ? "Recurring series • this occurrence"
-                        : "Recurring series"
-                      : "One-off task"}
-                    {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
-                  </p>
-                )}
-                {taskDetail.recurring && (
-                  <p className="mt-2 text-[11px] text-[#6b6d4b]">
-                    Tip: update just this occurrence to avoid changing the full series.
-                  </p>
-                )}
-
-                <div className="mt-3 space-y-3 text-sm text-[#4b5133]">
-                  <label className="space-y-1">
-                    <span className="text-[12px] font-semibold text-[#5f5a3b]">Description</span>
-                    <textarea
-                      value={taskEditDraft.description}
-                      onChange={(e) =>
-                        setTaskEditDraft((prev) => ({ ...prev, description: e.target.value }))
-                      }
-                      className="min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-[12px] font-semibold text-[#5f5a3b]">Extra notes</span>
-                    <textarea
-                      value={taskEditDraft.extraNotes}
-                      onChange={(e) =>
-                        setTaskEditDraft((prev) => ({ ...prev, extraNotes: e.target.value }))
-                      }
-                      className="min-h-[80px] w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                      placeholder="One note per line"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-[12px] font-semibold text-[#5f5a3b]">People needed</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={taskEditDraft.personCount}
-                      onChange={(e) =>
-                        setTaskEditDraft((prev) => ({ ...prev, personCount: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={saveTaskEdits}
-                    disabled={taskEditSaving}
-                    className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                  >
-                    {taskEditSaving ? "Saving…" : "Save basic updates"}
-                  </button>
-                  {taskEditMessage && (
-                    <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
-                  )}
-                  <Link
-                    href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
-                    className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
-                  >
-                    Open in task editor
-                  </Link>
-                </div>
-
-                <div className="mt-4 space-y-2 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
-                    Upload task photo (150kb max)
-                  </p>
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handlePhotoUpload}
-                    disabled={photoUploading}
-                    className="inline-flex items-center justify-center gap-2 rounded-md bg-[#8fae4c] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-                  >
-                    {photoUploading ? "Uploading…" : "Upload photo"}
-                  </button>
-                  {photoMessage && (
-                    <p className="text-[12px] text-[#4b5133]">{photoMessage}</p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

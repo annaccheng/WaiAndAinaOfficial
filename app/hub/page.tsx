@@ -97,6 +97,7 @@ type CommentAlert = {
 type CustomTable = {
   id: string;
   title: string;
+  scheduleDate?: string;
   columnHeaders: string[];
   rowHeaders: string[];
   cells: string[][];
@@ -133,6 +134,14 @@ function toIsoDateLabel(dateLabel?: string | null) {
   const [month, day, year] = dateLabel.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex) return list;
+  const next = [...list];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
 }
 
 function formatCommentTime(value?: string) {
@@ -238,6 +247,7 @@ export default function HubSchedulePage() {
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
   const [customTablesError, setCustomTablesError] = useState<string | null>(null);
   const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
+  const [customTablesAnchorDate, setCustomTablesAnchorDate] = useState<string | null>(null);
   const [requestedDate, setRequestedDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
@@ -272,6 +282,16 @@ export default function HubSchedulePage() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoDropActive, setPhotoDropActive] = useState(false);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [draggingColumn, setDraggingColumn] = useState<{ tableId: string; index: number } | null>(
+    null
+  );
+  const [draggingRow, setDraggingRow] = useState<{ tableId: string; index: number } | null>(
+    null
+  );
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -372,6 +392,7 @@ export default function HubSchedulePage() {
     return {
       id: String(table?.id ?? ""),
       title: String(table?.title ?? "Custom Table"),
+      scheduleDate: String(table?.scheduleDate ?? table?.schedule_date ?? ""),
       columnHeaders: sanitizedColumns,
       rowHeaders: sanitizedRows,
       cells: normalizedCells,
@@ -411,7 +432,6 @@ export default function HubSchedulePage() {
   const loadCustomTables = useCallback(
     async (dateLabel?: string | null) => {
       if (!dateLabel) {
-        setCustomTables([]);
         return;
       }
       const isoDate = toIsoDateLabel(dateLabel) || dateLabel;
@@ -424,7 +444,11 @@ export default function HubSchedulePage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const tables = Array.isArray(json.tables) ? json.tables : [];
-        setCustomTables(tables.map(normalizeCustomTable));
+        const normalized = tables.map(normalizeCustomTable);
+        setCustomTables(normalized);
+        if (normalized.length) {
+          setCustomTablesAnchorDate(normalized[0].scheduleDate || isoDate);
+        }
         setCustomTablesDirty({});
       } catch (err) {
         console.error("Failed to load custom tables:", err);
@@ -638,7 +662,7 @@ export default function HubSchedulePage() {
   function renderTextWithAnimalLinks(text: string): React.ReactNode {
     if (!text) return "";
     const parts: React.ReactNode[] = [];
-    const regex = /\[animal:([^\]]+)\]/gi;
+    const regex = /\[animal:([^\]]+)\]|\(([^)]+)\)\[([^\]]+)\]/gi;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -663,17 +687,33 @@ export default function HubSchedulePage() {
         parts.push(...renderPlain(before));
       }
 
-      const animalName = match[1].trim();
-      parts.push(
-        <button
-          key={`animal-${match.index}-${animalName}`}
-          type="button"
-          onClick={() => handleAnimalReference(animalName)}
-          className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
-        >
-          🐾 {animalName}
-        </button>
-      );
+      if (match[1]) {
+        const animalName = match[1].trim();
+        parts.push(
+          <button
+            key={`animal-${match.index}-${animalName}`}
+            type="button"
+            onClick={() => handleAnimalReference(animalName)}
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
+          >
+            🐾 {animalName}
+          </button>
+        );
+      } else if (match[2] && match[3]) {
+        const label = match[2].trim();
+        const url = match[3].trim();
+        parts.push(
+          <a
+            key={`link-${match.index}-${url}`}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
+          >
+            🔗 {label || url}
+          </a>
+        );
+      }
       lastIndex = regex.lastIndex;
     }
 
@@ -894,6 +934,15 @@ export default function HubSchedulePage() {
     []
   );
 
+  const moveCustomTable = useCallback((fromId: string, toId: string) => {
+    setCustomTables((prev) => {
+      const fromIndex = prev.findIndex((table) => table.id === fromId);
+      const toIndex = prev.findIndex((table) => table.id === toId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+      return reorderList(prev, fromIndex, toIndex);
+    });
+  }, []);
+
   const splitMultiValue = useCallback((value: string) => {
     return value
       .split(",")
@@ -902,8 +951,9 @@ export default function HubSchedulePage() {
   }, []);
 
   const handleAddCustomTable = useCallback(async () => {
-    if (!isAdmin || !scheduleDateLabel) return;
-    const isoDate = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    const anchorDate = customTablesAnchorDate || scheduleDateLabel;
+    if (!isAdmin || !anchorDate) return;
+    const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
     try {
       const res = await fetch("/api/schedule/custom-tables", {
         method: "POST",
@@ -914,12 +964,13 @@ export default function HubSchedulePage() {
       const json = await res.json();
       if (json?.table) {
         setCustomTables((prev) => [...prev, normalizeCustomTable(json.table)]);
+        setCustomTablesAnchorDate(isoDate);
       }
     } catch (err) {
       console.error("Failed to add custom table:", err);
       setCustomTablesError("Unable to add a custom table.");
     }
-  }, [isAdmin, normalizeCustomTable, scheduleDateLabel]);
+  }, [customTablesAnchorDate, isAdmin, normalizeCustomTable, scheduleDateLabel]);
 
   const handleSaveCustomTable = useCallback(
     async (table: CustomTable) => {
@@ -1814,6 +1865,7 @@ export default function HubSchedulePage() {
     const { quiet = false, occurrenceDate } = opts;
     const requestId = ++taskDetailsRequestRef.current;
     if (!quiet) setModalLoading(true);
+    setPendingPhotoFile(null);
 
     const applyDetails = (detail: TaskDetails) => {
       if (taskDetailsRequestRef.current !== requestId) return;
@@ -1958,7 +2010,7 @@ export default function HubSchedulePage() {
       setPhotoMessage("Select a task before uploading a photo.");
       return;
     }
-    const file = photoInputRef.current?.files?.[0];
+    const file = pendingPhotoFile || photoInputRef.current?.files?.[0];
     if (!file) {
       setPhotoMessage("Choose an image to upload.");
       return;
@@ -1991,6 +2043,7 @@ export default function HubSchedulePage() {
       if (photoInputRef.current) {
         photoInputRef.current.value = "";
       }
+      setPendingPhotoFile(null);
       await loadTaskDetails(modalDetails.name, { occurrenceDate: scheduleDateLabel });
     } catch (e) {
       console.error("Failed to upload photo:", e);
@@ -2051,6 +2104,8 @@ export default function HubSchedulePage() {
     setModalIsMeal(false);
     setCommentDraft("");
     setPhotoMessage(null);
+    setPendingPhotoFile(null);
+    setPhotoDropActive(false);
     setAnimalOverlay(null);
     setAnimalLookupError(null);
   }
@@ -2508,7 +2563,7 @@ export default function HubSchedulePage() {
                   )}
                   {!customTablesLoading && customTables.length === 0 && (
                     <p className="mt-3 text-sm text-[#7a7f54]">
-                      No custom tables yet for this schedule date.
+                      No custom tables yet.
                     </p>
                   )}
 
@@ -2525,20 +2580,46 @@ export default function HubSchedulePage() {
                         <div
                           key={table.id}
                           className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
+                          onDragOver={(event) => {
+                            if (!isAdmin || !draggingTableId) return;
+                            event.preventDefault();
+                          }}
+                          onDrop={(event) => {
+                            if (!isAdmin || !draggingTableId) return;
+                            event.preventDefault();
+                            if (draggingTableId === table.id) return;
+                            moveCustomTable(draggingTableId, table.id);
+                            setDraggingTableId(null);
+                          }}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             {isAdmin ? (
-                              <input
-                                value={table.title}
-                                onChange={(event) =>
-                                  updateCustomTableState(table.id, (prev) => ({
-                                    ...prev,
-                                    title: event.target.value,
-                                  }))
-                                }
-                                className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
-                                placeholder="Custom table title"
-                              />
+                              <div className="flex flex-1 items-center gap-2">
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={(event) => {
+                                    event.dataTransfer.effectAllowed = "move";
+                                    setDraggingTableId(table.id);
+                                  }}
+                                  onDragEnd={() => setDraggingTableId(null)}
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-1 text-xs font-semibold text-[#4b5133] shadow-sm"
+                                  aria-label="Drag to reorder table"
+                                >
+                                  ☰
+                                </button>
+                                <input
+                                  value={table.title}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      title: event.target.value,
+                                    }))
+                                  }
+                                  className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
+                                  placeholder="Custom table title"
+                                />
+                              </div>
                             ) : (
                               <h4 className="text-base font-semibold text-[#3b4224]">
                                 {table.title}
@@ -2677,9 +2758,45 @@ export default function HubSchedulePage() {
                                     <th
                                       key={`${table.id}-col-${colIdx}`}
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                      onDragOver={(event) => {
+                                        if (!isAdmin || !draggingColumn) return;
+                                        if (draggingColumn.tableId !== table.id) return;
+                                        event.preventDefault();
+                                      }}
+                                      onDrop={(event) => {
+                                        if (!isAdmin || !draggingColumn) return;
+                                        if (draggingColumn.tableId !== table.id) return;
+                                        event.preventDefault();
+                                        if (draggingColumn.index === colIdx) return;
+                                        updateCustomTableState(table.id, (prev) => ({
+                                          ...prev,
+                                          columnHeaders: reorderList(
+                                            prev.columnHeaders,
+                                            draggingColumn.index,
+                                            colIdx
+                                          ),
+                                          cells: prev.cells.map((row) =>
+                                            reorderList(row, draggingColumn.index, colIdx)
+                                          ),
+                                        }));
+                                        setDraggingColumn(null);
+                                      }}
                                     >
                                       {isAdmin ? (
                                         <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            draggable
+                                            onDragStart={(event) => {
+                                              event.dataTransfer.effectAllowed = "move";
+                                              setDraggingColumn({ tableId: table.id, index: colIdx });
+                                            }}
+                                            onDragEnd={() => setDraggingColumn(null)}
+                                            className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                                            aria-label={`Drag column ${colIdx + 1}`}
+                                          >
+                                            ☰
+                                          </button>
                                           {columnHeaderType === "text" ? (
                                             <input
                                               value={header}
@@ -2796,9 +2913,45 @@ export default function HubSchedulePage() {
                               <tbody>
                                 {table.rowHeaders.map((rowHeader, rowIdx) => (
                                   <tr key={`${table.id}-row-${rowIdx}`}>
-                                    <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                    <th
+                                      className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                      onDragOver={(event) => {
+                                        if (!isAdmin || !draggingRow) return;
+                                        if (draggingRow.tableId !== table.id) return;
+                                        event.preventDefault();
+                                      }}
+                                      onDrop={(event) => {
+                                        if (!isAdmin || !draggingRow) return;
+                                        if (draggingRow.tableId !== table.id) return;
+                                        event.preventDefault();
+                                        if (draggingRow.index === rowIdx) return;
+                                        updateCustomTableState(table.id, (prev) => ({
+                                          ...prev,
+                                          rowHeaders: reorderList(
+                                            prev.rowHeaders,
+                                            draggingRow.index,
+                                            rowIdx
+                                          ),
+                                          cells: reorderList(prev.cells, draggingRow.index, rowIdx),
+                                        }));
+                                        setDraggingRow(null);
+                                      }}
+                                    >
                                       {isAdmin ? (
                                         <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            draggable
+                                            onDragStart={(event) => {
+                                              event.dataTransfer.effectAllowed = "move";
+                                              setDraggingRow({ tableId: table.id, index: rowIdx });
+                                            }}
+                                            onDragEnd={() => setDraggingRow(null)}
+                                            className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                                            aria-label={`Drag row ${rowIdx + 1}`}
+                                          >
+                                            ☰
+                                          </button>
                                           {rowHeaderType === "text" ? (
                                             <input
                                               value={rowHeader}
@@ -3391,12 +3544,43 @@ export default function HubSchedulePage() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <div
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setPhotoDropActive(true);
+                      }}
+                      onDragLeave={() => setPhotoDropActive(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setPhotoDropActive(false);
+                        const file = event.dataTransfer.files?.[0];
+                        if (file) {
+                          setPendingPhotoFile(file);
+                          setPhotoMessage(`Ready to upload ${file.name}.`);
+                        }
+                      }}
+                      className={`rounded-md border-2 border-dashed px-3 py-4 text-center text-[12px] ${
+                        photoDropActive
+                          ? "border-[#8fae4c] bg-white text-[#4b5133]"
+                          : "border-[#d0c9a4] bg-white/80 text-[#7a7f54]"
+                      }`}
+                    >
+                      Drag & drop a photo here, or choose a file below.
+                    </div>
                     <input
                       ref={photoInputRef}
                       type="file"
                       accept="image/*"
+                      onChange={(event) =>
+                        setPendingPhotoFile(event.target.files?.[0] || null)
+                      }
                       className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3f3c2d] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c]"
                     />
+                    {pendingPhotoFile && (
+                      <p className="text-[11px] text-[#4b5133]">
+                        Selected: {pendingPhotoFile.name}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={handleTaskPhotoUpload}

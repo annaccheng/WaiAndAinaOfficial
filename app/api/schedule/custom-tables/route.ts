@@ -61,7 +61,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+    let data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       query: {
         select:
           "id,title,schedule_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
@@ -69,6 +69,28 @@ export async function GET(req: Request) {
         order: "created_at.asc",
       },
     });
+    if (!data.length) {
+      const [latest] = await supabaseRequest<Pick<CustomTableRow, "schedule_date">[]>(
+        TABLE_NAME,
+        {
+          query: {
+            select: "schedule_date",
+            order: "schedule_date.desc",
+            limit: 1,
+          },
+        }
+      );
+      if (latest?.schedule_date) {
+        data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+          query: {
+            select:
+              "id,title,schedule_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
+            schedule_date: `eq.${latest.schedule_date}`,
+            order: "created_at.asc",
+          },
+        });
+      }
+    }
     return NextResponse.json({ tables: (data || []).map(mapTable) });
   } catch (err) {
     console.error("Failed to load custom tables:", err);
