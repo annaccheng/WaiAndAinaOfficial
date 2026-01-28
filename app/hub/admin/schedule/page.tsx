@@ -258,6 +258,7 @@ export default function AdminScheduleEditorPage() {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [cellClipboard, setCellClipboard] = useState<CellContent | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
 
   const formatDateInput = (value: string) => {
     if (!value) return "";
@@ -759,6 +760,7 @@ export default function AdminScheduleEditorPage() {
       if (next.length <= MAX_UNDO_ENTRIES) return next;
       return next.slice(next.length - MAX_UNDO_ENTRIES);
     });
+    setRedoStack([]);
   }, []);
 
   const persistCell = useCallback(
@@ -831,6 +833,11 @@ export default function AdminScheduleEditorPage() {
     if (!scheduleData || !undoStack.length) return;
     const last = undoStack[undoStack.length - 1];
     setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => {
+      const next = [...prev, last];
+      if (next.length <= MAX_UNDO_ENTRIES) return next;
+      return next.slice(next.length - MAX_UNDO_ENTRIES);
+    });
     const nextCells = scheduleData.cells.map((row) =>
       row.map((cell) => cloneCellContent(cell))
     );
@@ -846,6 +853,31 @@ export default function AdminScheduleEditorPage() {
       last.changes.map((change) => persistCell(change.person, change.slotId, change.previous))
     );
   }, [findCoord, persistCell, scheduleData, undoStack]);
+
+  const redoLastChange = useCallback(async () => {
+    if (!scheduleData || !redoStack.length) return;
+    const last = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => {
+      const next = [...prev, last];
+      if (next.length <= MAX_UNDO_ENTRIES) return next;
+      return next.slice(next.length - MAX_UNDO_ENTRIES);
+    });
+    const nextCells = scheduleData.cells.map((row) =>
+      row.map((cell) => cloneCellContent(cell))
+    );
+
+    last.changes.forEach((change) => {
+      const coord = findCoord(change.person, change.slotId, scheduleData);
+      if (!coord) return;
+      nextCells[coord.row][coord.col] = cloneCellContent(change.next);
+    });
+
+    setScheduleData({ ...scheduleData, cells: nextCells });
+    await Promise.all(
+      last.changes.map((change) => persistCell(change.person, change.slotId, change.next))
+    );
+  }, [findCoord, persistCell, redoStack, scheduleData]);
 
   const createQuickTask = useCallback(async () => {
     if (!quickTaskName.trim() || !selectedDate) return;
@@ -1362,6 +1394,63 @@ export default function AdminScheduleEditorPage() {
     setScheduleData({ ...scheduleData, cells: nextCells });
     persistCell(selectedCell.person, selectedCell.slotId, nextContent);
   }, [cellClipboard, findCoord, persistCell, pushUndoEntry, scheduleData, selectedCell]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      if (!modifierPressed) return;
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        if (event.shiftKey) {
+          redoLastChange();
+        } else {
+          undoLastChange();
+        }
+        event.preventDefault();
+        return;
+      }
+      if (key === "y") {
+        redoLastChange();
+        event.preventDefault();
+        return;
+      }
+      if (key === "c" && selectedCell) {
+        handleCopyCell();
+        event.preventDefault();
+        return;
+      }
+      if (key === "v" && selectedCell && cellClipboard) {
+        handlePasteCell();
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    cellClipboard,
+    handleCopyCell,
+    handlePasteCell,
+    redoLastChange,
+    selectedCell,
+    undoLastChange,
+  ]);
 
   const toggleBlackoutCell = useCallback(
     async (person: string, slot: Slot, nextBlocked: boolean) => {
@@ -2385,6 +2474,14 @@ export default function AdminScheduleEditorPage() {
                 className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
               >
                 Undo
+              </button>
+              <button
+                type="button"
+                onClick={redoLastChange}
+                disabled={!redoStack.length}
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+              >
+                Redo
               </button>
               <button
                 type="button"
