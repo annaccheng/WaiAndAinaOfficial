@@ -9,6 +9,8 @@ type CustomTableRow = {
   id: string;
   title: string;
   schedule_date: string;
+  visible_start_date?: string | null;
+  visible_end_date?: string | null;
   row_headers: string[] | null;
   column_headers: string[] | null;
   cells: string[][] | null;
@@ -39,6 +41,8 @@ function mapTable(row: CustomTableRow) {
     id: row.id,
     title: row.title,
     scheduleDate: row.schedule_date,
+    visibleStart: row.visible_start_date ?? row.schedule_date,
+    visibleEnd: row.visible_end_date ?? row.schedule_date,
     rowHeaders: row.row_headers || [],
     columnHeaders: row.column_headers || [],
     cells: row.cells || [],
@@ -61,14 +65,36 @@ export async function GET(req: Request) {
   }
 
   try {
-    const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+    let data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       query: {
         select:
-          "id,title,schedule_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
+          "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
         schedule_date: `eq.${scheduleDate}`,
         order: "created_at.asc",
       },
     });
+    if (!data.length) {
+      const [latest] = await supabaseRequest<Pick<CustomTableRow, "schedule_date">[]>(
+        TABLE_NAME,
+        {
+          query: {
+            select: "schedule_date",
+            order: "schedule_date.desc",
+            limit: 1,
+          },
+        }
+      );
+      if (latest?.schedule_date) {
+        data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+          query: {
+            select:
+              "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
+            schedule_date: `eq.${latest.schedule_date}`,
+            order: "created_at.asc",
+          },
+        });
+      }
+    }
     return NextResponse.json({ tables: (data || []).map(mapTable) });
   } catch (err) {
     console.error("Failed to load custom tables:", err);
@@ -87,6 +113,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const scheduleDate = toIsoDate(body?.scheduleDate);
   const title = String(body?.title || "Custom Table");
+  const visibleStart = toIsoDate(body?.visibleStart) || scheduleDate;
+  const visibleEnd = toIsoDate(body?.visibleEnd) || scheduleDate;
 
   if (!scheduleDate) {
     return NextResponse.json({ error: "Missing schedule date" }, { status: 400 });
@@ -103,6 +131,8 @@ export async function POST(req: Request) {
       body: {
         schedule_date: scheduleDate,
         title,
+        visible_start_date: visibleStart,
+        visible_end_date: visibleEnd,
         row_headers: rowHeaders,
         column_headers: columnHeaders,
         cells,
@@ -137,6 +167,14 @@ export async function PATCH(req: Request) {
   if (typeof body?.title === "string") {
     updates.title = body.title;
   }
+  if (typeof body?.visibleStart === "string" || body?.visibleStart === null) {
+    const parsed = toIsoDate(body.visibleStart);
+    updates.visible_start_date = parsed ?? null;
+  }
+  if (typeof body?.visibleEnd === "string" || body?.visibleEnd === null) {
+    const parsed = toIsoDate(body.visibleEnd);
+    updates.visible_end_date = parsed ?? null;
+  }
   if (Array.isArray(body?.rowHeaders)) {
     updates.row_headers = body.rowHeaders;
   }
@@ -166,5 +204,31 @@ export async function PATCH(req: Request) {
   } catch (err) {
     console.error("Failed to update custom table:", err);
     return NextResponse.json({ error: "Unable to update custom table" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { error: "Supabase is not configured for schedule tables yet." },
+      { status: 503 }
+    );
+  }
+
+  const { searchParams } = new URL(req.url);
+  const id = String(searchParams.get("id") || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "Missing table id" }, { status: 400 });
+  }
+
+  try {
+    await supabaseRequest(TABLE_NAME, {
+      method: "DELETE",
+      query: { id: `eq.${id}` },
+    });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to delete custom table:", err);
+    return NextResponse.json({ error: "Unable to delete custom table" }, { status: 500 });
   }
 }

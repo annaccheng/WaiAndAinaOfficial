@@ -97,6 +97,9 @@ type CommentAlert = {
 type CustomTable = {
   id: string;
   title: string;
+  scheduleDate?: string;
+  visibleStart?: string | null;
+  visibleEnd?: string | null;
   columnHeaders: string[];
   rowHeaders: string[];
   cells: string[][];
@@ -133,6 +136,14 @@ function toIsoDateLabel(dateLabel?: string | null) {
   const [month, day, year] = dateLabel.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex) return list;
+  const next = [...list];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
 }
 
 function formatCommentTime(value?: string) {
@@ -238,8 +249,10 @@ export default function HubSchedulePage() {
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
   const [customTablesError, setCustomTablesError] = useState<string | null>(null);
   const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
+  const [customTablesAnchorDate, setCustomTablesAnchorDate] = useState<string | null>(null);
   const [requestedDate, setRequestedDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
+  const [customTablesDeleting, setCustomTablesDeleting] = useState<string | null>(null);
   const scheduleScrollRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -247,6 +260,7 @@ export default function HubSchedulePage() {
   const [taskTypes, setTaskTypes] = useState<TaskTypeOption[]>([]);
   const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
   const [viewMode, setViewMode] = useState<"tasks" | "schedule">("tasks");
+  const [adminViewAsVolunteer, setAdminViewAsVolunteer] = useState(false);
   const scheduleFetchInFlight = useRef(false);
   const scheduleLastFetchAt = useRef(0);
   const scheduleRefreshIntervalMs = 120_000;
@@ -272,6 +286,16 @@ export default function HubSchedulePage() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoDropActive, setPhotoDropActive] = useState(false);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [draggingColumn, setDraggingColumn] = useState<{ tableId: string; index: number } | null>(
+    null
+  );
+  const [draggingRow, setDraggingRow] = useState<{ tableId: string; index: number } | null>(
+    null
+  );
 
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [animalsLoaded, setAnimalsLoaded] = useState(false);
@@ -349,6 +373,7 @@ export default function HubSchedulePage() {
     if (requestedDate) return requestedDate;
     return toIsoDateLabel(scheduleDateLabel) || "";
   }, [requestedDate, scheduleDateLabel]);
+  const scheduleDateIso = scheduleDateInputValue || toIsoDateLabel(scheduleDateLabel) || "";
 
   const normalizeCustomTable = useCallback((table: any): CustomTable => {
     const columnHeaders = Array.isArray(table?.columnHeaders)
@@ -368,10 +393,25 @@ export default function HubSchedulePage() {
       const row = Array.isArray(rawCells[rowIdx]) ? rawCells[rowIdx] : [];
       return sanitizedColumns.map((_header: string, colIdx: number) => String(row[colIdx] ?? ""));
     });
+    const hasVisibilityDates =
+      table?.visibleStart !== undefined ||
+      table?.visibleEnd !== undefined ||
+      table?.visible_start_date !== undefined ||
+      table?.visible_end_date !== undefined;
+    const fallbackDate = String(table?.scheduleDate ?? table?.schedule_date ?? "");
+    const visibleStart = hasVisibilityDates
+      ? String(table?.visibleStart ?? table?.visible_start_date ?? "")
+      : fallbackDate;
+    const visibleEnd = hasVisibilityDates
+      ? String(table?.visibleEnd ?? table?.visible_end_date ?? "")
+      : fallbackDate;
 
     return {
       id: String(table?.id ?? ""),
       title: String(table?.title ?? "Custom Table"),
+      scheduleDate: String(table?.scheduleDate ?? table?.schedule_date ?? ""),
+      visibleStart,
+      visibleEnd,
       columnHeaders: sanitizedColumns,
       rowHeaders: sanitizedRows,
       cells: normalizedCells,
@@ -408,10 +448,20 @@ export default function HubSchedulePage() {
     };
   }, []);
 
+  const visibleCustomTables = useMemo(() => {
+    if (!scheduleDateIso) return customTables;
+    return customTables.filter((table) => {
+      const start = table.visibleStart || "";
+      const end = table.visibleEnd || "";
+      if (start && scheduleDateIso < start) return false;
+      if (end && scheduleDateIso > end) return false;
+      return true;
+    });
+  }, [customTables, scheduleDateIso]);
+
   const loadCustomTables = useCallback(
     async (dateLabel?: string | null) => {
       if (!dateLabel) {
-        setCustomTables([]);
         return;
       }
       const isoDate = toIsoDateLabel(dateLabel) || dateLabel;
@@ -424,7 +474,11 @@ export default function HubSchedulePage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const tables = Array.isArray(json.tables) ? json.tables : [];
-        setCustomTables(tables.map(normalizeCustomTable));
+        const normalized = tables.map(normalizeCustomTable);
+        setCustomTables(normalized);
+        if (normalized.length) {
+          setCustomTablesAnchorDate(normalized[0].scheduleDate || isoDate);
+        }
         setCustomTablesDirty({});
       } catch (err) {
         console.error("Failed to load custom tables:", err);
@@ -638,7 +692,7 @@ export default function HubSchedulePage() {
   function renderTextWithAnimalLinks(text: string): React.ReactNode {
     if (!text) return "";
     const parts: React.ReactNode[] = [];
-    const regex = /\[animal:([^\]]+)\]/gi;
+    const regex = /\[animal:([^\]]+)\]|\(([^)]+)\)\[([^\]]+)\]/gi;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -663,17 +717,33 @@ export default function HubSchedulePage() {
         parts.push(...renderPlain(before));
       }
 
-      const animalName = match[1].trim();
-      parts.push(
-        <button
-          key={`animal-${match.index}-${animalName}`}
-          type="button"
-          onClick={() => handleAnimalReference(animalName)}
-          className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
-        >
-          🐾 {animalName}
-        </button>
-      );
+      if (match[1]) {
+        const animalName = match[1].trim();
+        parts.push(
+          <button
+            key={`animal-${match.index}-${animalName}`}
+            type="button"
+            onClick={() => handleAnimalReference(animalName)}
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
+          >
+            🐾 {animalName}
+          </button>
+        );
+      } else if (match[2] && match[3]) {
+        const label = match[2].trim();
+        const url = match[3].trim();
+        parts.push(
+          <a
+            key={`link-${match.index}-${url}`}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfd7b0] bg-[#f6f2de] px-2 py-0.5 text-[12px] font-semibold text-[#2f5ba0] underline underline-offset-2 hover:bg-[#ecf3d4]"
+          >
+            🔗 {label || url}
+          </a>
+        );
+      }
       lastIndex = regex.lastIndex;
     }
 
@@ -894,6 +964,15 @@ export default function HubSchedulePage() {
     []
   );
 
+  const moveCustomTable = useCallback((fromId: string, toId: string) => {
+    setCustomTables((prev) => {
+      const fromIndex = prev.findIndex((table) => table.id === fromId);
+      const toIndex = prev.findIndex((table) => table.id === toId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+      return reorderList(prev, fromIndex, toIndex);
+    });
+  }, []);
+
   const splitMultiValue = useCallback((value: string) => {
     return value
       .split(",")
@@ -902,24 +981,30 @@ export default function HubSchedulePage() {
   }, []);
 
   const handleAddCustomTable = useCallback(async () => {
-    if (!isAdmin || !scheduleDateLabel) return;
-    const isoDate = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    const anchorDate = customTablesAnchorDate || scheduleDateLabel;
+    if (!isAdmin || !anchorDate) return;
+    const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
     try {
       const res = await fetch("/api/schedule/custom-tables", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleDate: isoDate }),
+        body: JSON.stringify({
+          scheduleDate: isoDate,
+          visibleStart: isoDate,
+          visibleEnd: isoDate,
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json?.table) {
         setCustomTables((prev) => [...prev, normalizeCustomTable(json.table)]);
+        setCustomTablesAnchorDate(isoDate);
       }
     } catch (err) {
       console.error("Failed to add custom table:", err);
       setCustomTablesError("Unable to add a custom table.");
     }
-  }, [isAdmin, normalizeCustomTable, scheduleDateLabel]);
+  }, [customTablesAnchorDate, isAdmin, normalizeCustomTable, scheduleDateLabel]);
 
   const handleSaveCustomTable = useCallback(
     async (table: CustomTable) => {
@@ -938,6 +1023,8 @@ export default function HubSchedulePage() {
             rowHeaderType: table.rowHeaderType,
             columnHeaderType: table.columnHeaderType,
             cellType: table.cellType,
+            visibleStart: table.visibleStart || null,
+            visibleEnd: table.visibleEnd || null,
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -947,6 +1034,38 @@ export default function HubSchedulePage() {
         setCustomTablesError("Unable to save custom table.");
       } finally {
         setCustomTablesSaving((prev) => ({ ...prev, [table.id]: false }));
+      }
+    },
+    [isAdmin]
+  );
+
+  const handleDeleteCustomTable = useCallback(
+    async (tableId: string) => {
+      if (!isAdmin) return;
+      const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
+      if (!confirmed) return;
+      setCustomTablesDeleting(tableId);
+      try {
+        const res = await fetch(`/api/schedule/custom-tables?id=${encodeURIComponent(tableId)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setCustomTables((prev) => prev.filter((table) => table.id !== tableId));
+        setCustomTablesDirty((prev) => {
+          const next = { ...prev };
+          delete next[tableId];
+          return next;
+        });
+        setCustomTablesSaving((prev) => {
+          const next = { ...prev };
+          delete next[tableId];
+          return next;
+        });
+      } catch (err) {
+        console.error("Failed to delete custom table:", err);
+        setCustomTablesError("Unable to delete custom table.");
+      } finally {
+        setCustomTablesDeleting(null);
       }
     },
     [isAdmin]
@@ -1150,7 +1269,7 @@ export default function HubSchedulePage() {
   }, [data, weekdayWorkSlots]);
 
   const showStandardSection = true;
-  const basicOnly = false;
+  const basicOnly = adminViewAsVolunteer;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -1814,6 +1933,7 @@ export default function HubSchedulePage() {
     const { quiet = false, occurrenceDate } = opts;
     const requestId = ++taskDetailsRequestRef.current;
     if (!quiet) setModalLoading(true);
+    setPendingPhotoFile(null);
 
     const applyDetails = (detail: TaskDetails) => {
       if (taskDetailsRequestRef.current !== requestId) return;
@@ -1958,7 +2078,7 @@ export default function HubSchedulePage() {
       setPhotoMessage("Select a task before uploading a photo.");
       return;
     }
-    const file = photoInputRef.current?.files?.[0];
+    const file = pendingPhotoFile || photoInputRef.current?.files?.[0];
     if (!file) {
       setPhotoMessage("Choose an image to upload.");
       return;
@@ -1991,6 +2111,7 @@ export default function HubSchedulePage() {
       if (photoInputRef.current) {
         photoInputRef.current.value = "";
       }
+      setPendingPhotoFile(null);
       await loadTaskDetails(modalDetails.name, { occurrenceDate: scheduleDateLabel });
     } catch (e) {
       console.error("Failed to upload photo:", e);
@@ -2051,6 +2172,8 @@ export default function HubSchedulePage() {
     setModalIsMeal(false);
     setCommentDraft("");
     setPhotoMessage(null);
+    setPendingPhotoFile(null);
+    setPhotoDropActive(false);
     setAnimalOverlay(null);
     setAnimalLookupError(null);
   }
@@ -2072,76 +2195,15 @@ export default function HubSchedulePage() {
     return (
       <div className="space-y-8">
         {isAdmin && (
-          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
-                Admin debug console
-              </p>
-              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
-                Admin only
-              </span>
-            </div>
-            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
-                Diagnostics
-              </p>
-              <ul className="list-disc space-y-1 pl-4">
-                {!currentUserName && (
-                  <li>No session detected. Schedule requests will be anonymous.</li>
-                )}
-                {loading && !data && !error && (
-                  <li>Initial schedule load is still in flight.</li>
-                )}
-                {error && (
-                  <li>Schedule request failed: {error}</li>
-                )}
-                {data?.message && (
-                  <li>{data.message}</li>
-                )}
-                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
-                  <li>
-                    Schedule response is empty. This typically means the schedule date has no
-                    entries or Supabase access is blocked.
-                  </li>
-                )}
-                {scheduleFetchInFlight.current && (
-                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
-                )}
-                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
-                  <li>
-                    Last fetch completed at{" "}
-                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
-                  </li>
-                )}
-                {!scheduleLastFetchAt.current && (
-                  <li>No successful schedule fetch recorded yet.</li>
-                )}
-                {scheduleDateLabel && (
-                  <li>Active schedule date: {scheduleDateLabel}.</li>
-                )}
-              </ul>
-            </div>
-            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
-              {JSON.stringify(
-                {
-                  user: currentUserName,
-                  scheduleDateLabel,
-                  loading,
-                  error,
-                  scheduleMessage: data?.message || null,
-                  peopleCount: data?.people?.length ?? 0,
-                  slotCount: data?.slots?.length ?? 0,
-                  hasData: Boolean(data),
-                  fetchInFlight: scheduleFetchInFlight.current,
-                  lastFetchAt: scheduleLastFetchAt.current
-                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
-                    : null,
-                },
-                null,
-                2
-              )}
-            </pre>
-          </section>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setAdminViewAsVolunteer(false)}
+              className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+            >
+              Exit volunteer view
+            </button>
+          </div>
         )}
         <section className="space-y-3 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
           <div>
@@ -2258,76 +2320,15 @@ export default function HubSchedulePage() {
     <>
       <div className="space-y-8">
         {isAdmin && (
-          <section className="rounded-lg border border-[#d0c9a4] bg-white/90 px-4 py-3 text-xs text-[#4b5133] shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d7f3b]">
-                Admin debug console
-              </p>
-              <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
-                Admin only
-              </span>
-            </div>
-            <div className="mt-2 space-y-2 text-[11px] text-[#4b5133]">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a7f54]">
-                Diagnostics
-              </p>
-              <ul className="list-disc space-y-1 pl-4">
-                {!currentUserName && (
-                  <li>No session detected. Schedule requests will be anonymous.</li>
-                )}
-                {loading && !data && !error && (
-                  <li>Initial schedule load is still in flight.</li>
-                )}
-                {error && (
-                  <li>Schedule request failed: {error}</li>
-                )}
-                {data?.message && (
-                  <li>{data.message}</li>
-                )}
-                {data && data.people?.length === 0 && data.slots?.length === 0 && !data?.message && (
-                  <li>
-                    Schedule response is empty. This typically means the schedule date has no
-                    entries or Supabase access is blocked.
-                  </li>
-                )}
-                {scheduleFetchInFlight.current && (
-                  <li>Fetch is flagged as in-flight; repeated refreshes may be happening.</li>
-                )}
-                {!scheduleFetchInFlight.current && scheduleLastFetchAt.current && (
-                  <li>
-                    Last fetch completed at{" "}
-                    {new Date(scheduleLastFetchAt.current).toLocaleTimeString()}.
-                  </li>
-                )}
-                {!scheduleLastFetchAt.current && (
-                  <li>No successful schedule fetch recorded yet.</li>
-                )}
-                {scheduleDateLabel && (
-                  <li>Active schedule date: {scheduleDateLabel}.</li>
-                )}
-              </ul>
-            </div>
-            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[#f8f6e8] p-3 text-[11px] text-[#3f4630]">
-              {JSON.stringify(
-                {
-                  user: currentUserName,
-                  scheduleDateLabel,
-                  loading,
-                  error,
-                  scheduleMessage: data?.message || null,
-                  peopleCount: data?.people?.length ?? 0,
-                  slotCount: data?.slots?.length ?? 0,
-                  hasData: Boolean(data),
-                  fetchInFlight: scheduleFetchInFlight.current,
-                  lastFetchAt: scheduleLastFetchAt.current
-                    ? new Date(scheduleLastFetchAt.current).toLocaleTimeString()
-                    : null,
-                },
-                null,
-                2
-              )}
-            </pre>
-          </section>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setAdminViewAsVolunteer(true)}
+              className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
+            >
+              View as volunteer
+            </button>
+          </div>
         )}
         {!loading && data?.message && !hasWeekdayScheduleContent && (
             <div className="rounded-lg border border-[#e4dcb8] bg-white/80 px-4 py-3 text-sm text-[#6a6748]">
@@ -2477,7 +2478,7 @@ export default function HubSchedulePage() {
                 </div>
 
                 <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                  {isAdmin && (
+                  {isAdmin && !adminViewAsVolunteer && (
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-[#3b4224]">
@@ -2506,16 +2507,17 @@ export default function HubSchedulePage() {
                   {customTablesError && (
                     <p className="mt-3 text-sm text-red-700">{customTablesError}</p>
                   )}
-                  {!customTablesLoading && customTables.length === 0 && (
+                  {!customTablesLoading && visibleCustomTables.length === 0 && (
                     <p className="mt-3 text-sm text-[#7a7f54]">
-                      No custom tables yet for this schedule date.
+                      No custom tables available for this date.
                     </p>
                   )}
 
                   <div className="mt-4 space-y-4">
-                    {customTables.map((table) => {
+                    {visibleCustomTables.map((table) => {
                       const isSaving = Boolean(customTablesSaving[table.id]);
                       const isDirty = Boolean(customTablesDirty[table.id]);
+                      const isDeleting = customTablesDeleting === table.id;
                       const rowHeaderType = table.rowHeaderType;
                       const columnHeaderType = table.columnHeaderType;
                       const cellType = table.cellType;
@@ -2525,20 +2527,46 @@ export default function HubSchedulePage() {
                         <div
                           key={table.id}
                           className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
+                          onDragOver={(event) => {
+                            if (!isAdmin || !draggingTableId) return;
+                            event.preventDefault();
+                          }}
+                          onDrop={(event) => {
+                            if (!isAdmin || !draggingTableId) return;
+                            event.preventDefault();
+                            if (draggingTableId === table.id) return;
+                            moveCustomTable(draggingTableId, table.id);
+                            setDraggingTableId(null);
+                          }}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             {isAdmin ? (
-                              <input
-                                value={table.title}
-                                onChange={(event) =>
-                                  updateCustomTableState(table.id, (prev) => ({
-                                    ...prev,
-                                    title: event.target.value,
-                                  }))
-                                }
-                                className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
-                                placeholder="Custom table title"
-                              />
+                              <div className="flex flex-1 items-center gap-2">
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={(event) => {
+                                    event.dataTransfer.effectAllowed = "move";
+                                    setDraggingTableId(table.id);
+                                  }}
+                                  onDragEnd={() => setDraggingTableId(null)}
+                                  className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-1 text-xs font-semibold text-[#4b5133] shadow-sm"
+                                  aria-label="Drag to reorder table"
+                                >
+                                  ☰
+                                </button>
+                                <input
+                                  value={table.title}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      title: event.target.value,
+                                    }))
+                                  }
+                                  className="min-w-[200px] flex-1 rounded-md border border-[#d0c9a4] bg-white/90 px-3 py-2 text-sm font-semibold text-[#3b4224]"
+                                  placeholder="Custom table title"
+                                />
+                              </div>
                             ) : (
                               <h4 className="text-base font-semibold text-[#3b4224]">
                                 {table.title}
@@ -2593,12 +2621,52 @@ export default function HubSchedulePage() {
                                       ? "Save Table"
                                       : "Saved"}
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomTable(table.id)}
+                                  disabled={isDeleting}
+                                  className="rounded-full border border-red-200 bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isDeleting ? "Deleting…" : "Delete"}
+                                </button>
                               </div>
                             )}
                           </div>
 
                           {isAdmin && (
                             <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Visible from
+                                </span>
+                                <input
+                                  type="date"
+                                  value={table.visibleStart || ""}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      visibleStart: event.target.value,
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                />
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-[0.12em]">
+                                  Visible until
+                                </span>
+                                <input
+                                  type="date"
+                                  value={table.visibleEnd || ""}
+                                  onChange={(event) =>
+                                    updateCustomTableState(table.id, (prev) => ({
+                                      ...prev,
+                                      visibleEnd: event.target.value,
+                                    }))
+                                  }
+                                  className="rounded-full border border-[#d0c9a4] bg-white/90 px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
+                                />
+                              </label>
                               <label className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-[0.12em]">
                                   Row headers
@@ -2677,9 +2745,45 @@ export default function HubSchedulePage() {
                                     <th
                                       key={`${table.id}-col-${colIdx}`}
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                      onDragOver={(event) => {
+                                        if (!isAdmin || !draggingColumn) return;
+                                        if (draggingColumn.tableId !== table.id) return;
+                                        event.preventDefault();
+                                      }}
+                                      onDrop={(event) => {
+                                        if (!isAdmin || !draggingColumn) return;
+                                        if (draggingColumn.tableId !== table.id) return;
+                                        event.preventDefault();
+                                        if (draggingColumn.index === colIdx) return;
+                                        updateCustomTableState(table.id, (prev) => ({
+                                          ...prev,
+                                          columnHeaders: reorderList(
+                                            prev.columnHeaders,
+                                            draggingColumn.index,
+                                            colIdx
+                                          ),
+                                          cells: prev.cells.map((row) =>
+                                            reorderList(row, draggingColumn.index, colIdx)
+                                          ),
+                                        }));
+                                        setDraggingColumn(null);
+                                      }}
                                     >
                                       {isAdmin ? (
                                         <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            draggable
+                                            onDragStart={(event) => {
+                                              event.dataTransfer.effectAllowed = "move";
+                                              setDraggingColumn({ tableId: table.id, index: colIdx });
+                                            }}
+                                            onDragEnd={() => setDraggingColumn(null)}
+                                            className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                                            aria-label={`Drag column ${colIdx + 1}`}
+                                          >
+                                            ☰
+                                          </button>
                                           {columnHeaderType === "text" ? (
                                             <input
                                               value={header}
@@ -2796,9 +2900,45 @@ export default function HubSchedulePage() {
                               <tbody>
                                 {table.rowHeaders.map((rowHeader, rowIdx) => (
                                   <tr key={`${table.id}-row-${rowIdx}`}>
-                                    <th className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                                    <th
+                                      className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
+                                      onDragOver={(event) => {
+                                        if (!isAdmin || !draggingRow) return;
+                                        if (draggingRow.tableId !== table.id) return;
+                                        event.preventDefault();
+                                      }}
+                                      onDrop={(event) => {
+                                        if (!isAdmin || !draggingRow) return;
+                                        if (draggingRow.tableId !== table.id) return;
+                                        event.preventDefault();
+                                        if (draggingRow.index === rowIdx) return;
+                                        updateCustomTableState(table.id, (prev) => ({
+                                          ...prev,
+                                          rowHeaders: reorderList(
+                                            prev.rowHeaders,
+                                            draggingRow.index,
+                                            rowIdx
+                                          ),
+                                          cells: reorderList(prev.cells, draggingRow.index, rowIdx),
+                                        }));
+                                        setDraggingRow(null);
+                                      }}
+                                    >
                                       {isAdmin ? (
                                         <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            draggable
+                                            onDragStart={(event) => {
+                                              event.dataTransfer.effectAllowed = "move";
+                                              setDraggingRow({ tableId: table.id, index: rowIdx });
+                                            }}
+                                            onDragEnd={() => setDraggingRow(null)}
+                                            className="rounded-full border border-[#d0c9a4] bg-white/80 px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                                            aria-label={`Drag row ${rowIdx + 1}`}
+                                          >
+                                            ☰
+                                          </button>
                                           {rowHeaderType === "text" ? (
                                             <input
                                               value={rowHeader}
@@ -3391,12 +3531,43 @@ export default function HubSchedulePage() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <div
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setPhotoDropActive(true);
+                      }}
+                      onDragLeave={() => setPhotoDropActive(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setPhotoDropActive(false);
+                        const file = event.dataTransfer.files?.[0];
+                        if (file) {
+                          setPendingPhotoFile(file);
+                          setPhotoMessage(`Ready to upload ${file.name}.`);
+                        }
+                      }}
+                      className={`rounded-md border-2 border-dashed px-3 py-4 text-center text-[12px] ${
+                        photoDropActive
+                          ? "border-[#8fae4c] bg-white text-[#4b5133]"
+                          : "border-[#d0c9a4] bg-white/80 text-[#7a7f54]"
+                      }`}
+                    >
+                      Drag & drop a photo here, or choose a file below.
+                    </div>
                     <input
                       ref={photoInputRef}
                       type="file"
                       accept="image/*"
+                      onChange={(event) =>
+                        setPendingPhotoFile(event.target.files?.[0] || null)
+                      }
                       className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3f3c2d] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8fae4c]"
                     />
+                    {pendingPhotoFile && (
+                      <p className="text-[11px] text-[#4b5133]">
+                        Selected: {pendingPhotoFile.name}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={handleTaskPhotoUpload}
