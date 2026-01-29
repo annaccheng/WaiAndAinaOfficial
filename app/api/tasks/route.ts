@@ -21,6 +21,21 @@ function normalizePersonCount(input: unknown) {
   return Math.max(1, Math.round(value));
 }
 
+function normalizeLinksInput(input: unknown) {
+  if (!Array.isArray(input)) return input;
+  return input
+    .map((link) => {
+      if (typeof link === "string") return link.trim();
+      if (link && typeof link === "object") {
+        const label = String((link as { label?: unknown }).label || "").trim();
+        const url = String((link as { url?: unknown }).url || "").trim();
+        return url || label;
+      }
+      return "";
+    })
+    .filter(Boolean);
+}
+
 async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
   if (!taskIds.length) return;
 
@@ -132,6 +147,9 @@ export async function POST(req: Request) {
     const unit = body.recurrence_unit || "day";
     const until = body.recurrence_until;
     const sanitizedBody = { ...body };
+    if (Object.prototype.hasOwnProperty.call(sanitizedBody, "links")) {
+      sanitizedBody.links = normalizeLinksInput(sanitizedBody.links);
+    }
     delete (sanitizedBody as Record<string, unknown>).capabilityIds;
 
     const buildPayload = (payloadBody: Record<string, unknown>) => ({
@@ -318,6 +336,9 @@ export async function PATCH(req: Request) {
   }
 
   const updates = { ...body };
+  if (Object.prototype.hasOwnProperty.call(updates, "links")) {
+    updates.links = normalizeLinksInput(updates.links);
+  }
   delete updates.id;
   delete updates.applyTo;
   delete updates.occurrenceDate;
