@@ -1636,10 +1636,11 @@ export default function HubSchedulePage() {
     weekendScheduleSummary.slotRows.some((row) => row.people.length > 0) ||
     weekendScheduleSummary.indexTasks.length > 0;
 
+  const isAdminView = isAdmin && !adminViewAsVolunteer;
   const showEveningSection =
-    !isExternalVolunteer && (isVolunteer || isAdmin || eveningHasContent);
+    !isExternalVolunteer && (isVolunteer || isAdminView || eveningHasContent);
   const showWeekendSection =
-    isVolunteer || isAdmin || isExternalVolunteer || weekendHasContent;
+    isVolunteer || isAdminView || isExternalVolunteer || weekendHasContent;
 
   const myTasks = useMemo(() => {
     if (!data || !currentUserName) return [] as {

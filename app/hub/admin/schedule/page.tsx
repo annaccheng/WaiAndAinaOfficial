@@ -1542,7 +1542,11 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
-      e.dataTransfer.dropEffect = "move";
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? e.metaKey : e.ctrlKey;
+      e.dataTransfer.dropEffect = modifierPressed ? "copy" : "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
       let parsed: DragPayload = { taskId: "", taskName: textPayload };
@@ -1567,7 +1571,15 @@ export default function AdminScheduleEditorPage() {
         }
 
         if (!parsed.taskId || !parsed.taskName) return;
-        handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
+        if (modifierPressed && parsed.fromPerson) {
+          parsed = { taskId: parsed.taskId, taskName: parsed.taskName };
+        }
+        handleTaskMove(parsed, {
+          person,
+          slotId: slot.id,
+          slotLabel: slot.label,
+          targetIndex,
+        });
         setPendingInsert(null);
       };
 
@@ -1580,7 +1592,12 @@ export default function AdminScheduleEditorPage() {
     (e: React.DragEvent, person: string, slotId: string, index: number) => {
       e.preventDefault();
       e.stopPropagation();
-      e.dataTransfer.dropEffect = draggingTask?.fromPerson ? "move" : "copy";
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? e.metaKey : e.ctrlKey;
+      const shouldCopy = modifierPressed || !draggingTask?.fromPerson;
+      e.dataTransfer.dropEffect = shouldCopy ? "copy" : "move";
       setPendingInsert({ person, slotId, index });
     },
     [draggingTask]
