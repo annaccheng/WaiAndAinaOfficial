@@ -982,7 +982,7 @@ export default function HubSchedulePage() {
 
   const handleAddCustomTable = useCallback(async () => {
     const anchorDate = customTablesAnchorDate || scheduleDateLabel;
-    if (!isAdmin || !anchorDate) return;
+    if (!isAdmin || adminViewAsVolunteer || !anchorDate) return;
     const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
     try {
       const res = await fetch("/api/schedule/custom-tables", {
@@ -1004,11 +1004,17 @@ export default function HubSchedulePage() {
       console.error("Failed to add custom table:", err);
       setCustomTablesError("Unable to add a custom table.");
     }
-  }, [customTablesAnchorDate, isAdmin, normalizeCustomTable, scheduleDateLabel]);
+  }, [
+    adminViewAsVolunteer,
+    customTablesAnchorDate,
+    isAdmin,
+    normalizeCustomTable,
+    scheduleDateLabel,
+  ]);
 
   const handleSaveCustomTable = useCallback(
     async (table: CustomTable) => {
-      if (!isAdmin) return;
+      if (!isAdmin || adminViewAsVolunteer) return;
       setCustomTablesSaving((prev) => ({ ...prev, [table.id]: true }));
       try {
         const res = await fetch("/api/schedule/custom-tables", {
@@ -1036,12 +1042,12 @@ export default function HubSchedulePage() {
         setCustomTablesSaving((prev) => ({ ...prev, [table.id]: false }));
       }
     },
-    [isAdmin]
+    [adminViewAsVolunteer, isAdmin]
   );
 
   const handleDeleteCustomTable = useCallback(
     async (tableId: string) => {
-      if (!isAdmin) return;
+      if (!isAdmin || adminViewAsVolunteer) return;
       const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
       if (!confirmed) return;
       setCustomTablesDeleting(tableId);
@@ -1068,7 +1074,7 @@ export default function HubSchedulePage() {
         setCustomTablesDeleting(null);
       }
     },
-    [isAdmin]
+    [adminViewAsVolunteer, isAdmin]
   );
 
   useEffect(() => {
@@ -1269,7 +1275,8 @@ export default function HubSchedulePage() {
   }, [data, weekdayWorkSlots]);
 
   const showStandardSection = true;
-  const basicOnly = adminViewAsVolunteer;
+  const basicOnly = false;
+  const canEditCustomTables = isAdmin && !adminViewAsVolunteer;
 
   const scheduleDataForView = useMemo(() => {
     if (!data) return null;
@@ -2323,10 +2330,10 @@ export default function HubSchedulePage() {
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => setAdminViewAsVolunteer(true)}
+              onClick={() => setAdminViewAsVolunteer((prev) => !prev)}
               className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white"
             >
-              View as volunteer
+              {adminViewAsVolunteer ? "Exit volunteer view" : "View as volunteer"}
             </button>
           </div>
         )}
@@ -2478,16 +2485,16 @@ export default function HubSchedulePage() {
                 </div>
 
                 <section className="rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-                  {isAdmin && !adminViewAsVolunteer && (
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-semibold text-[#3b4224]">
-                          Custom Tables
-                        </h3>
-                        <p className="text-xs text-[#7a7f54]">
-                          Add custom sections with editable headers and volunteer selections.
-                        </p>
-                      </div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#3b4224]">
+                        Custom Tables
+                      </h3>
+                      <p className="text-xs text-[#7a7f54]">
+                        Add custom sections with editable headers and volunteer selections.
+                      </p>
+                    </div>
+                    {canEditCustomTables && (
                       <button
                         type="button"
                         onClick={handleAddCustomTable}
@@ -2496,8 +2503,8 @@ export default function HubSchedulePage() {
                       >
                         Add Section
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {customTablesLoading && (
                     <p className="mt-3 text-sm text-[#7a7f54]">
@@ -2528,11 +2535,11 @@ export default function HubSchedulePage() {
                           key={table.id}
                           className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
                           onDragOver={(event) => {
-                            if (!isAdmin || !draggingTableId) return;
+                            if (!canEditCustomTables || !draggingTableId) return;
                             event.preventDefault();
                           }}
                           onDrop={(event) => {
-                            if (!isAdmin || !draggingTableId) return;
+                            if (!canEditCustomTables || !draggingTableId) return;
                             event.preventDefault();
                             if (draggingTableId === table.id) return;
                             moveCustomTable(draggingTableId, table.id);
@@ -2540,7 +2547,7 @@ export default function HubSchedulePage() {
                           }}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
-                            {isAdmin ? (
+                            {canEditCustomTables ? (
                               <div className="flex flex-1 items-center gap-2">
                                 <button
                                   type="button"
@@ -2572,7 +2579,7 @@ export default function HubSchedulePage() {
                                 {table.title}
                               </h4>
                             )}
-                            {isAdmin && (
+                            {canEditCustomTables && (
                               <div className="flex flex-wrap items-center gap-2">
                                 <button
                                   type="button"
@@ -2633,7 +2640,7 @@ export default function HubSchedulePage() {
                             )}
                           </div>
 
-                          {isAdmin && (
+                          {canEditCustomTables && (
                             <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
                               <label className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-[0.12em]">
@@ -2746,12 +2753,12 @@ export default function HubSchedulePage() {
                                       key={`${table.id}-col-${colIdx}`}
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
                                       onDragOver={(event) => {
-                                        if (!isAdmin || !draggingColumn) return;
+                                        if (!canEditCustomTables || !draggingColumn) return;
                                         if (draggingColumn.tableId !== table.id) return;
                                         event.preventDefault();
                                       }}
                                       onDrop={(event) => {
-                                        if (!isAdmin || !draggingColumn) return;
+                                        if (!canEditCustomTables || !draggingColumn) return;
                                         if (draggingColumn.tableId !== table.id) return;
                                         event.preventDefault();
                                         if (draggingColumn.index === colIdx) return;
@@ -2769,7 +2776,7 @@ export default function HubSchedulePage() {
                                         setDraggingColumn(null);
                                       }}
                                     >
-                                      {isAdmin ? (
+                                      {canEditCustomTables ? (
                                         <div className="flex items-center gap-2">
                                           <button
                                             type="button"
@@ -2902,29 +2909,29 @@ export default function HubSchedulePage() {
                                   <tr key={`${table.id}-row-${rowIdx}`}>
                                     <th
                                       className="border border-[#d0c9a4] bg-[#ece7d0] p-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]"
-                                      onDragOver={(event) => {
-                                        if (!isAdmin || !draggingRow) return;
-                                        if (draggingRow.tableId !== table.id) return;
-                                        event.preventDefault();
-                                      }}
-                                      onDrop={(event) => {
-                                        if (!isAdmin || !draggingRow) return;
-                                        if (draggingRow.tableId !== table.id) return;
-                                        event.preventDefault();
-                                        if (draggingRow.index === rowIdx) return;
-                                        updateCustomTableState(table.id, (prev) => ({
-                                          ...prev,
-                                          rowHeaders: reorderList(
-                                            prev.rowHeaders,
-                                            draggingRow.index,
-                                            rowIdx
-                                          ),
-                                          cells: reorderList(prev.cells, draggingRow.index, rowIdx),
-                                        }));
-                                        setDraggingRow(null);
-                                      }}
-                                    >
-                                      {isAdmin ? (
+                                    onDragOver={(event) => {
+                                      if (!canEditCustomTables || !draggingRow) return;
+                                      if (draggingRow.tableId !== table.id) return;
+                                      event.preventDefault();
+                                    }}
+                                    onDrop={(event) => {
+                                      if (!canEditCustomTables || !draggingRow) return;
+                                      if (draggingRow.tableId !== table.id) return;
+                                      event.preventDefault();
+                                      if (draggingRow.index === rowIdx) return;
+                                      updateCustomTableState(table.id, (prev) => ({
+                                        ...prev,
+                                        rowHeaders: reorderList(
+                                          prev.rowHeaders,
+                                          draggingRow.index,
+                                          rowIdx
+                                        ),
+                                        cells: reorderList(prev.cells, draggingRow.index, rowIdx),
+                                      }));
+                                      setDraggingRow(null);
+                                    }}
+                                  >
+                                      {canEditCustomTables ? (
                                         <div className="flex items-center gap-2">
                                           <button
                                             type="button"
@@ -3063,7 +3070,7 @@ export default function HubSchedulePage() {
                                             highlight ? "bg-[#e8f3cf]" : "bg-white/90"
                                           }`}
                                         >
-                                          {isAdmin ? (
+                                          {canEditCustomTables ? (
                                             cellType === "text" ? (
                                               <textarea
                                                 value={value}

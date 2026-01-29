@@ -36,6 +36,7 @@ type CapabilityOption = { id: string; name: string };
 
 const STATUS_OPTIONS = ["Not Started", "In Progress", "Completed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+const TASK_COMMENT_CACHE_KEY = "admin-task-editor-comment-counts";
 const RECURRENCE_UNITS = ["day", "month", "year"];
 const TIME_SLOT_OPTIONS = [
   "Breakfast",
@@ -129,6 +130,7 @@ export default function TaskEditorPage() {
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [commentCache, setCommentCache] = useState<Record<string, number>>({});
   const [types, setTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -270,6 +272,20 @@ export default function TaskEditorPage() {
     }
     setAuthorized(true);
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(TASK_COMMENT_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        setCommentCache(parsed);
+      }
+    } catch (err) {
+      console.warn("Failed to parse task comment cache", err);
+    }
+  }, []);
 
   async function loadTaskTypes() {
     try {
@@ -648,6 +664,18 @@ export default function TaskEditorPage() {
   };
 
   const filteredTasks = useMemo(() => tasks, [tasks]);
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    tasks.forEach((task) => {
+      counts[task.id] = Array.isArray(task.comments) ? task.comments.length : 0;
+    });
+    return counts;
+  }, [tasks]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(TASK_COMMENT_CACHE_KEY, JSON.stringify(commentCounts));
+    setCommentCache(commentCounts);
+  }, [commentCounts]);
   const recurringTasks = useMemo(
     () =>
       filteredTasks
@@ -822,6 +850,10 @@ export default function TaskEditorPage() {
                   <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {recurringTasks.map((task) => {
                       const displayTask = recurringOverrides[task.id] || task;
+                      const commentCount = commentCounts[displayTask.id] ?? 0;
+                      const cachedCommentCount = commentCache[displayTask.id] ?? 0;
+                      const hasComments = commentCount > 0;
+                      const hasNewComments = commentCount > cachedCommentCount;
                       return (
                         <div
                           key={task.id}
@@ -831,8 +863,18 @@ export default function TaskEditorPage() {
                         >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {displayTask.name}
+                            <div className="flex items-center gap-1 text-[12px] font-semibold leading-tight text-[#314123]">
+                              <span className="truncate">{displayTask.name}</span>
+                              {hasComments && (
+                                <span
+                                  className="text-[11px] text-amber-500"
+                                  title={
+                                    hasNewComments ? "New comments added" : "Task has comments"
+                                  }
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {renderTextWithAnimalLinks(displayTask.description)}
@@ -900,8 +942,21 @@ export default function TaskEditorPage() {
                       >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {task.name}
+                            <div className="flex items-center gap-1 text-[12px] font-semibold leading-tight text-[#314123]">
+                              <span className="truncate">{task.name}</span>
+                              {(commentCounts[task.id] ?? 0) > 0 && (
+                                <span
+                                  className="text-[11px] text-amber-500"
+                                  title={
+                                    (commentCounts[task.id] ?? 0) >
+                                    (commentCache[task.id] ?? 0)
+                                      ? "New comments added"
+                                      : "Task has comments"
+                                  }
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {renderTextWithAnimalLinks(task.description)}
