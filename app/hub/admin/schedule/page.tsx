@@ -29,6 +29,7 @@ type TaskCatalogItem = {
   personCount?: number | null;
   timeSlots?: string[] | null;
   estimatedTime?: string | null;
+  commentCount?: number;
 };
 type TaskTypeOption = { id?: string; name: string; color: string };
 type StatusOption = { name: string; color: string };
@@ -78,6 +79,8 @@ type OverviewTaskEntry = {
 
 const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
+const TASK_EDIT_SECTIONS_CACHE_KEY = "admin-schedule-task-edit-sections";
+const TASK_COMMENT_CACHE_KEY = "admin-schedule-task-comment-counts";
 
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
@@ -204,6 +207,7 @@ export default function AdminScheduleEditorPage() {
   const [recurringQuickInterval, setRecurringQuickInterval] = useState(1);
   const [recurringQuickUnit, setRecurringQuickUnit] = useState("day");
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
+  const [copyDragActive, setCopyDragActive] = useState(false);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
   const [availableSchedules, setAvailableSchedules] = useState<
@@ -243,6 +247,7 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [taskCommentCache, setTaskCommentCache] = useState<Record<string, number>>({});
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [desktopDockOpen, setDesktopDockOpen] = useState(true);
@@ -396,8 +401,63 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(TASK_EDIT_SECTIONS_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        setTaskEditSections((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("Failed to parse task edit section cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      TASK_EDIT_SECTIONS_CACHE_KEY,
+      JSON.stringify(taskEditSections)
+    );
+  }, [taskEditSections]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(TASK_COMMENT_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        setTaskCommentCache(parsed);
+      }
+    } catch (err) {
+      console.warn("Failed to parse task comment cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
+
+  useEffect(() => {
+    const handleKeyChange = (event: KeyboardEvent) => {
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      setCopyDragActive(modifierPressed);
+    };
+    const clearModifier = () => setCopyDragActive(false);
+    window.addEventListener("keydown", handleKeyChange);
+    window.addEventListener("keyup", handleKeyChange);
+    window.addEventListener("blur", clearModifier);
+    return () => {
+      window.removeEventListener("keydown", handleKeyChange);
+      window.removeEventListener("keyup", handleKeyChange);
+      window.removeEventListener("blur", clearModifier);
+    };
+  }, []);
 
   const taskMetaById = useMemo(() => {
     const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
@@ -463,6 +523,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
+            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
           }));
           setRecurringTasks(items);
         } else if (!cancelled && !selectedDate) {
@@ -484,6 +545,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
+            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
           }));
           setOneOffTasks(items);
         }
@@ -542,6 +604,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
+            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
           }));
           setYesterdayRecurringTasks(items);
         } else {
@@ -563,6 +626,20 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, formatLabelToInput, scheduleMode, yesterdayLabel]);
+
+  const taskCommentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    [...recurringTasks, ...oneOffTasks].forEach((task) => {
+      counts[task.id] = task.commentCount ?? 0;
+    });
+    return counts;
+  }, [oneOffTasks, recurringTasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(TASK_COMMENT_CACHE_KEY, JSON.stringify(taskCommentCounts));
+    setTaskCommentCache(taskCommentCounts);
+  }, [taskCommentCounts]);
 
   const taskPeopleCountById = useMemo(() => {
     if (!scheduleData) {
@@ -897,6 +974,113 @@ export default function AdminScheduleEditorPage() {
     },
     [scheduleData?.scheduleDate, scheduleMode, selectedDate]
   );
+
+  const clearSchedule = useCallback(async () => {
+    if (!scheduleData) {
+      setMessage("Load a schedule before clearing it.");
+      return;
+    }
+    const activeDate = selectedDate || scheduleData?.scheduleDate || "";
+    if (scheduleMode === "page" && !activeDate) {
+      setScheduleNote("Pick a schedule date before clearing.");
+      return;
+    }
+    if (!window.confirm(`Clear every task and note for ${activeDate || "this day"}?`)) {
+      return;
+    }
+
+    const changes: UndoChange[] = [];
+    const nextCells = scheduleData.cells.map((row, rowIdx) =>
+      row.map((cell, colIdx) => {
+        const hasContent = cell.tasks.length > 0 || Boolean(cell.note);
+        if (!hasContent) return cell;
+        const nextContent: CellContent = { ...cell, tasks: [], note: "" };
+        changes.push({
+          person: scheduleData.people[rowIdx],
+          slotId: scheduleData.slots[colIdx].id,
+          previous: cloneCellContent(cell),
+          next: nextContent,
+        });
+        return nextContent;
+      })
+    );
+
+    if (!changes.length) {
+      setScheduleNote("Schedule already cleared.");
+      return;
+    }
+
+    pushUndoEntry({ label: `Clear schedule for ${activeDate || "this day"}`, changes });
+    setScheduleData({ ...scheduleData, cells: nextCells });
+    await Promise.all(
+      changes.map((change) => persistCell(change.person, change.slotId, change.next))
+    );
+    setScheduleNote(`Cleared schedule for ${activeDate || "this day"}.`);
+  }, [persistCell, pushUndoEntry, scheduleData, scheduleMode, selectedDate]);
+
+  const clearCompletedOneOffTasks = useCallback(async () => {
+    if (!scheduleData) {
+      setMessage("Load a schedule before clearing one-off tasks.");
+      return;
+    }
+    const activeDate = selectedDate || scheduleData?.scheduleDate || "";
+    if (scheduleMode === "page" && !activeDate) {
+      setScheduleNote("Pick a schedule date before clearing one-off tasks.");
+      return;
+    }
+    const activeIso = formatLabelToInput(activeDate);
+    if (
+      !window.confirm(
+        "Clear completed one-off tasks from this schedule day? Only completed one-offs will be removed."
+      )
+    ) {
+      return;
+    }
+
+    const changes: UndoChange[] = [];
+    const nextCells = scheduleData.cells.map((row, rowIdx) =>
+      row.map((cell, colIdx) => {
+        if (!cell.tasks.length) return cell;
+        const nextTasks = cell.tasks.filter((task) => {
+          const meta = taskMetaById.get(task.id);
+          const isOneOff = meta ? !meta.recurring : false;
+          const status = (meta?.status || "").toLowerCase();
+          const matchesDate =
+            !activeIso || !meta?.occurrenceDate || meta.occurrenceDate === activeIso;
+          return !(isOneOff && status === "completed" && matchesDate);
+        });
+        if (nextTasks.length === cell.tasks.length) return cell;
+        const nextContent: CellContent = { ...cell, tasks: nextTasks };
+        changes.push({
+          person: scheduleData.people[rowIdx],
+          slotId: scheduleData.slots[colIdx].id,
+          previous: cloneCellContent(cell),
+          next: nextContent,
+        });
+        return nextContent;
+      })
+    );
+
+    if (!changes.length) {
+      setScheduleNote("No completed one-off tasks to clear.");
+      return;
+    }
+
+    pushUndoEntry({ label: "Clear completed one-off tasks", changes });
+    setScheduleData({ ...scheduleData, cells: nextCells });
+    await Promise.all(
+      changes.map((change) => persistCell(change.person, change.slotId, change.next))
+    );
+    setScheduleNote(`Cleared completed one-off tasks for ${activeDate || "this day"}.`);
+  }, [
+    formatLabelToInput,
+    persistCell,
+    pushUndoEntry,
+    scheduleData,
+    scheduleMode,
+    selectedDate,
+    taskMetaById,
+  ]);
 
   const undoLastChange = useCallback(async () => {
     if (!scheduleData || !undoStack.length) return;
@@ -1378,7 +1562,8 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
-      e.dataTransfer.dropEffect = "move";
+      const modifierPressed = copyDragActive || e.ctrlKey || e.metaKey;
+      e.dataTransfer.dropEffect = modifierPressed ? "copy" : "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
       let parsed: DragPayload = { taskId: "", taskName: textPayload };
@@ -1403,23 +1588,40 @@ export default function AdminScheduleEditorPage() {
         }
 
         if (!parsed.taskId || !parsed.taskName) return;
-        handleTaskMove(parsed, { person, slotId: slot.id, slotLabel: slot.label, targetIndex });
+        if (modifierPressed && parsed.fromPerson) {
+          parsed = { taskId: parsed.taskId, taskName: parsed.taskName };
+        }
+        handleTaskMove(parsed, {
+          person,
+          slotId: slot.id,
+          slotLabel: slot.label,
+          targetIndex,
+        });
         setPendingInsert(null);
       };
 
       void finalizeDrop();
     },
-    [handleTaskMove, resolveTaskEntry, scheduleData, scheduleMode, selectedDate]
+    [
+      copyDragActive,
+      handleTaskMove,
+      resolveTaskEntry,
+      scheduleData,
+      scheduleMode,
+      selectedDate,
+    ]
   );
 
   const handleDragOverEvent = useCallback(
     (e: React.DragEvent, person: string, slotId: string, index: number) => {
       e.preventDefault();
       e.stopPropagation();
-      e.dataTransfer.dropEffect = draggingTask?.fromPerson ? "move" : "copy";
+      const modifierPressed = copyDragActive || e.ctrlKey || e.metaKey;
+      const shouldCopy = modifierPressed || !draggingTask?.fromPerson;
+      e.dataTransfer.dropEffect = shouldCopy ? "copy" : "move";
       setPendingInsert({ person, slotId, index });
     },
-    [draggingTask]
+    [copyDragActive, draggingTask]
   );
 
   const getCellValue = (cell: { person: string; slotId: string } | null) => {
@@ -2244,9 +2446,18 @@ export default function AdminScheduleEditorPage() {
           </p>
           <h3 className="text-base font-semibold text-[#314123]">{taskDetail.name}</h3>
         </div>
-        {taskDetailLoading && (
-          <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
-        )}
+        <div className="flex items-center gap-2">
+          {taskDetailLoading && (
+            <span className="text-[11px] text-[#6b6d4b]">Loading…</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setTaskDetail(null)}
+            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+          >
+            Close
+          </button>
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         {taskDetail.status && (
@@ -2662,6 +2873,22 @@ export default function AdminScheduleEditorPage() {
                   >
                     {autoGenerating ? "Auto-generating…" : "Auto-generate"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={clearSchedule}
+                    disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
+                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                  >
+                    Clear schedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearCompletedOneOffTasks}
+                    disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
+                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                  >
+                    Clear completed one-offs
+                  </button>
                   <Link
                     href="/hub/admin/tasks"
                     className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
@@ -2814,7 +3041,6 @@ export default function AdminScheduleEditorPage() {
   }`}
 >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          {taskDetailEditor}
           <div
             className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
               canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
@@ -3016,6 +3242,10 @@ export default function AdminScheduleEditorPage() {
                         neededCount > 0 ? assignedCount >= neededCount : false;
                       const taskStatus = meta?.status || "Not Started";
                       const taskType = meta?.type || "Uncategorized";
+                      const commentCount = meta?.commentCount ?? 0;
+                      const cachedCommentCount = taskCommentCache[task.id] ?? 0;
+                      const hasComments = commentCount > 0;
+                      const hasNewComments = commentCount > cachedCommentCount;
 
                       return (
                         <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
@@ -3088,6 +3318,14 @@ export default function AdminScheduleEditorPage() {
                               <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
                                 {task.name}
                               </span>
+                              {hasComments && (
+                                <span
+                                  className="text-[11px] text-amber-500"
+                                  title={hasNewComments ? "New comments added" : "Task has comments"}
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
 
                             {/* Assignment counter and completion indicator */}
@@ -3198,6 +3436,7 @@ export default function AdminScheduleEditorPage() {
               <option key={name} value={name} />
             ))}
           </datalist>
+          {taskDetailEditor && <div className="mt-3">{taskDetailEditor}</div>}
           {(dayOverviewSummary || yesterdayOverviewSummary) && (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {yesterdayOverviewSummary && (
@@ -3489,6 +3728,10 @@ export default function AdminScheduleEditorPage() {
                     >
                       {filteredRecurringTasks.map((task) => {
                         const taskHandled = isTaskHandled(task);
+                        const commentCount = task.commentCount ?? 0;
+                        const cachedCommentCount = taskCommentCache[task.id] ?? 0;
+                        const hasComments = commentCount > 0;
+                        const hasNewComments = commentCount > cachedCommentCount;
                         const isDraggingThis =
                           draggingTask?.taskId === task.id && !draggingTask?.fromPerson;
                         return (
@@ -3515,7 +3758,19 @@ export default function AdminScheduleEditorPage() {
                             )} ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px]"}`}
                           >
                             <div>
-                              <div className="font-semibold">{task.name}</div>
+                              <div className="flex items-center gap-1 font-semibold">
+                                <span className="truncate">{task.name}</span>
+                                {hasComments && (
+                                  <span
+                                    className="text-[11px] text-amber-500"
+                                    title={
+                                      hasNewComments ? "New comments added" : "Task has comments"
+                                    }
+                                  >
+                                    ⚠️
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] text-[#5f5a3b]">
                                 {task.type || "Uncategorized"}
                                 {task.status ? ` • ${task.status}` : ""}
@@ -3616,6 +3871,10 @@ export default function AdminScheduleEditorPage() {
                     >
                       {filteredOneOffTasks.map((task) => {
                         const taskHandled = isTaskHandled(task);
+                        const commentCount = task.commentCount ?? 0;
+                        const cachedCommentCount = taskCommentCache[task.id] ?? 0;
+                        const hasComments = commentCount > 0;
+                        const hasNewComments = commentCount > cachedCommentCount;
                         return (
                           <button
                             key={task.id}
@@ -3640,7 +3899,19 @@ export default function AdminScheduleEditorPage() {
                             )}`}
                           >
                             <div>
-                              <div className="font-semibold">{task.name}</div>
+                              <div className="flex items-center gap-1 font-semibold">
+                                <span className="truncate">{task.name}</span>
+                                {hasComments && (
+                                  <span
+                                    className="text-[11px] text-amber-500"
+                                    title={
+                                      hasNewComments ? "New comments added" : "Task has comments"
+                                    }
+                                  >
+                                    ⚠️
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] text-[#5f5a3b]">
                                 {task.type || "Uncategorized"}
                                 {task.occurrenceDate ? ` • Target ${task.occurrenceDate}` : ""}
@@ -3909,6 +4180,10 @@ export default function AdminScheduleEditorPage() {
               {(mobileDockTab === "recurring" ? filteredRecurringTasks : filteredOneOffTasks).map(
                 (task) => {
                   const taskHandled = isTaskHandled(task);
+                  const commentCount = task.commentCount ?? 0;
+                  const cachedCommentCount = taskCommentCache[task.id] ?? 0;
+                  const hasComments = commentCount > 0;
+                  const hasNewComments = commentCount > cachedCommentCount;
                   return (
                     <button
                       key={task.id}
@@ -3933,7 +4208,17 @@ export default function AdminScheduleEditorPage() {
                       )}`}
                     >
                       <div>
-                        <div className="font-semibold">{task.name}</div>
+                        <div className="flex items-center gap-1 font-semibold">
+                          <span className="truncate">{task.name}</span>
+                          {hasComments && (
+                            <span
+                              className="text-[11px] text-amber-500"
+                              title={hasNewComments ? "New comments added" : "Task has comments"}
+                            >
+                              ⚠️
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-[#5f5a3b]">
                           {task.type || "Uncategorized"}
                           {task.status ? ` • ${task.status}` : ""}

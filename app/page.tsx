@@ -177,7 +177,7 @@ export default function HomePage() {
       <main className="min-h-screen bg-[#f8f4e3] text-[#3b4224] flex flex-col">
       {/* Top navigation */}
       <header className="sticky top-0 z-20 w-full bg-white/90 backdrop-blur shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
               className="md:hidden inline-flex items-center justify-center rounded-full border border-[#d0c9a4] bg-white h-10 w-10 text-lg shadow-sm"
@@ -372,7 +372,7 @@ export default function HomePage() {
         >
           <div className="pointer-events-none absolute -left-10 top-10 h-40 w-40 rounded-full bg-white/50 blur-3xl" />
           <div className="pointer-events-none absolute right-0 bottom-0 h-56 w-56 rounded-full bg-[#b8d29b]/50 blur-3xl" />
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16 grid md:grid-cols-2 gap-10 items-center">
+          <div className="max-w-7xl mx-auto px-2 sm:px-4 py-12 sm:py-16 grid md:grid-cols-2 gap-10 items-center">
             <div className="space-y-5 bg-white/70 backdrop-blur rounded-2xl border border-white/60 shadow-lg p-6">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#5d7f3b] shadow-sm">
                 🐐 Since 2023
@@ -415,7 +415,7 @@ export default function HomePage() {
         </section>
 
       {/* About */}
-      <section id="about" className="max-w-6xl mx-auto px-4 sm:px-6 py-12 space-y-8">
+      <section id="about" className="max-w-7xl mx-auto px-2 sm:px-4 py-12 space-y-8">
         <div className="grid md:grid-cols-2 gap-8 items-start">
           <div className="space-y-4">
             <p className="text-xs uppercase tracking-[0.22em] text-[#7a7f54]">Just starting out…</p>
@@ -448,7 +448,7 @@ export default function HomePage() {
 
       {/* Farm information */}
       <section className="bg-[#f1edd8] py-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 space-y-6">
           <div className="flex flex-col gap-2">
             <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Farm information</p>
             <h3 className="text-2xl font-semibold text-[#3b4224]">Know your way around Wai &amp; Aina</h3>
@@ -496,7 +496,7 @@ export default function HomePage() {
 
       {/* Contact footer */}
       <footer className="bg-[#f1edd8] border-t border-[#d0c9a4] py-10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-6 text-sm text-[#4b5133]">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-6 text-sm text-[#4b5133]">
           <div className="space-y-1">
             <p>543 Kualono Pl</p>
             <p>Kapaa, HI 96746</p>

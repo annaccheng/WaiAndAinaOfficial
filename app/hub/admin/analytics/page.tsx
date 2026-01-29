@@ -406,7 +406,7 @@ export default function AdminAnalyticsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-2 py-6">
       <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -418,7 +418,7 @@ export default function AdminAnalyticsPage() {
           </div>
           <Link
             href="/hub/admin"
-            className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+            className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
           >
             Back to admin
           </Link>
@@ -452,7 +452,7 @@ export default function AdminAnalyticsPage() {
           {daySummary ? (
             <>
               <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-4 py-3">
+                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-2 py-3">
                   <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                     Tasks
                   </div>
@@ -460,19 +460,19 @@ export default function AdminAnalyticsPage() {
                     {daySummary.totalTasks}
                   </div>
                 </div>
-                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-4 py-3">
+                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-2 py-3">
                   <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                     Notes
                   </div>
                   <div className="text-lg font-semibold text-[#314123]">{daySummary.notes}</div>
                 </div>
-                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-4 py-3">
+                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-2 py-3">
                   <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                     People
                   </div>
                   <div className="text-lg font-semibold text-[#314123]">{daySummary.people}</div>
                 </div>
-                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-4 py-3">
+                <div className="rounded-xl border border-[#e2d7b5] bg-white/80 px-2 py-3">
                   <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                     Shifts
                   </div>
@@ -588,7 +588,7 @@ export default function AdminAnalyticsPage() {
             <h2 className="text-lg font-semibold text-[#314123]">Productivity signals</h2>
             <p className="text-sm text-[#5f5a3b]">Utilization and throughput highlights.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-4 py-3">
+              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-2 py-3">
                 <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                   Completion rate
                 </div>
@@ -600,7 +600,7 @@ export default function AdminAnalyticsPage() {
                     : "—"}
                 </div>
               </div>
-              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-4 py-3">
+              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-2 py-3">
                 <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                   Avg tasks per filled shift
                 </div>
@@ -608,7 +608,7 @@ export default function AdminAnalyticsPage() {
                   {workloadSignals.avgTasksPerFilled.toFixed(1)}
                 </div>
               </div>
-              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-4 py-3">
+              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-2 py-3">
                 <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                   Filled shift rate
                 </div>
@@ -616,7 +616,7 @@ export default function AdminAnalyticsPage() {
                   {Math.round(workloadSignals.fillRate * 100)}%
                 </div>
               </div>
-              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-4 py-3">
+              <div className="rounded-xl border border-[#e2d7b5] bg-white/90 px-2 py-3">
                 <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">
                   Assignments logged
                 </div>
@@ -667,7 +667,7 @@ export default function AdminAnalyticsPage() {
                 type="button"
                 onClick={handleCreateReport}
                 disabled={reportCreating || !selectedDate}
-                className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
+                className="rounded-md bg-[#8fae4c] px-2 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
               >
                 {reportCreating ? "Creating…" : "Create report"}
               </button>

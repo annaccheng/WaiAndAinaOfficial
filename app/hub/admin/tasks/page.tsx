@@ -36,6 +36,7 @@ type CapabilityOption = { id: string; name: string };
 
 const STATUS_OPTIONS = ["Not Started", "In Progress", "Completed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+const TASK_COMMENT_CACHE_KEY = "admin-task-editor-comment-counts";
 const RECURRENCE_UNITS = ["day", "month", "year"];
 const TIME_SLOT_OPTIONS = [
   "Breakfast",
@@ -129,6 +130,7 @@ export default function TaskEditorPage() {
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [commentCache, setCommentCache] = useState<Record<string, number>>({});
   const [types, setTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -270,6 +272,20 @@ export default function TaskEditorPage() {
     }
     setAuthorized(true);
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(TASK_COMMENT_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        setCommentCache(parsed);
+      }
+    } catch (err) {
+      console.warn("Failed to parse task comment cache", err);
+    }
+  }, []);
 
   async function loadTaskTypes() {
     try {
@@ -648,6 +664,18 @@ export default function TaskEditorPage() {
   };
 
   const filteredTasks = useMemo(() => tasks, [tasks]);
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    tasks.forEach((task) => {
+      counts[task.id] = Array.isArray(task.comments) ? task.comments.length : 0;
+    });
+    return counts;
+  }, [tasks]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(TASK_COMMENT_CACHE_KEY, JSON.stringify(commentCounts));
+    setCommentCache(commentCounts);
+  }, [commentCounts]);
   const recurringTasks = useMemo(
     () =>
       filteredTasks
@@ -673,7 +701,7 @@ export default function TaskEditorPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-2 py-4">
       <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -686,7 +714,7 @@ export default function TaskEditorPage() {
           <button
             type="button"
             onClick={() => openEditor()}
-            className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+            className="rounded-md bg-[#8fae4c] px-2 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
           >
             New task
           </button>
@@ -822,6 +850,10 @@ export default function TaskEditorPage() {
                   <div className="mt-1.5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {recurringTasks.map((task) => {
                       const displayTask = recurringOverrides[task.id] || task;
+                      const commentCount = commentCounts[displayTask.id] ?? 0;
+                      const cachedCommentCount = commentCache[displayTask.id] ?? 0;
+                      const hasComments = commentCount > 0;
+                      const hasNewComments = commentCount > cachedCommentCount;
                       return (
                         <div
                           key={task.id}
@@ -831,8 +863,18 @@ export default function TaskEditorPage() {
                         >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {displayTask.name}
+                            <div className="flex items-center gap-1 text-[12px] font-semibold leading-tight text-[#314123]">
+                              <span className="truncate">{displayTask.name}</span>
+                              {hasComments && (
+                                <span
+                                  className="text-[11px] text-amber-500"
+                                  title={
+                                    hasNewComments ? "New comments added" : "Task has comments"
+                                  }
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {renderTextWithAnimalLinks(displayTask.description)}
@@ -900,8 +942,21 @@ export default function TaskEditorPage() {
                       >
                         <div className="flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
-                            <div className="text-[12px] font-semibold leading-tight text-[#314123]">
-                              {task.name}
+                            <div className="flex items-center gap-1 text-[12px] font-semibold leading-tight text-[#314123]">
+                              <span className="truncate">{task.name}</span>
+                              {(commentCounts[task.id] ?? 0) > 0 && (
+                                <span
+                                  className="text-[11px] text-amber-500"
+                                  title={
+                                    (commentCounts[task.id] ?? 0) >
+                                    (commentCache[task.id] ?? 0)
+                                      ? "New comments added"
+                                      : "Task has comments"
+                                  }
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-[9px] leading-tight text-[#6b6d4b]">
                               {renderTextWithAnimalLinks(task.description)}
@@ -1040,7 +1095,7 @@ export default function TaskEditorPage() {
       </div>
 
       {editorOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4 py-6">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-2 py-6">
           <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-[#d0c9a4] bg-[#fdfaf1] p-5 shadow-xl">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-[#314123]">
@@ -1114,7 +1169,7 @@ export default function TaskEditorPage() {
             </div>
 
             {editingDateLabel && (
-              <div className="mt-4 rounded-lg border border-[#d0c9a4] bg-white px-4 py-2 text-xs text-[#4b5133]">
+              <div className="mt-4 rounded-lg border border-[#d0c9a4] bg-white px-2 py-2 text-xs text-[#4b5133]">
                 <span className="font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
                   Editing date
                 </span>
@@ -1268,7 +1323,7 @@ export default function TaskEditorPage() {
             </div>
 
             {editing?.recurring && (
-              <div className="mt-4 rounded-lg border border-[#d0c9a4] bg-white px-4 py-3">
+              <div className="mt-4 rounded-lg border border-[#d0c9a4] bg-white px-2 py-3">
                 <p className="text-xs font-semibold uppercase text-[#6b6f4c]">
                   Apply edits to
                 </p>
@@ -1336,7 +1391,7 @@ export default function TaskEditorPage() {
               </div>
             )}
 
-            <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-white px-4 py-3">
+            <div className="mt-4 rounded-lg border border-[#e2d7b5] bg-white px-2 py-3">
               <button
                 type="button"
                 onClick={() => setAdvancedOpen((prev) => !prev)}
@@ -1556,7 +1611,7 @@ export default function TaskEditorPage() {
                       occurrenceDate: editing.occurrence_date || null,
                     })
                   }
-                  className="rounded-md border border-red-200 px-4 py-2 text-xs font-semibold uppercase text-red-700"
+                  className="rounded-md border border-red-200 px-2 py-2 text-xs font-semibold uppercase text-red-700"
                 >
                   Delete task
                 </button>
@@ -1564,7 +1619,7 @@ export default function TaskEditorPage() {
               <button
                 type="button"
                 onClick={() => setEditorOpen(false)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#4f5730]"
+                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase text-[#4f5730]"
               >
                 Cancel
               </button>
@@ -1572,7 +1627,7 @@ export default function TaskEditorPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={saving || occurrenceLoading}
-                className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
+                className="rounded-md bg-[#8fae4c] px-2 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
               >
                 {saving || occurrenceLoading ? "Saving…" : "Save task"}
               </button>
@@ -1582,7 +1637,7 @@ export default function TaskEditorPage() {
       )}
 
       {deletePrompt.task && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-2 py-6">
           <div className="w-full max-w-md rounded-2xl border border-[#d0c9a4] bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-[#314123]">Delete task</h3>
             <p className="mt-1 text-sm text-[#5f5a3b]">
@@ -1649,7 +1704,7 @@ export default function TaskEditorPage() {
               <button
                 type="button"
                 onClick={() => setDeletePrompt({ task: null, mode: "single", occurrenceDate: null })}
-                className="rounded-md border border-[#d0c9a4] px-4 py-2 text-xs font-semibold uppercase text-[#4f5730]"
+                className="rounded-md border border-[#d0c9a4] px-2 py-2 text-xs font-semibold uppercase text-[#4f5730]"
               >
                 Cancel
               </button>
@@ -1657,7 +1712,7 @@ export default function TaskEditorPage() {
                 type="button"
                 onClick={handleDeleteTask}
                 disabled={saving}
-                className="rounded-md bg-red-500 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
+                className="rounded-md bg-red-500 px-2 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
               >
                 {saving ? "Deleting…" : "Delete"}
               </button>
