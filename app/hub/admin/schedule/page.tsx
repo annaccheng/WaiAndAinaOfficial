@@ -207,6 +207,7 @@ export default function AdminScheduleEditorPage() {
   const [recurringQuickInterval, setRecurringQuickInterval] = useState(1);
   const [recurringQuickUnit, setRecurringQuickUnit] = useState("day");
   const [draggingTask, setDraggingTask] = useState<DragPayload | null>(null);
+  const [copyDragActive, setCopyDragActive] = useState(false);
   const [pendingInsert, setPendingInsert] = useState<{ person: string; slotId: string; index: number } | null>(null);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
   const [availableSchedules, setAvailableSchedules] = useState<
@@ -438,6 +439,25 @@ export default function AdminScheduleEditorPage() {
     if (typeof window === "undefined") return;
     // no-op placeholder to avoid hydration mismatch if future window sizing is needed
   }, [scheduleMode, selectedDate]);
+
+  useEffect(() => {
+    const handleKeyChange = (event: KeyboardEvent) => {
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      setCopyDragActive(modifierPressed);
+    };
+    const clearModifier = () => setCopyDragActive(false);
+    window.addEventListener("keydown", handleKeyChange);
+    window.addEventListener("keyup", handleKeyChange);
+    window.addEventListener("blur", clearModifier);
+    return () => {
+      window.removeEventListener("keydown", handleKeyChange);
+      window.removeEventListener("keyup", handleKeyChange);
+      window.removeEventListener("blur", clearModifier);
+    };
+  }, []);
 
   const taskMetaById = useMemo(() => {
     const entries: Array<[string, TaskCatalogItem]> = [...recurringTasks, ...oneOffTasks].map(
@@ -1542,10 +1562,7 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
-      const isMac =
-        typeof navigator !== "undefined" &&
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? e.metaKey : e.ctrlKey;
+      const modifierPressed = copyDragActive || e.ctrlKey || e.metaKey;
       e.dataTransfer.dropEffect = modifierPressed ? "copy" : "move";
       const jsonPayload = e.dataTransfer.getData(DRAG_DATA_TYPE);
       const textPayload = e.dataTransfer.getData("text/task-name");
@@ -1585,22 +1602,26 @@ export default function AdminScheduleEditorPage() {
 
       void finalizeDrop();
     },
-    [handleTaskMove, resolveTaskEntry, scheduleData, scheduleMode, selectedDate]
+    [
+      copyDragActive,
+      handleTaskMove,
+      resolveTaskEntry,
+      scheduleData,
+      scheduleMode,
+      selectedDate,
+    ]
   );
 
   const handleDragOverEvent = useCallback(
     (e: React.DragEvent, person: string, slotId: string, index: number) => {
       e.preventDefault();
       e.stopPropagation();
-      const isMac =
-        typeof navigator !== "undefined" &&
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? e.metaKey : e.ctrlKey;
+      const modifierPressed = copyDragActive || e.ctrlKey || e.metaKey;
       const shouldCopy = modifierPressed || !draggingTask?.fromPerson;
       e.dataTransfer.dropEffect = shouldCopy ? "copy" : "move";
       setPendingInsert({ person, slotId, index });
     },
-    [draggingTask]
+    [copyDragActive, draggingTask]
   );
 
   const getCellValue = (cell: { person: string; slotId: string } | null) => {
