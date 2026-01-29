@@ -1980,6 +1980,9 @@ export default function AdminScheduleEditorPage() {
           url: String(link.url || "").trim(),
         }))
         .filter((link) => link.label || link.url);
+      const linkValues = links
+        .map((link) => link.url || link.label)
+        .filter(Boolean);
       const taskTypeMatch = taskTypes.find(
         (type) => type.name === taskEditDraft.taskType
       );
@@ -1995,7 +1998,7 @@ export default function AdminScheduleEditorPage() {
           status: taskEditDraft.status || null,
           priority: taskEditDraft.priority || null,
           task_type_id: taskTypeMatch?.id || undefined,
-          links,
+          links: linkValues,
         }),
       });
       const json = await res.json().catch(() => ({}));
