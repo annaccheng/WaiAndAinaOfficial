@@ -2790,7 +2790,7 @@ export default function AdminScheduleEditorPage() {
 
   if (!authorized) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10 text-center text-sm text-[#7a7f54]">
+      <div className="mx-auto max-w-6xl px-2 py-10 text-center text-sm text-[#7a7f54]">
         {message || "Checking admin access…"}
       </div>
     );
@@ -2798,7 +2798,7 @@ export default function AdminScheduleEditorPage() {
 
   return (
     <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
-      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-6 py-4">
+      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-2 py-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
@@ -3036,7 +3036,7 @@ export default function AdminScheduleEditorPage() {
       )}
 
     <div
-  className={`flex min-w-0 flex-1 flex-col gap-3 px-3 py-3 pb-24 lg:flex-row lg:px-6 lg:pb-32 ${
+  className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
     canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
   }`}
 >
