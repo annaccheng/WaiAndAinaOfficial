@@ -231,6 +231,9 @@ export async function POST(req: Request) {
     if (message.includes("comments")) {
       try {
         const fallbackBody = { ...body };
+        if (Object.prototype.hasOwnProperty.call(fallbackBody, "links")) {
+          fallbackBody.links = normalizeLinksInput(fallbackBody.links);
+        }
         delete (fallbackBody as Record<string, unknown>).capabilityIds;
         delete fallbackBody.comments;
         const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
