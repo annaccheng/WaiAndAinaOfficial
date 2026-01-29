@@ -65,7 +65,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-2 py-6">
       <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -77,7 +77,7 @@ export default function AdminPage() {
           </div>
           <Link
             href="/hub"
-            className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+            className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
           >
             View live schedule
           </Link>
@@ -105,7 +105,7 @@ export default function AdminPage() {
               </p>
               <Link
                 href="/hub/admin/schedule"
-                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#8fae4c] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
               >
                 Open schedule editor
               </Link>
@@ -119,7 +119,7 @@ export default function AdminPage() {
               </p>
               <Link
                 href="/hub/admin/shifts"
-                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
               >
                 Open shift editor
               </Link>
@@ -133,7 +133,7 @@ export default function AdminPage() {
               </p>
               <Link
                 href="/hub/admin/tasks"
-                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#6f8f3d] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#6f8f3d] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-md transition hover:bg-[#5f7f35]"
               >
                 Open task editor
               </Link>
@@ -147,7 +147,7 @@ export default function AdminPage() {
               </p>
               <Link
                 href="/hub/admin/users"
-                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
               >
                 Open user management
               </Link>
@@ -161,7 +161,7 @@ export default function AdminPage() {
               </p>
               <Link
                 href="/hub/admin/analytics"
-                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
+                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
               >
                 Open analytics
               </Link>
@@ -191,7 +191,7 @@ export default function AdminPage() {
               <button
                 type="button"
                 onClick={handleCreateCapability}
-                className="rounded-md bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+                className="rounded-md bg-[#8fae4c] px-2 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
               >
                 Add tag
               </button>

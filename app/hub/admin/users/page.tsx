@@ -251,7 +251,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-2 py-6">
       <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -263,22 +263,22 @@ export default function AdminUsersPage() {
           </div>
           <Link
             href="/hub/admin"
-            className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+            className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
           >
             Back to admin
           </Link>
         </div>
         {message && <p className="mt-4 text-sm font-semibold text-[#4b5133]">{message}</p>}
         <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
-          <div className="rounded-xl border border-[#e2d7b5] bg-[#f9f6e7] px-4 py-3 text-[#4b5133]">
+          <div className="rounded-xl border border-[#e2d7b5] bg-[#f9f6e7] px-2 py-3 text-[#4b5133]">
             <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">Total</div>
             <div className="text-lg font-semibold">{stats.total}</div>
           </div>
-          <div className="rounded-xl border border-[#d0e0b5] bg-[#f1f6e5] px-4 py-3 text-[#4b5133]">
+          <div className="rounded-xl border border-[#d0e0b5] bg-[#f1f6e5] px-2 py-3 text-[#4b5133]">
             <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">Active</div>
             <div className="text-lg font-semibold">{stats.active}</div>
           </div>
-          <div className="rounded-xl border border-[#e3d2b5] bg-[#faf3e3] px-4 py-3 text-[#4b5133]">
+          <div className="rounded-xl border border-[#e3d2b5] bg-[#faf3e3] px-2 py-3 text-[#4b5133]">
             <div className="text-xs uppercase tracking-[0.12em] text-[#7a7f54]">Inactive</div>
             <div className="text-lg font-semibold">{stats.inactive}</div>
           </div>
@@ -432,7 +432,7 @@ export default function AdminUsersPage() {
               </p>
               <button
                 type="submit"
-                className="w-full rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
+                className="w-full rounded-md bg-[#8fae4c] px-2 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44]"
               >
                 Add user
               </button>
@@ -579,7 +579,7 @@ export default function AdminUsersPage() {
                   <button
                     type="button"
                     onClick={updateUser}
-                    className="flex-1 rounded-md bg-[#a0b764] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#93a95d]"
+                    className="flex-1 rounded-md bg-[#a0b764] px-2 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#93a95d]"
                   >
                     Save changes
                   </button>
@@ -597,7 +597,7 @@ export default function AdminUsersPage() {
                         capabilityIds: [],
                       });
                     }}
-                    className="rounded-md border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#4f5730] shadow-sm"
+                    className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase text-[#4f5730] shadow-sm"
                   >
                     Clear
                   </button>
