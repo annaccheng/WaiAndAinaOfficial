@@ -279,6 +279,15 @@ export default function AdminScheduleEditorPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState("");
   const [editingTaskSaving, setEditingTaskSaving] = useState(false);
+  const [hoveredTaskTooltip, setHoveredTaskTooltip] = useState<{
+    name: string;
+    status: string;
+    type: string;
+    assigned: number;
+    needed: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const [taskCommentCache, setTaskCommentCache] = useState<Record<string, number>>({});
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
@@ -3643,6 +3652,30 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
+      {hoveredTaskTooltip && (
+        <div
+          className="fixed z-[99999] max-w-[240px] rounded-lg border border-[#5d7f3b] bg-[#2f3b21] px-3 py-2 text-[10px] text-white shadow-lg pointer-events-none"
+          style={{
+            left: hoveredTaskTooltip.x,
+            top: hoveredTaskTooltip.y,
+          }}
+        >
+          <div className="mb-1.5 font-semibold">{hoveredTaskTooltip.name}</div>
+          <div className="space-y-0.5 text-[9px] text-gray-300">
+            <div>
+              <span className="text-gray-400">Type:</span> {hoveredTaskTooltip.type}
+            </div>
+            <div>
+              <span className="text-gray-400">Status:</span> {hoveredTaskTooltip.status}
+            </div>
+            <div>
+              <span className="text-gray-400">Assigned:</span>{" "}
+              {hoveredTaskTooltip.assigned}/{hoveredTaskTooltip.needed}
+            </div>
+          </div>
+        </div>
+      )}
+
     <div
   className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
     canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
@@ -3941,6 +3974,36 @@ export default function AdminScheduleEditorPage() {
                               selectCell(person, slot);
                               loadTaskDetail(task.id, task.name);
                             }}
+                            onMouseEnter={(event) => {
+                              const offsetX = 12;
+                              const offsetY = 12;
+                              setHoveredTaskTooltip({
+                                name: task.name,
+                                status: taskStatus,
+                                type: taskType,
+                                assigned: assignedCount,
+                                needed: neededCount,
+                                x: event.clientX + offsetX,
+                                y: event.clientY + offsetY,
+                              });
+                            }}
+                            onMouseMove={(event) => {
+                              if (!hoveredTaskTooltip) return;
+                              const offsetX = 12;
+                              const offsetY = 12;
+                              setHoveredTaskTooltip((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      x: event.clientX + offsetX,
+                                      y: event.clientY + offsetY,
+                                    }
+                                  : prev
+                              );
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredTaskTooltip(null);
+                            }}
                             onDoubleClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
@@ -4033,17 +4096,6 @@ export default function AdminScheduleEditorPage() {
                               )}
                             </div>
 
-                            {/* Hover tooltip with full task details - HIGH Z-INDEX TO APPEAR ON TOP */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[9999] bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] pointer-events-none">
-                              <div className="font-semibold mb-1.5">{task.name}</div>
-                              <div className="text-[9px] text-gray-300 space-y-0.5">
-                                <div><span className="text-gray-400">Type:</span> {taskType}</div>
-                                <div><span className="text-gray-400">Status:</span> {taskStatus}</div>
-                                <div><span className="text-gray-400">Assigned:</span> {assignedCount}/{neededCount}</div>
-                              </div>
-                              {/* Arrow pointer */}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2f3b21]"></div>
-                            </div>
                           </div>
 
                           {dropLine(idx + 1)}
