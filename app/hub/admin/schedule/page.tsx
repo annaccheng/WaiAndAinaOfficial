@@ -2505,7 +2505,9 @@ export default function AdminScheduleEditorPage() {
         statusOptions.find((opt) => opt.name)?.name || "Not Started";
       const nextStatus =
         taskEditDraft.status || taskDetail.status || defaultStatus;
-      const nextPriority = taskEditDraft.priority || taskDetail.priority || null;
+      const defaultPriority = "Medium";
+      const nextPriority =
+        taskEditDraft.priority || taskDetail.priority || defaultPriority;
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3325,12 +3327,12 @@ export default function AdminScheduleEditorPage() {
 
   return (
     <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
-      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-2 py-4">
+      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-1 sm:px-2 py-3">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
-            <h1 className="text-2xl font-semibold text-[#314123]">{scheduleTitle}</h1>
-            <p className="text-sm text-[#5f5a3b]">
+            <h1 className="text-xl font-semibold text-[#314123]">{scheduleTitle}</h1>
+            <p className="text-xs text-[#5f5a3b]">
               Staging schedule with auto-synced volunteers and background saves.
             </p>
             {selectedEntry && (
@@ -3349,7 +3351,7 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={undoLastChange}
                 disabled={!undoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
               >
                 Undo
               </button>
@@ -3357,7 +3359,7 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={redoLastChange}
                 disabled={!redoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
               >
                 Redo
               </button>
@@ -3365,14 +3367,14 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={publishSchedule}
                 disabled={!selectedDate || scheduleMode !== "page"}
-                className="rounded-md bg-[#8fae4c] px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
                 Publish
               </button>
               <button
                 type="button"
                 onClick={() => setBlackoutMode((prev) => !prev)}
-                className={`rounded-md border px-4 py-2 font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
+                className={`rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
                   blackoutMode
                     ? "border-[#22311b] bg-[#2f3b21] text-[#f9f9ec] hover:bg-[#25301b]"
                     : "border-[#d0c9a4] bg-white text-[#314123] hover:bg-[#f1edd8]"
@@ -3381,7 +3383,7 @@ export default function AdminScheduleEditorPage() {
                 {blackoutMode ? "Blackout mode: On" : "Blackout mode"}
               </button>
               <details className="relative">
-                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
+                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
                   More actions
                 </summary>
                 <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
