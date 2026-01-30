@@ -2090,6 +2090,53 @@ export default function AdminScheduleEditorPage() {
           console.warn("Failed to parse clipboard payload", err);
         }
       }
+      const textPayload = event.clipboardData?.getData("text/plain") || "";
+      if (textPayload && selectedCell) {
+        const rows = textPayload.split(/\r?\n/);
+        const grid = rows.map((row) => row.split("\t"));
+        const rangePayload = {
+          rows: grid.length,
+          cols: Math.max(...grid.map((row) => row.length)),
+          cells: grid.map((row) =>
+            row.map((cellText) => ({
+              tasks: [],
+              note: cellText.trim(),
+            }))
+          ),
+        };
+        const applyTextPaste = async () => {
+          const resolvedCells: CellContent[][] = [];
+          for (let rowIdx = 0; rowIdx < rangePayload.rows; rowIdx += 1) {
+            const rowCells: CellContent[] = [];
+            for (let colIdx = 0; colIdx < rangePayload.cols; colIdx += 1) {
+              const cellValue = grid[rowIdx]?.[colIdx] || "";
+              const entries = cellValue
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean);
+              const tasks: ScheduledTask[] = [];
+              for (const entry of entries) {
+                const resolved = await resolveTaskEntry(entry);
+                if (resolved) {
+                  tasks.push({ id: resolved.id, name: resolved.name });
+                }
+              }
+              rowCells.push({ tasks, note: "" });
+            }
+            resolvedCells.push(rowCells);
+          }
+          const resolvedRange = {
+            rows: rangePayload.rows,
+            cols: rangePayload.cols,
+            cells: resolvedCells,
+          };
+          setCellClipboardRange(resolvedRange);
+          applyCellRange(selectedCell, resolvedRange);
+        };
+        void applyTextPaste();
+        event.preventDefault();
+        return;
+      }
       if (cellClipboard) {
         handlePasteCell();
         event.preventDefault();
@@ -2101,6 +2148,7 @@ export default function AdminScheduleEditorPage() {
       cellClipboard,
       handlePasteCell,
       normalizeClipboardContent,
+      resolveTaskEntry,
       selectedCell,
     ]
   );
@@ -2154,7 +2202,7 @@ export default function AdminScheduleEditorPage() {
         event.preventDefault();
         return;
       }
-      if (key === "v" && selectedCell && cellClipboard) {
+      if (key === "v" && selectedCell) {
         handlePasteCell();
         event.preventDefault();
       }
@@ -3866,29 +3914,6 @@ export default function AdminScheduleEditorPage() {
                     )}
                     {isSelected && cellExists && (
                       <div className="space-y-1">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopyCell();
-                            }}
-                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-                          >
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePasteCell();
-                            }}
-                            disabled={!cellClipboard}
-                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] disabled:opacity-60"
-                          >
-                            Paste
-                          </button>
-                        </div>
                         <input
                           list="task-options"
                           value={customTask}
