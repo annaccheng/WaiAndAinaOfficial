@@ -431,7 +431,6 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     if (scheduleMode === "page" && !selectedDate) return;
     const interval = setInterval(async () => {
-      if (pendingCells.size > 0) return;
       try {
         const url =
           scheduleMode === "page"
@@ -1019,6 +1018,19 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !currentUserName) return;
+    if (customTablesDateLabel) {
+      void fetch("/api/schedule/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: currentUserName,
+          initials: selectionInitials,
+          dateLabel: customTablesDateLabel,
+          anchor: selectionAnchor,
+          end: selectionEnd,
+        }),
+      });
+    }
     if (!("BroadcastChannel" in window)) return;
     const channel = new BroadcastChannel("admin-schedule-presence");
     const payload = {
@@ -1030,7 +1042,13 @@ export default function AdminScheduleEditorPage() {
     };
     channel.postMessage(payload);
     channel.close();
-  }, [currentUserName, selectionAnchor, selectionEnd, selectionInitials]);
+  }, [
+    currentUserName,
+    customTablesDateLabel,
+    selectionAnchor,
+    selectionEnd,
+    selectionInitials,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
@@ -1062,6 +1080,38 @@ export default function AdminScheduleEditorPage() {
       channel.close();
     };
   }, [currentUserName]);
+
+  useEffect(() => {
+    if (!customTablesDateLabel) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/schedule/presence?date=${encodeURIComponent(customTablesDateLabel)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const entries = Array.isArray(json.entries) ? json.entries : [];
+        setPresenceSelections((prev) => {
+          const next = { ...prev };
+          entries.forEach((entry: any) => {
+            if (!entry?.user || entry.user === currentUserName) return;
+            next[entry.user] = {
+              user: entry.user,
+              initials: entry.initials || entry.user.slice(0, 2).toUpperCase(),
+              updatedAt: entry.updatedAt || Date.now(),
+              anchor: entry.anchor ?? null,
+              end: entry.end ?? null,
+            };
+          });
+          return next;
+        });
+      } catch (err) {
+        console.warn("Failed to load presence", err);
+      }
+    }, 3_000);
+    return () => clearInterval(interval);
+  }, [currentUserName, customTablesDateLabel]);
 
   useEffect(() => {
     const interval = setInterval(() => {
