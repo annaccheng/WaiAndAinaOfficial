@@ -279,6 +279,7 @@ export default function AdminScheduleEditorPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState("");
   const [editingTaskSaving, setEditingTaskSaving] = useState(false);
+  const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
   const [hoveredTaskTooltip, setHoveredTaskTooltip] = useState<{
     name: string;
     status: string;
@@ -428,6 +429,7 @@ export default function AdminScheduleEditorPage() {
           const json = await res.json();
           if (!cancelled) {
             setScheduleData(json);
+            setHasUnpublishedChanges(false);
             if (scheduleMode === "page" && !selectedDate && json?.scheduleDate) {
               setSelectedDate(json.scheduleDate);
             }
@@ -1174,6 +1176,7 @@ export default function AdminScheduleEditorPage() {
         return;
       }
       const key = `${person}-${slotId}`;
+      setHasUnpublishedChanges(true);
       setPendingCells((prev) => new Set(prev).add(key));
       setSaveLog({
         status: "saving",
@@ -2818,6 +2821,7 @@ export default function AdminScheduleEditorPage() {
       if (!res.ok) {
         throw new Error(json.error || "Failed to publish schedule");
       }
+      setHasUnpublishedChanges(false);
       setScheduleNote(`Published staging schedule for ${selectedDate}.`);
     } catch (err) {
       console.error("Failed to publish schedule", err);
@@ -3652,6 +3656,12 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
+      {scheduleMode === "page" && hasUnpublishedChanges && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-base font-semibold text-red-700 shadow-sm">
+          Unpublished changes: remember to publish this schedule.
+        </div>
+      )}
+
       {hoveredTaskTooltip && (
         <div
           className="fixed z-[99999] max-w-[240px] rounded-lg border border-[#5d7f3b] bg-[#2f3b21] px-3 py-2 text-[10px] text-white shadow-lg pointer-events-none"
@@ -4086,6 +4096,12 @@ export default function AdminScheduleEditorPage() {
 
                             {/* Assignment counter and completion indicator */}
                             <div className="flex shrink-0 items-center gap-1">
+                              {scheduleMode === "page" && hasUnpublishedChanges && (
+                                <span
+                                  className="h-2 w-2 rounded-full bg-red-500"
+                                  aria-label="Unpublished changes"
+                                />
+                              )}
                               <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
                                 {assignedCount}/{neededCount}
                               </span>
