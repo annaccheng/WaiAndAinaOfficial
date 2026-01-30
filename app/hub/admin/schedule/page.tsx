@@ -275,6 +275,11 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskName, setEditingTaskName] = useState("");
+  const [editingTaskSaving, setEditingTaskSaving] = useState(false);
+  const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const [taskCommentCache, setTaskCommentCache] = useState<Record<string, number>>({});
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
@@ -375,6 +380,13 @@ export default function AdminScheduleEditorPage() {
 
     loadStatic();
   }, [authorized]);
+
+  useEffect(() => {
+    if (editingTaskKey && editingTaskInputRef.current) {
+      editingTaskInputRef.current.focus();
+      editingTaskInputRef.current.select();
+    }
+  }, [editingTaskKey]);
 
 
   useEffect(() => {
@@ -2564,6 +2576,73 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const updateTaskNameInState = useCallback((taskId: string, name: string) => {
+    setScheduleData((prev) => {
+      if (!prev) return prev;
+      const nextCells = prev.cells.map((row) =>
+        row.map((cell) => ({
+          ...cell,
+          tasks: cell.tasks.map((task) =>
+            task.id === taskId ? { ...task, name } : task
+          ),
+        }))
+      );
+      return { ...prev, cells: nextCells };
+    });
+    setRecurringTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+    setOneOffTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+    setYesterdayRecurringTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+  }, []);
+
+  const saveInlineTaskName = useCallback(
+    async (taskId: string, name: string, reset = true) => {
+      const trimmed = name.trim();
+      if (!trimmed || editingTaskSaving) {
+        if (reset) {
+          setEditingTaskKey(null);
+          setEditingTaskId(null);
+        }
+        return;
+      }
+      setEditingTaskSaving(true);
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: taskId,
+            applyTo: "single",
+            name: trimmed,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to update task name.");
+        }
+        updateTaskNameInState(taskId, trimmed);
+        setTaskEditMessage("Task name updated.");
+      } catch (err) {
+        console.error("Failed to update task name", err);
+        const friendly =
+          err instanceof Error ? err.message : "Failed to update task name.";
+        setTaskEditMessage(friendly);
+      } finally {
+        setEditingTaskSaving(false);
+        if (reset) {
+          setEditingTaskKey(null);
+          setEditingTaskId(null);
+        }
+      }
+    },
+    [editingTaskSaving, updateTaskNameInState]
+  );
+
   const handlePhotoUpload = async (overrideFile?: File | null) => {
     if (!taskDetail?.id || !taskDetail?.name) {
       setPhotoMessage("Select a task before uploading a photo.");
@@ -3801,11 +3880,13 @@ export default function AdminScheduleEditorPage() {
                   <>
                     {dropLine(0)}
                     {content.tasks.map((task, idx) => {
+                      const taskKey = `${person}-${slot.id}-${task.id}-${idx}`;
                       const meta = taskMetaById.get(task.id);
                       const isDraggingThis =
                         draggingTask?.taskId === task.id &&
                         draggingTask?.fromPerson === person &&
                         draggingTask?.fromSlotId === slot.id;
+                      const isEditing = editingTaskKey === taskKey;
                       const assignedCount =
                         taskPeopleCountById.byId.get(task.id) ??
                         taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
@@ -3825,8 +3906,12 @@ export default function AdminScheduleEditorPage() {
                           <div
                             role="button"
                             tabIndex={0}
-                            draggable
+                            draggable={!isEditing}
                             onDragStart={(e) => {
+                              if (isEditing) {
+                                e.preventDefault();
+                                return;
+                              }
                               setDraggingTask({
                                 taskId: task.id,
                                 taskName: task.name,
@@ -3856,6 +3941,13 @@ export default function AdminScheduleEditorPage() {
                               selectCell(person, slot);
                               loadTaskDetail(task.id, task.name);
                             }}
+                            onDoubleClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setEditingTaskKey(taskKey);
+                              setEditingTaskId(task.id);
+                              setEditingTaskName(task.name);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
@@ -3863,7 +3955,7 @@ export default function AdminScheduleEditorPage() {
                                 loadTaskDetail(task.id, task.name);
                               }
                             }}
-                           className={`group relative flex w-[150px] items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0
+                           className={`group relative flex w-[150px] items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 hover:z-[60] focus-within:z-[60]
     ${typeColorClasses(meta?.typeColor)}
     ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
   `}
@@ -3888,9 +3980,37 @@ export default function AdminScheduleEditorPage() {
                               </button>
 
                               {/* Task name - truncated with ellipsis */}
-                              <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
-                                {task.name}
-                              </span>
+                              {isEditing ? (
+                                <input
+                                  ref={editingTaskInputRef}
+                                  value={editingTaskName}
+                                  onChange={(e) => setEditingTaskName(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={() => {
+                                    if (editingTaskId) {
+                                      saveInlineTaskName(editingTaskId, editingTaskName);
+                                    } else {
+                                      setEditingTaskKey(null);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && editingTaskId) {
+                                      e.preventDefault();
+                                      saveInlineTaskName(editingTaskId, editingTaskName);
+                                    }
+                                    if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      setEditingTaskKey(null);
+                                      setEditingTaskId(null);
+                                    }
+                                  }}
+                                  className="min-w-0 flex-1 rounded-sm border border-[#d1d4aa] bg-white px-1 py-[1px] text-[10px] font-semibold text-[#2f3b21] focus:border-[#8fae4c] focus:outline-none"
+                                />
+                              ) : (
+                                <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
+                                  {task.name}
+                                </span>
+                              )}
                               {hasComments && (
                                 <span
                                   className="text-[11px] text-amber-500"
