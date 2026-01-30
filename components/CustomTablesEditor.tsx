@@ -26,6 +26,111 @@ type CustomTablesEditorProps = {
   currentUserName?: string | null;
 };
 
+type MultiSelectChecklistProps = {
+  value: string;
+  options: string[];
+  placeholder: string;
+  onChange: (nextValue: string) => void;
+};
+
+const parseMultiValue = (value: string) =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const formatMultiValue = (values: string[]) => values.join(", ");
+
+function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSelectChecklistProps) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const selectedValues = useMemo(() => new Set(parseMultiValue(value)), [value]);
+  const filteredOptions = useMemo(() => {
+    const lower = filter.trim().toLowerCase();
+    if (!lower) return options;
+    return options.filter((opt) => opt.toLowerCase().includes(lower));
+  }, [filter, options]);
+
+  const toggleValue = (option: string) => {
+    const next = new Set(selectedValues);
+    if (next.has(option)) {
+      next.delete(option);
+    } else {
+      next.add(option);
+    }
+    onChange(formatMultiValue(Array.from(next)));
+  };
+
+  const handleAddCustom = () => {
+    const trimmed = filter.trim();
+    if (!trimmed) return;
+    const next = new Set(selectedValues);
+    next.add(trimmed);
+    onChange(formatMultiValue(Array.from(next)));
+    setFilter("");
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-left text-[11px] font-semibold text-[#3b4224]"
+      >
+        {value || placeholder}
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
+          <div className="flex gap-1">
+            <input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleAddCustom();
+                }
+              }}
+              placeholder="Search or add..."
+              className="w-full rounded-md border border-[#d0c9a4] px-2 py-1 text-[11px]"
+            />
+            <button
+              type="button"
+              onClick={handleAddCustom}
+              className="rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 text-[11px] font-semibold text-[#4b5133]"
+            >
+              +
+            </button>
+          </div>
+          <div className="mt-2 max-h-40 overflow-y-auto space-y-1 text-[11px]">
+            {filteredOptions.length ? (
+              filteredOptions.map((option) => (
+                <label key={option} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedValues.has(option)}
+                    onChange={() => toggleValue(option)}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))
+            ) : (
+              <p className="text-[#7a7f54]">No matches.</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="mt-2 w-full rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function toIsoDateLabel(dateLabel?: string | null) {
   if (!dateLabel) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateLabel)) return dateLabel;
@@ -611,43 +716,31 @@ export function CustomTablesEditor({
                                 ⇅
                               </button>
                               {columnHeaderType === "user" ? (
-                                <select
+                                <MultiSelectChecklist
                                   value={header}
-                                  onChange={(event) =>
+                                  options={userOptions}
+                                  placeholder="Select users"
+                                  onChange={(nextValue) =>
                                     updateCustomTableState(table.id, (prev) => {
                                       const nextHeaders = [...prev.columnHeaders];
-                                      nextHeaders[colIdx] = event.target.value;
+                                      nextHeaders[colIdx] = nextValue;
                                       return { ...prev, columnHeaders: nextHeaders };
                                     })
                                   }
-                                  className="rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                >
-                                  <option value="">Select user</option>
-                                  {userOptions.map((user) => (
-                                    <option key={`${table.id}-col-user-${user}`} value={user}>
-                                      {user}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               ) : columnHeaderType === "task" ? (
-                                <select
+                                <MultiSelectChecklist
                                   value={header}
-                                  onChange={(event) =>
+                                  options={taskNameOptions}
+                                  placeholder="Select tasks"
+                                  onChange={(nextValue) =>
                                     updateCustomTableState(table.id, (prev) => {
                                       const nextHeaders = [...prev.columnHeaders];
-                                      nextHeaders[colIdx] = event.target.value;
+                                      nextHeaders[colIdx] = nextValue;
                                       return { ...prev, columnHeaders: nextHeaders };
                                     })
                                   }
-                                  className="rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                >
-                                  <option value="">Select task</option>
-                                  {taskNameOptions.map((task) => (
-                                    <option key={`${table.id}-col-task-${task}`} value={task}>
-                                      {task}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               ) : (
                                 <input
                                   value={header}
@@ -733,43 +826,31 @@ export function CustomTablesEditor({
                                 ⇅
                               </button>
                               {rowHeaderType === "user" ? (
-                                <select
+                                <MultiSelectChecklist
                                   value={rowHeader}
-                                  onChange={(event) =>
+                                  options={userOptions}
+                                  placeholder="Select users"
+                                  onChange={(nextValue) =>
                                     updateCustomTableState(table.id, (prev) => {
                                       const nextHeaders = [...prev.rowHeaders];
-                                      nextHeaders[rowIdx] = event.target.value;
+                                      nextHeaders[rowIdx] = nextValue;
                                       return { ...prev, rowHeaders: nextHeaders };
                                     })
                                   }
-                                  className="rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                >
-                                  <option value="">Select user</option>
-                                  {userOptions.map((user) => (
-                                    <option key={`${table.id}-row-user-${user}`} value={user}>
-                                      {user}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               ) : rowHeaderType === "task" ? (
-                                <select
+                                <MultiSelectChecklist
                                   value={rowHeader}
-                                  onChange={(event) =>
+                                  options={taskNameOptions}
+                                  placeholder="Select tasks"
+                                  onChange={(nextValue) =>
                                     updateCustomTableState(table.id, (prev) => {
                                       const nextHeaders = [...prev.rowHeaders];
-                                      nextHeaders[rowIdx] = event.target.value;
+                                      nextHeaders[rowIdx] = nextValue;
                                       return { ...prev, rowHeaders: nextHeaders };
                                     })
                                   }
-                                  className="rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                >
-                                  <option value="">Select task</option>
-                                  {taskNameOptions.map((task) => (
-                                    <option key={`${table.id}-row-task-${task}`} value={task}>
-                                      {task}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               ) : (
                                 <input
                                   value={rowHeader}
@@ -819,43 +900,31 @@ export function CustomTablesEditor({
                             >
                               {canEditCustomTables ? (
                                 cellType === "user" ? (
-                                  <select
+                                  <MultiSelectChecklist
                                     value={cellValue}
-                                    onChange={(event) =>
+                                    options={userOptions}
+                                    placeholder="Select users"
+                                    onChange={(nextValue) =>
                                       updateCustomTableState(table.id, (prev) => {
                                         const nextCells = prev.cells.map((row) => [...row]);
-                                        nextCells[rowIdx][colIdx] = event.target.value;
+                                        nextCells[rowIdx][colIdx] = nextValue;
                                         return { ...prev, cells: nextCells };
                                       })
                                     }
-                                    className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                  >
-                                    <option value="">Select user</option>
-                                    {userOptions.map((user) => (
-                                      <option key={`${table.id}-cell-user-${user}`} value={user}>
-                                        {user}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
                                 ) : cellType === "task" ? (
-                                  <select
+                                  <MultiSelectChecklist
                                     value={cellValue}
-                                    onChange={(event) =>
+                                    options={taskNameOptions}
+                                    placeholder="Select tasks"
+                                    onChange={(nextValue) =>
                                       updateCustomTableState(table.id, (prev) => {
                                         const nextCells = prev.cells.map((row) => [...row]);
-                                        nextCells[rowIdx][colIdx] = event.target.value;
+                                        nextCells[rowIdx][colIdx] = nextValue;
                                         return { ...prev, cells: nextCells };
                                       })
                                     }
-                                    className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
-                                  >
-                                    <option value="">Select task</option>
-                                    {taskNameOptions.map((task) => (
-                                      <option key={`${table.id}-cell-task-${task}`} value={task}>
-                                        {task}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
                                 ) : (
                                   <input
                                     value={cellValue}

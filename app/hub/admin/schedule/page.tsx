@@ -199,6 +199,7 @@ export default function AdminScheduleEditorPage() {
     slotId: string;
     slotLabel: string;
   } | null>(null);
+  const [isSelectingRange, setIsSelectingRange] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<{
     person: string;
     slotId: string;
@@ -2383,6 +2384,13 @@ export default function AdminScheduleEditorPage() {
     setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
   };
 
+  useEffect(() => {
+    if (!isSelectingRange) return;
+    const stopSelection = () => setIsSelectingRange(false);
+    window.addEventListener("mouseup", stopSelection);
+    return () => window.removeEventListener("mouseup", stopSelection);
+  }, [isSelectingRange]);
+
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
     const existing = getCellValue(selectedCell)?.content.tasks.length || 0;
@@ -3687,11 +3695,23 @@ export default function AdminScheduleEditorPage() {
             <td
               key={`${person}-${slot.id}`}
               className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
-                isRangeSelected ? "bg-[#f0f4de]" : ""
+                isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
               } relative`}
               onClick={(event) => selectCell(person, slot, event)}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                setIsSelectingRange(true);
+                const nextSelection = { person, slotId: slot.id };
+                setSelectionAnchor(nextSelection);
+                setSelectionEnd(nextSelection);
+                setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+              }}
+              onMouseEnter={() => {
+                if (!isSelectingRange) return;
+                setSelectionEnd({ person, slotId: slot.id });
+              }}
               onDragOver={(e) => {
                 if (isBlocked) return;
                 handleDragOverEvent(e, person, slot.id, content.tasks.length);
