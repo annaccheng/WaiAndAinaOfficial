@@ -1043,12 +1043,13 @@ export default function AdminScheduleEditorPage() {
         anchor?: { person: string; slotId: string } | null;
         end?: { person: string; slotId: string } | null;
       };
-      if (!data?.user || data.user === currentUserName) return;
+      const user = typeof data?.user === "string" ? data.user : "";
+      if (!user || user === currentUserName) return;
       setPresenceSelections((prev) => ({
         ...prev,
-        [data.user]: {
-          user: data.user,
-          initials: data.initials || data.user.slice(0, 2).toUpperCase(),
+        [user]: {
+          user,
+          initials: data.initials || user.slice(0, 2).toUpperCase(),
           updatedAt: data.updatedAt || Date.now(),
           anchor: data.anchor ?? null,
           end: data.end ?? null,
