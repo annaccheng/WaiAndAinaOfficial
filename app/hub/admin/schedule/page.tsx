@@ -4408,8 +4408,8 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-4 lg:z-50 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
-            canvasExpanded ? "lg:w-[240px]" : "lg:w-[300px]"
+          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:fixed lg:right-4 lg:top-24 lg:z-[80] lg:h-[calc(100vh-6rem)] lg:self-start lg:overflow-hidden ${
+            canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
           }`}
         >
           <div className="space-y-4 lg:flex lg:h-full lg:flex-col lg:overflow-y-auto lg:pr-1">
