@@ -357,6 +357,17 @@ export async function PATCH(req: Request) {
     ? normalizeCapabilityIds(capabilityIds)
     : null;
 
+  const stripOptionalFields = (payload: Record<string, unknown>) => {
+    const fallback = { ...payload };
+    delete (fallback as Record<string, unknown>).comments;
+    delete (fallback as Record<string, unknown>).links;
+    delete (fallback as Record<string, unknown>).extra_notes;
+    delete (fallback as Record<string, unknown>).photos;
+    delete (fallback as Record<string, unknown>).time_slots;
+    delete (fallback as Record<string, unknown>).task_type_id;
+    return fallback;
+  };
+
   const applyUpdates = async (query: Record<string, string>) => {
     try {
       await supabaseRequest("tasks", {
@@ -366,9 +377,16 @@ export async function PATCH(req: Request) {
       });
     } catch (err: any) {
       const message = String(err?.message || "");
-      if (message.includes("comments")) {
-        const fallbackUpdates = { ...updates };
-        delete (fallbackUpdates as Record<string, unknown>).comments;
+      if (
+        message.includes("comments") ||
+        message.includes("links") ||
+        message.includes("extra_notes") ||
+        message.includes("time_slots") ||
+        message.includes("photos") ||
+        message.includes("task_type_id") ||
+        message.includes("column")
+      ) {
+        const fallbackUpdates = stripOptionalFields(updates);
         await supabaseRequest("tasks", {
           method: "PATCH",
           query,
