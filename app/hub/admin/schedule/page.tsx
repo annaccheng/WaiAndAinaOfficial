@@ -326,8 +326,8 @@ export default function AdminScheduleEditorPage() {
     const loadStatic = async () => {
       try {
         const [typeRes, scheduleListRes] = await Promise.all([
-          fetch("/api/task-types"),
-          fetch("/api/schedule/list"),
+          fetch("/api/task-types", { cache: "no-store" }),
+          fetch("/api/schedule/list", { cache: "no-store" }),
         ]);
 
         if (typeRes.ok) {
@@ -376,7 +376,7 @@ export default function AdminScheduleEditorPage() {
           scheduleMode === "page"
             ? `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`
             : "/api/schedule";
-        const res = await fetch(url);
+        const res = await fetch(url, { cache: "no-store" });
         if (res.ok) {
           const json = await res.json();
           if (!cancelled) {
@@ -583,7 +583,9 @@ export default function AdminScheduleEditorPage() {
         const dateParam = formatLabelToInput(yesterdayLabel);
         if (!dateParam) return;
         const [scheduleRes, recurringRes] = await Promise.all([
-          fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`),
+          fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`, {
+            cache: "no-store",
+          }),
           fetch(
             `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
           ),
@@ -2205,16 +2207,17 @@ export default function AdminScheduleEditorPage() {
       const res =
         scheduleMode === "page"
           ? await fetch(
-              `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`
+              `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`,
+              { cache: "no-store" }
             )
-          : await fetch("/api/schedule");
+          : await fetch("/api/schedule", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setScheduleData(json);
         setMessage(null);
       }
       if (scheduleMode === "page") {
-        const listRes = await fetch("/api/schedule/list");
+        const listRes = await fetch("/api/schedule/list", { cache: "no-store" });
         if (listRes.ok) {
           const listJson = await listRes.json();
           setAvailableSchedules(listJson.schedules || []);
@@ -2340,7 +2343,8 @@ export default function AdminScheduleEditorPage() {
 
     try {
       const res = await fetch(
-        `/api/schedule?date=${encodeURIComponent(copySourceDate)}&staging=1`
+        `/api/schedule?date=${encodeURIComponent(copySourceDate)}&staging=1`,
+        { cache: "no-store" }
       );
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));

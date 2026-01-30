@@ -279,18 +279,6 @@ export async function GET(req: Request) {
 
     let scheduleId = scheduleRows?.[0]?.id || null;
 
-    if (!scheduleId && !isStaging) {
-      scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
-        query: {
-          select: "id",
-          schedule_date: `eq.${isoDate}`,
-          state: "eq.staging",
-          limit: 1,
-        },
-      });
-      scheduleId = scheduleRows?.[0]?.id || null;
-    }
-
     if (!scheduleId) {
       const emptyCells = volunteers.map(() =>
         slots.map(() => (isStaging ? { tasks: [], note: "" } : ""))
@@ -300,6 +288,7 @@ export async function GET(req: Request) {
         slots,
         cells: emptyCells,
         scheduleDate: toLabel(isoDate),
+        ...(isStaging ? {} : { message: "No live schedule published yet." }),
       });
     }
 
