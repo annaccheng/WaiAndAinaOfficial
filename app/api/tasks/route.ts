@@ -368,6 +368,24 @@ export async function PATCH(req: Request) {
     return fallback;
   };
 
+  const buildMinimalUpdates = (payload: Record<string, unknown>) => {
+    const allowedKeys = new Set([
+      "name",
+      "description",
+      "status",
+      "priority",
+      "person_count",
+      "estimated_time",
+    ]);
+    const minimal: Record<string, unknown> = {};
+    Object.entries(payload).forEach(([key, value]) => {
+      if (allowedKeys.has(key)) {
+        minimal[key] = value;
+      }
+    });
+    return minimal;
+  };
+
   const applyUpdates = async (query: Record<string, string>) => {
     try {
       await supabaseRequest("tasks", {
@@ -377,23 +395,32 @@ export async function PATCH(req: Request) {
       });
     } catch (err: any) {
       const message = String(err?.message || "");
-      if (
-        message.includes("comments") ||
-        message.includes("links") ||
-        message.includes("extra_notes") ||
-        message.includes("time_slots") ||
-        message.includes("photos") ||
-        message.includes("task_type_id") ||
-        message.includes("column")
-      ) {
-        const fallbackUpdates = stripOptionalFields(updates);
+      try {
+        const shouldFallback =
+          message.includes("comments") ||
+          message.includes("links") ||
+          message.includes("extra_notes") ||
+          message.includes("time_slots") ||
+          message.includes("photos") ||
+          message.includes("task_type_id") ||
+          message.includes("column");
+        const fallbackUpdates = shouldFallback ? stripOptionalFields(updates) : updates;
         await supabaseRequest("tasks", {
           method: "PATCH",
           query,
           body: fallbackUpdates,
         });
-      } else {
-        throw err;
+      } catch (fallbackErr) {
+        const minimalUpdates = buildMinimalUpdates(updates);
+        if (Object.keys(minimalUpdates).length) {
+          await supabaseRequest("tasks", {
+            method: "PATCH",
+            query,
+            body: minimalUpdates,
+          });
+          return;
+        }
+        throw fallbackErr;
       }
     }
   };
