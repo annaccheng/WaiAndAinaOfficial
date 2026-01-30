@@ -82,6 +82,8 @@ const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
 const TASK_EDIT_SECTIONS_CACHE_KEY = "admin-schedule-task-edit-sections";
 const TASK_COMMENT_CACHE_KEY = "admin-schedule-task-comment-counts";
+const SCHEDULE_HIDDEN_SLOTS_CACHE_KEY = "admin-schedule-hidden-slots";
+const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
 
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
@@ -280,6 +282,10 @@ export default function AdminScheduleEditorPage() {
   const [editingTaskName, setEditingTaskName] = useState("");
   const [editingTaskSaving, setEditingTaskSaving] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
+  const [desktopDockTab, setDesktopDockTab] = useState<"recurring" | "oneOff">(
+    "recurring"
+  );
+  const [hiddenSlotIds, setHiddenSlotIds] = useState<Set<string>>(new Set());
   const [hoveredTaskTooltip, setHoveredTaskTooltip] = useState<{
     name: string;
     status: string;
@@ -410,6 +416,18 @@ export default function AdminScheduleEditorPage() {
     [availableSchedules, selectedDate]
   );
 
+  const visibleSlotsWithIndex = useMemo(() => {
+    if (!scheduleData?.slots?.length) return [];
+    return scheduleData.slots
+      .map((slot, index) => ({ slot, index }))
+      .filter((entry) => !hiddenSlotIds.has(entry.slot.id));
+  }, [scheduleData?.slots, hiddenSlotIds]);
+
+  const hiddenSlots = useMemo(() => {
+    if (!scheduleData?.slots?.length || hiddenSlotIds.size === 0) return [];
+    return scheduleData.slots.filter((slot) => hiddenSlotIds.has(slot.id));
+  }, [scheduleData?.slots, hiddenSlotIds]);
+
 
   useEffect(() => {
     if (!authorized) return;
@@ -499,6 +517,42 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_HIDDEN_SLOTS_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        setHiddenSlotIds(new Set(parsed.map(String)));
+      }
+    } catch (err) {
+      console.warn("Failed to parse hidden slots cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      SCHEDULE_HIDDEN_SLOTS_CACHE_KEY,
+      JSON.stringify(Array.from(hiddenSlotIds))
+    );
+  }, [hiddenSlotIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_DOCK_TAB_CACHE_KEY);
+    if (!cached) return;
+    if (cached === "recurring" || cached === "oneOff") {
+      setDesktopDockTab(cached);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SCHEDULE_DOCK_TAB_CACHE_KEY, desktopDockTab);
+  }, [desktopDockTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const cached = localStorage.getItem(TASK_COMMENT_CACHE_KEY);
     if (!cached) return;
     try {
@@ -509,6 +563,22 @@ export default function AdminScheduleEditorPage() {
     } catch (err) {
       console.warn("Failed to parse task comment cache", err);
     }
+  }, []);
+
+  useEffect(() => {
+    const clearTooltip = () => setHoveredTaskTooltip(null);
+    window.addEventListener("scroll", clearTooltip, true);
+    window.addEventListener("blur", clearTooltip);
+    window.addEventListener("mouseleave", clearTooltip);
+    window.addEventListener("pointerdown", clearTooltip);
+    window.addEventListener("keydown", clearTooltip);
+    return () => {
+      window.removeEventListener("scroll", clearTooltip, true);
+      window.removeEventListener("blur", clearTooltip);
+      window.removeEventListener("mouseleave", clearTooltip);
+      window.removeEventListener("pointerdown", clearTooltip);
+      window.removeEventListener("keydown", clearTooltip);
+    };
   }, []);
 
   useEffect(() => {
@@ -3722,6 +3792,29 @@ export default function AdminScheduleEditorPage() {
             <span className="text-[11px] text-[#7a7f54]">
               {pendingCells.size ? "Saving updates…" : "All changes saved."}
             </span>
+            {hiddenSlots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">
+                  Hidden shifts:
+                </span>
+                {hiddenSlots.map((slot) => (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() =>
+                      setHiddenSlotIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(slot.id);
+                        return next;
+                      })
+                    }
+                    className="rounded-full border border-[#d1d4aa] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133] hover:bg-[#f7f4e6]"
+                  >
+                    Show {slot.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {scheduleLoading && (
@@ -3743,7 +3836,7 @@ export default function AdminScheduleEditorPage() {
       <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
         Person
       </th>
-      {scheduleData?.slots.map((slot) => (
+      {visibleSlotsWithIndex.map(({ slot }) => (
  <th
   key={slot.id}
   className="w-[300px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-10 bg-[#e5e7c5]"
@@ -3755,6 +3848,19 @@ export default function AdminScheduleEditorPage() {
                 <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() =>
+                setHiddenSlotIds((prev) => {
+                  const next = new Set(prev);
+                  next.add(slot.id);
+                  return next;
+                })
+              }
+              className="rounded-full border border-[#c8d0a4] bg-white/80 px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#5d7f3b] hover:bg-white"
+            >
+              Hide
+            </button>
             {slot.isMeal && <span className="text-lg">🍽️</span>}
           </div>
         </th>
@@ -3770,7 +3876,7 @@ export default function AdminScheduleEditorPage() {
             <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
           </div>
         </td>
-        {scheduleData.slots.map((slot, colIdx) => {
+        {visibleSlotsWithIndex.map(({ slot, index: colIdx }) => {
           const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || { tasks: [], note: "" };
           const content = cell;
           const isSelected =
@@ -4302,7 +4408,7 @@ export default function AdminScheduleEditorPage() {
         </div>
 
         <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
+          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-4 lg:z-50 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
             canvasExpanded ? "lg:w-[240px]" : "lg:w-[300px]"
           }`}
         >
@@ -4320,7 +4426,36 @@ export default function AdminScheduleEditorPage() {
 
             {desktopDockOpen ? (
               <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:gap-4">
-                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                <div className="flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+                  <span>{desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDesktopDockTab("recurring")}
+                      className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        desktopDockTab === "recurring"
+                          ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
+                          : "border-[#d0c9a4] bg-white text-[#4b5133]"
+                      }`}
+                    >
+                      Recurring
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDesktopDockTab("oneOff")}
+                      className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        desktopDockTab === "oneOff"
+                          ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
+                          : "border-[#d0c9a4] bg-white text-[#4b5133]"
+                      }`}
+                    >
+                      One-off
+                    </button>
+                  </div>
+                </div>
+
+                {desktopDockTab === "recurring" && (
+                  <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
                   <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
                     <span>Recurring task dock</span>
                     <div className="flex items-center gap-2">
@@ -4536,8 +4671,10 @@ export default function AdminScheduleEditorPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
-                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
+                {desktopDockTab === "oneOff" && (
+                  <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
                   <div className="flex items-center justify-between rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
                     <span>One-off task dock</span>
                     <button
@@ -4675,6 +4812,7 @@ export default function AdminScheduleEditorPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
               </div>
             ) : (
