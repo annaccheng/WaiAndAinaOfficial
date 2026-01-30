@@ -21,6 +21,21 @@ function normalizePersonCount(input: unknown) {
   return Math.max(1, Math.round(value));
 }
 
+function normalizeLinksInput(input: unknown) {
+  if (!Array.isArray(input)) return input;
+  return input
+    .map((link) => {
+      if (typeof link === "string") return link.trim();
+      if (link && typeof link === "object") {
+        const label = String((link as { label?: unknown }).label || "").trim();
+        const url = String((link as { url?: unknown }).url || "").trim();
+        return url || label;
+      }
+      return "";
+    })
+    .filter(Boolean);
+}
+
 async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
   if (!taskIds.length) return;
 
@@ -132,6 +147,9 @@ export async function POST(req: Request) {
     const unit = body.recurrence_unit || "day";
     const until = body.recurrence_until;
     const sanitizedBody = { ...body };
+    if (Object.prototype.hasOwnProperty.call(sanitizedBody, "links")) {
+      sanitizedBody.links = normalizeLinksInput(sanitizedBody.links);
+    }
     delete (sanitizedBody as Record<string, unknown>).capabilityIds;
 
     const buildPayload = (payloadBody: Record<string, unknown>) => ({
@@ -213,6 +231,9 @@ export async function POST(req: Request) {
     if (message.includes("comments")) {
       try {
         const fallbackBody = { ...body };
+        if (Object.prototype.hasOwnProperty.call(fallbackBody, "links")) {
+          fallbackBody.links = normalizeLinksInput(fallbackBody.links);
+        }
         delete (fallbackBody as Record<string, unknown>).capabilityIds;
         delete fallbackBody.comments;
         const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
@@ -318,6 +339,9 @@ export async function PATCH(req: Request) {
   }
 
   const updates = { ...body };
+  if (Object.prototype.hasOwnProperty.call(updates, "links")) {
+    updates.links = normalizeLinksInput(updates.links);
+  }
   delete updates.id;
   delete updates.applyTo;
   delete updates.occurrenceDate;
@@ -333,6 +357,35 @@ export async function PATCH(req: Request) {
     ? normalizeCapabilityIds(capabilityIds)
     : null;
 
+  const stripOptionalFields = (payload: Record<string, unknown>) => {
+    const fallback = { ...payload };
+    delete (fallback as Record<string, unknown>).comments;
+    delete (fallback as Record<string, unknown>).links;
+    delete (fallback as Record<string, unknown>).extra_notes;
+    delete (fallback as Record<string, unknown>).photos;
+    delete (fallback as Record<string, unknown>).time_slots;
+    delete (fallback as Record<string, unknown>).task_type_id;
+    return fallback;
+  };
+
+  const buildMinimalUpdates = (payload: Record<string, unknown>) => {
+    const allowedKeys = new Set([
+      "name",
+      "description",
+      "status",
+      "priority",
+      "person_count",
+      "estimated_time",
+    ]);
+    const minimal: Record<string, unknown> = {};
+    Object.entries(payload).forEach(([key, value]) => {
+      if (allowedKeys.has(key)) {
+        minimal[key] = value;
+      }
+    });
+    return minimal;
+  };
+
   const applyUpdates = async (query: Record<string, string>) => {
     try {
       await supabaseRequest("tasks", {
@@ -342,16 +395,32 @@ export async function PATCH(req: Request) {
       });
     } catch (err: any) {
       const message = String(err?.message || "");
-      if (message.includes("comments")) {
-        const fallbackUpdates = { ...updates };
-        delete (fallbackUpdates as Record<string, unknown>).comments;
+      try {
+        const shouldFallback =
+          message.includes("comments") ||
+          message.includes("links") ||
+          message.includes("extra_notes") ||
+          message.includes("time_slots") ||
+          message.includes("photos") ||
+          message.includes("task_type_id") ||
+          message.includes("column");
+        const fallbackUpdates = shouldFallback ? stripOptionalFields(updates) : updates;
         await supabaseRequest("tasks", {
           method: "PATCH",
           query,
           body: fallbackUpdates,
         });
-      } else {
-        throw err;
+      } catch (fallbackErr) {
+        const minimalUpdates = buildMinimalUpdates(updates);
+        if (Object.keys(minimalUpdates).length) {
+          await supabaseRequest("tasks", {
+            method: "PATCH",
+            query,
+            body: minimalUpdates,
+          });
+          return;
+        }
+        throw fallbackErr;
       }
     }
   };
@@ -449,7 +518,8 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to update task:", err);
-    return NextResponse.json({ error: "Unable to update task" }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Unable to update task";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
+import { CustomTablesEditor } from "@/components/CustomTablesEditor";
 
 type Slot = { id: string; label: string; timeRange?: string; isMeal?: boolean };
 type ScheduleResponse = {
@@ -198,6 +199,33 @@ export default function AdminScheduleEditorPage() {
     slotId: string;
     slotLabel: string;
   } | null>(null);
+  const [isSelectingRange, setIsSelectingRange] = useState(false);
+  const [selectionAnchor, setSelectionAnchor] = useState<{
+    person: string;
+    slotId: string;
+  } | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<{
+    person: string;
+    slotId: string;
+  } | null>(null);
+  const [cellClipboardRange, setCellClipboardRange] = useState<{
+    rows: number;
+    cols: number;
+    cells: CellContent[][];
+  } | null>(null);
+  const [presenceSelections, setPresenceSelections] = useState<
+    Record<
+      string,
+      {
+        user: string;
+        initials: string;
+        updatedAt: number;
+        anchor: { person: string; slotId: string } | null;
+        end: { person: string; slotId: string } | null;
+      }
+    >
+  >({});
+  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
@@ -310,6 +338,7 @@ export default function AdminScheduleEditorPage() {
       return;
     }
 
+    setCurrentUserName(session.name || null);
     const userType = (session.userType || "").toLowerCase();
     if (userType === "admin") {
       setAuthorized(true);
@@ -323,8 +352,8 @@ export default function AdminScheduleEditorPage() {
     const loadStatic = async () => {
       try {
         const [typeRes, scheduleListRes] = await Promise.all([
-          fetch("/api/task-types"),
-          fetch("/api/schedule/list"),
+          fetch("/api/task-types", { cache: "no-store" }),
+          fetch("/api/schedule/list", { cache: "no-store" }),
         ]);
 
         if (typeRes.ok) {
@@ -373,7 +402,7 @@ export default function AdminScheduleEditorPage() {
           scheduleMode === "page"
             ? `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`
             : "/api/schedule";
-        const res = await fetch(url);
+        const res = await fetch(url, { cache: "no-store" });
         if (res.ok) {
           const json = await res.json();
           if (!cancelled) {
@@ -398,6 +427,30 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, scheduleMode, selectedDate]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    if (scheduleMode === "page" && !selectedDate) return;
+    const interval = setInterval(async () => {
+      try {
+        const url =
+          scheduleMode === "page"
+            ? `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`
+            : "/api/schedule";
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        setScheduleData((prev) => {
+          if (!prev) return json;
+          if (JSON.stringify(prev.cells) === JSON.stringify(json.cells)) return prev;
+          return json;
+        });
+      } catch (err) {
+        console.warn("Live refresh failed", err);
+      }
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [authorized, pendingCells.size, scheduleMode, selectedDate]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -483,6 +536,10 @@ export default function AdminScheduleEditorPage() {
     if (!selectedIso) return "";
     return formatDateInput(addDaysToIso(selectedIso, -1));
   }, [addDaysToIso, formatLabelToInput, formatDateInput, selectedDate]);
+  const customTablesDateLabel = useMemo(
+    () => selectedDate || scheduleData?.scheduleDate || null,
+    [scheduleData?.scheduleDate, selectedDate]
+  );
 
   const scheduleOptions = useMemo(() => {
     const options = [...availableSchedules];
@@ -576,7 +633,9 @@ export default function AdminScheduleEditorPage() {
         const dateParam = formatLabelToInput(yesterdayLabel);
         if (!dateParam) return;
         const [scheduleRes, recurringRes] = await Promise.all([
-          fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`),
+          fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`, {
+            cache: "no-store",
+          }),
           fetch(
             `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
           ),
@@ -898,6 +957,178 @@ export default function AdminScheduleEditorPage() {
     },
     []
   );
+
+  const getSelectionRange = useCallback(
+    (
+      anchor: { person: string; slotId: string } | null,
+      end: { person: string; slotId: string } | null
+    ) => {
+      if (!anchor || !end || !scheduleData) return null;
+      const anchorCoord = findCoord(anchor.person, anchor.slotId, scheduleData);
+      const endCoord = findCoord(end.person, end.slotId, scheduleData);
+      if (!anchorCoord || !endCoord) return null;
+      const startRow = Math.min(anchorCoord.row, endCoord.row);
+      const endRow = Math.max(anchorCoord.row, endCoord.row);
+      const startCol = Math.min(anchorCoord.col, endCoord.col);
+      const endCol = Math.max(anchorCoord.col, endCoord.col);
+      return { startRow, endRow, startCol, endCol };
+    },
+    [findCoord, scheduleData]
+  );
+
+  const selectedRange = useMemo(
+    () => getSelectionRange(selectionAnchor, selectionEnd),
+    [getSelectionRange, selectionAnchor, selectionEnd]
+  );
+
+  const presenceRanges = useMemo(() => {
+    if (!scheduleData) return [];
+    return Object.values(presenceSelections)
+      .map((entry) => {
+        const range = getSelectionRange(entry.anchor, entry.end);
+        return range
+          ? { initials: entry.initials, range, user: entry.user }
+          : null;
+      })
+      .filter(Boolean) as Array<{
+      initials: string;
+      range: { startRow: number; endRow: number; startCol: number; endCol: number };
+      user: string;
+    }>;
+  }, [getSelectionRange, presenceSelections, scheduleData]);
+
+  const selectedCells = useMemo(() => {
+    if (!selectedRange || !scheduleData) return [];
+    const cells: { person: string; slotId: string }[] = [];
+    for (let row = selectedRange.startRow; row <= selectedRange.endRow; row += 1) {
+      const person = scheduleData.people[row];
+      scheduleData.slots.forEach((slot, colIdx) => {
+        if (colIdx < selectedRange.startCol || colIdx > selectedRange.endCol) return;
+        cells.push({ person, slotId: slot.id });
+      });
+    }
+    return cells;
+  }, [scheduleData, selectedRange]);
+
+  const selectionInitials = useMemo(() => {
+    if (!currentUserName) return "";
+    const parts = currentUserName.trim().split(/\s+/);
+    const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || "");
+    return initials.join("") || currentUserName.slice(0, 2).toUpperCase();
+  }, [currentUserName]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !currentUserName) return;
+    if (customTablesDateLabel) {
+      void fetch("/api/schedule/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: currentUserName,
+          initials: selectionInitials,
+          dateLabel: customTablesDateLabel,
+          anchor: selectionAnchor,
+          end: selectionEnd,
+        }),
+      });
+    }
+    if (!("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel("admin-schedule-presence");
+    const payload = {
+      user: currentUserName,
+      initials: selectionInitials,
+      updatedAt: Date.now(),
+      anchor: selectionAnchor,
+      end: selectionEnd,
+    };
+    channel.postMessage(payload);
+    channel.close();
+  }, [
+    currentUserName,
+    customTablesDateLabel,
+    selectionAnchor,
+    selectionEnd,
+    selectionInitials,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel("admin-schedule-presence");
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data as {
+        user?: string;
+        initials?: string;
+        updatedAt?: number;
+        anchor?: { person: string; slotId: string } | null;
+        end?: { person: string; slotId: string } | null;
+      };
+      const user = typeof data?.user === "string" ? data.user : "";
+      if (!user || user === currentUserName) return;
+      setPresenceSelections((prev) => ({
+        ...prev,
+        [user]: {
+          user,
+          initials: data.initials || user.slice(0, 2).toUpperCase(),
+          updatedAt: data.updatedAt || Date.now(),
+          anchor: data.anchor ?? null,
+          end: data.end ?? null,
+        },
+      }));
+    };
+    channel.addEventListener("message", handleMessage);
+    return () => {
+      channel.removeEventListener("message", handleMessage);
+      channel.close();
+    };
+  }, [currentUserName]);
+
+  useEffect(() => {
+    if (!customTablesDateLabel) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/schedule/presence?date=${encodeURIComponent(customTablesDateLabel)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const entries = Array.isArray(json.entries) ? json.entries : [];
+        setPresenceSelections((prev) => {
+          const next = { ...prev };
+          entries.forEach((entry: any) => {
+            if (!entry?.user || entry.user === currentUserName) return;
+            next[entry.user] = {
+              user: entry.user,
+              initials: entry.initials || entry.user.slice(0, 2).toUpperCase(),
+              updatedAt: entry.updatedAt || Date.now(),
+              anchor: entry.anchor ?? null,
+              end: entry.end ?? null,
+            };
+          });
+          return next;
+        });
+      } catch (err) {
+        console.warn("Failed to load presence", err);
+      }
+    }, 3_000);
+    return () => clearInterval(interval);
+  }, [currentUserName, customTablesDateLabel]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cutoff = Date.now() - 20_000;
+      setPresenceSelections((prev) => {
+        const next: typeof prev = {};
+        Object.values(prev).forEach((entry) => {
+          if (entry.updatedAt >= cutoff) {
+            next[entry.user] = entry;
+          }
+        });
+        return next;
+      });
+    }, 5_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const pushUndoEntry = useCallback((entry: UndoEntry) => {
     if (!entry.changes.length) return;
@@ -1635,36 +1866,302 @@ export default function AdminScheduleEditorPage() {
 
   const handleCopyCell = useCallback(() => {
     if (!selectedCell || !scheduleData) return;
+    if (selectedRange) {
+      const rows = selectedRange.endRow - selectedRange.startRow + 1;
+      const cols = selectedRange.endCol - selectedRange.startCol + 1;
+      const cells: CellContent[][] = [];
+      for (let row = 0; row < rows; row += 1) {
+        const rowItems: CellContent[] = [];
+        for (let col = 0; col < cols; col += 1) {
+          const person = scheduleData.people[selectedRange.startRow + row];
+          const slot = scheduleData.slots[selectedRange.startCol + col];
+          const coord = findCoord(person, slot.id, scheduleData);
+          const content = coord
+            ? scheduleData.cells?.[coord.row]?.[coord.col]
+            : { tasks: [], note: "" };
+          rowItems.push(cloneCellContent(content || { tasks: [], note: "" }));
+        }
+        cells.push(rowItems);
+      }
+      setCellClipboardRange({ rows, cols, cells });
+      setCellClipboard(null);
+      setMessage(`Copied ${rows}×${cols} cells.`);
+      return;
+    }
     const current = getCellValue(selectedCell);
     if (!current) return;
     setCellClipboard(cloneCellContent(current.content));
+    setCellClipboardRange(null);
     setMessage("Cell copied.");
-  }, [getCellValue, scheduleData, selectedCell]);
+  }, [findCoord, getCellValue, scheduleData, selectedCell, selectedRange]);
+
+  const applyCellContent = useCallback(
+    (cell: { person: string; slotId: string }, nextContent: CellContent, label: string) => {
+      if (!scheduleData) return;
+      const coord = findCoord(cell.person, cell.slotId, scheduleData);
+      if (!coord) return;
+      const nextCells = scheduleData.cells.map((row) =>
+        row.map((entry) => ({ ...entry, tasks: [...entry.tasks] }))
+      );
+      const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
+      nextCells[coord.row][coord.col] = nextContent;
+      pushUndoEntry({
+        label,
+        changes: [
+          {
+            person: cell.person,
+            slotId: cell.slotId,
+            previous,
+            next: nextContent,
+          },
+        ],
+      });
+      setScheduleData({ ...scheduleData, cells: nextCells });
+      persistCell(cell.person, cell.slotId, nextContent);
+    },
+    [findCoord, persistCell, pushUndoEntry, scheduleData]
+  );
+
+  const applyCellRange = useCallback(
+    (startCell: { person: string; slotId: string }, range: { rows: number; cols: number; cells: CellContent[][] }) => {
+      if (!scheduleData) return;
+      const startCoord = findCoord(startCell.person, startCell.slotId, scheduleData);
+      if (!startCoord) return;
+      const changes: UndoChange[] = [];
+      const nextCells = scheduleData.cells.map((row) =>
+        row.map((entry) => ({ ...entry, tasks: [...entry.tasks] }))
+      );
+
+      for (let row = 0; row < range.rows; row += 1) {
+        const person = scheduleData.people[startCoord.row + row];
+        if (!person) break;
+        for (let col = 0; col < range.cols; col += 1) {
+          const slot = scheduleData.slots[startCoord.col + col];
+          if (!slot) break;
+          const coord = findCoord(person, slot.id, scheduleData);
+          if (!coord) continue;
+          const nextContent = cloneCellContent(range.cells[row][col]);
+          const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
+          nextCells[coord.row][coord.col] = nextContent;
+          changes.push({
+            person,
+            slotId: slot.id,
+            previous,
+            next: nextContent,
+          });
+        }
+      }
+
+      if (!changes.length) return;
+      pushUndoEntry({ label: "Paste range", changes });
+      setScheduleData({ ...scheduleData, cells: nextCells });
+      changes.forEach((change) => {
+        persistCell(change.person, change.slotId, change.next);
+      });
+    },
+    [findCoord, persistCell, pushUndoEntry, scheduleData]
+  );
 
   const handlePasteCell = useCallback(() => {
-    if (!selectedCell || !scheduleData || !cellClipboard) return;
-    const coord = findCoord(selectedCell.person, selectedCell.slotId, scheduleData);
-    if (!coord) return;
-    const nextCells = scheduleData.cells.map((row) =>
-      row.map((entry) => ({ ...entry, tasks: [...entry.tasks] }))
-    );
-    const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
+    if (!selectedCell || !scheduleData) return;
+    if (cellClipboardRange) {
+      applyCellRange(selectedCell, cellClipboardRange);
+      return;
+    }
+    if (!cellClipboard) return;
     const nextContent = cloneCellContent(cellClipboard);
-    nextCells[coord.row][coord.col] = nextContent;
-    pushUndoEntry({
-      label: "Paste cell",
-      changes: [
-        {
-          person: selectedCell.person,
-          slotId: selectedCell.slotId,
-          previous,
-          next: nextContent,
-        },
-      ],
-    });
-    setScheduleData({ ...scheduleData, cells: nextCells });
-    persistCell(selectedCell.person, selectedCell.slotId, nextContent);
-  }, [cellClipboard, findCoord, persistCell, pushUndoEntry, scheduleData, selectedCell]);
+    applyCellContent(selectedCell, nextContent, "Paste cell");
+  }, [applyCellContent, applyCellRange, cellClipboard, cellClipboardRange, scheduleData, selectedCell]);
+
+  const normalizeClipboardContent = useCallback((value: unknown): CellContent | null => {
+    if (!value || typeof value !== "object") return null;
+    const tasks = Array.isArray((value as CellContent).tasks)
+      ? (value as CellContent).tasks
+          .map((task) =>
+            task && typeof task.id === "string" && typeof task.name === "string"
+              ? { id: task.id, name: task.name }
+              : null
+          )
+          .filter((task): task is ScheduledTask => Boolean(task))
+      : [];
+    const note = typeof (value as CellContent).note === "string" ? (value as CellContent).note : "";
+    const blocked = Boolean((value as CellContent).blocked);
+    return { tasks, note, blocked };
+  }, []);
+
+  const handleClipboardCopy = useCallback(
+    (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (!selectedCell || !scheduleData) return;
+      if (selectedRange) {
+        const rows = selectedRange.endRow - selectedRange.startRow + 1;
+        const cols = selectedRange.endCol - selectedRange.startCol + 1;
+        const cells: CellContent[][] = [];
+        for (let row = 0; row < rows; row += 1) {
+          const rowItems: CellContent[] = [];
+          for (let col = 0; col < cols; col += 1) {
+            const person = scheduleData.people[selectedRange.startRow + row];
+            const slot = scheduleData.slots[selectedRange.startCol + col];
+            const coord = findCoord(person, slot.id, scheduleData);
+            const content = coord
+              ? scheduleData.cells?.[coord.row]?.[coord.col]
+              : { tasks: [], note: "" };
+            rowItems.push(cloneCellContent(content || { tasks: [], note: "" }));
+          }
+          cells.push(rowItems);
+        }
+        const payload = { type: "range", rows, cols, cells };
+        setCellClipboardRange(payload);
+        setCellClipboard(null);
+        event.clipboardData?.setData("application/json", JSON.stringify(payload));
+        event.clipboardData?.setData("text/plain", `Copied ${rows}x${cols} cells`);
+        event.preventDefault();
+        setMessage(`Copied ${rows}×${cols} cells.`);
+        return;
+      }
+      const current = getCellValue(selectedCell);
+      if (!current) return;
+      const payload = cloneCellContent(current.content);
+      setCellClipboard(payload);
+      setCellClipboardRange(null);
+      event.clipboardData?.setData("application/json", JSON.stringify(payload));
+      event.clipboardData?.setData(
+        "text/plain",
+        payload.tasks.map((task) => task.name).join(", ")
+      );
+      event.preventDefault();
+      setMessage("Cell copied.");
+    },
+    [findCoord, getCellValue, scheduleData, selectedCell, selectedRange]
+  );
+
+  const handleClipboardPaste = useCallback(
+    (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (!selectedCell) return;
+      const raw = event.clipboardData?.getData("application/json");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.type === "range" && Array.isArray(parsed.cells)) {
+            const rangePayload = {
+              rows: Number(parsed.rows) || parsed.cells.length,
+              cols: Number(parsed.cols) || (parsed.cells?.[0]?.length || 0),
+              cells: parsed.cells.map((row: any[]) =>
+                Array.isArray(row)
+                  ? row.map((cell) => normalizeClipboardContent(cell) || { tasks: [], note: "" })
+                  : []
+              ),
+            };
+            setCellClipboardRange(rangePayload);
+            applyCellRange(selectedCell, rangePayload);
+            event.preventDefault();
+            return;
+          }
+          const normalized = normalizeClipboardContent(parsed);
+          if (!normalized) return;
+          applyCellContent(selectedCell, normalized, "Paste cell");
+          event.preventDefault();
+          return;
+        } catch (err) {
+          console.warn("Failed to parse clipboard payload", err);
+        }
+      }
+      const textPayload = event.clipboardData?.getData("text/plain") || "";
+      if (textPayload && selectedCell) {
+        const rows = textPayload.split(/\r?\n/);
+        const grid = rows.map((row) => row.split("\t"));
+        const rangePayload = {
+          rows: grid.length,
+          cols: Math.max(...grid.map((row) => row.length)),
+          cells: grid.map((row) =>
+            row.map((cellText) => ({
+              tasks: [],
+              note: cellText.trim(),
+            }))
+          ),
+        };
+        const applyTextPaste = async () => {
+          const resolvedCells: CellContent[][] = [];
+          for (let rowIdx = 0; rowIdx < rangePayload.rows; rowIdx += 1) {
+            const rowCells: CellContent[] = [];
+            for (let colIdx = 0; colIdx < rangePayload.cols; colIdx += 1) {
+              const cellValue = grid[rowIdx]?.[colIdx] || "";
+              const entries = cellValue
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean);
+              const tasks: ScheduledTask[] = [];
+              for (const entry of entries) {
+                const resolved = await resolveTaskEntry(entry);
+                if (resolved) {
+                  tasks.push({ id: resolved.id, name: resolved.name });
+                }
+              }
+              rowCells.push({ tasks, note: "" });
+            }
+            resolvedCells.push(rowCells);
+          }
+          const resolvedRange = {
+            rows: rangePayload.rows,
+            cols: rangePayload.cols,
+            cells: resolvedCells,
+          };
+          setCellClipboardRange(resolvedRange);
+          applyCellRange(selectedCell, resolvedRange);
+        };
+        void applyTextPaste();
+        event.preventDefault();
+        return;
+      }
+      if (cellClipboard) {
+        handlePasteCell();
+        event.preventDefault();
+      }
+    },
+    [
+      applyCellContent,
+      applyCellRange,
+      cellClipboard,
+      handlePasteCell,
+      normalizeClipboardContent,
+      resolveTaskEntry,
+      selectedCell,
+    ]
+  );
+
+  useEffect(() => {
+    window.addEventListener("copy", handleClipboardCopy);
+    window.addEventListener("paste", handleClipboardPaste);
+    return () => {
+      window.removeEventListener("copy", handleClipboardCopy);
+      window.removeEventListener("paste", handleClipboardPaste);
+    };
+  }, [handleClipboardCopy, handleClipboardPaste]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1706,7 +2203,7 @@ export default function AdminScheduleEditorPage() {
         event.preventDefault();
         return;
       }
-      if (key === "v" && selectedCell && cellClipboard) {
+      if (key === "v" && selectedCell) {
         handlePasteCell();
         event.preventDefault();
       }
@@ -1858,7 +2355,11 @@ export default function AdminScheduleEditorPage() {
     }
   }, [blackoutRangeEnd, blackoutRangeStart, scheduleData]);
 
-  const selectCell = (person: string, slot: Slot) => {
+  const selectCell = (
+    person: string,
+    slot: Slot,
+    event?: React.MouseEvent<HTMLTableCellElement>
+  ) => {
     const coord = findCoord(person, slot.id, scheduleData);
     const current = coord ? scheduleData?.cells?.[coord.row]?.[coord.col] : null;
     if (blackoutMode) {
@@ -1873,8 +2374,22 @@ export default function AdminScheduleEditorPage() {
     if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
       setCustomTask("");
     }
+    const nextSelection = { person, slotId: slot.id };
+    if (event?.shiftKey && selectionAnchor) {
+      setSelectionEnd(nextSelection);
+    } else {
+      setSelectionAnchor(nextSelection);
+      setSelectionEnd(nextSelection);
+    }
     setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
   };
+
+  useEffect(() => {
+    if (!isSelectingRange) return;
+    const stopSelection = () => setIsSelectingRange(false);
+    window.addEventListener("mouseup", stopSelection);
+    return () => window.removeEventListener("mouseup", stopSelection);
+  }, [isSelectingRange]);
 
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
@@ -1980,22 +2495,32 @@ export default function AdminScheduleEditorPage() {
           url: String(link.url || "").trim(),
         }))
         .filter((link) => link.label || link.url);
+      const linkValues = links
+        .map((link) => link.url || link.label)
+        .filter(Boolean);
       const taskTypeMatch = taskTypes.find(
         (type) => type.name === taskEditDraft.taskType
       );
+      const defaultStatus =
+        statusOptions.find((opt) => opt.name)?.name || "Not Started";
+      const nextStatus =
+        taskEditDraft.status || taskDetail.status || defaultStatus;
+      const nextPriority = taskEditDraft.priority || taskDetail.priority || null;
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: taskDetail.id,
+          applyTo: "single",
+          occurrenceDate: taskDetail.occurrenceDate || null,
           name: trimmedName || taskDetail.name,
           description: taskEditDraft.description.trim(),
           extra_notes: notesList,
           person_count: Number.isNaN(personCount) ? null : personCount,
-          status: taskEditDraft.status || null,
-          priority: taskEditDraft.priority || null,
-          task_type_id: taskTypeMatch?.id || undefined,
-          links,
+          status: nextStatus,
+          priority: nextPriority,
+          task_type_id: taskTypeMatch?.id || null,
+          links: linkValues,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -2006,8 +2531,8 @@ export default function AdminScheduleEditorPage() {
         description: taskEditDraft.description.trim(),
         extraNotes: notesList,
         personCount: Number.isNaN(personCount) ? null : personCount,
-        status: taskEditDraft.status || "",
-        priority: taskEditDraft.priority || "",
+        status: nextStatus || "",
+        priority: nextPriority || "",
         taskType: taskTypeMatch
           ? { name: taskTypeMatch.name, color: taskTypeMatch.color }
           : taskDetail.taskType,
@@ -2090,16 +2615,17 @@ export default function AdminScheduleEditorPage() {
       const res =
         scheduleMode === "page"
           ? await fetch(
-              `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`
+              `/api/schedule?date=${encodeURIComponent(selectedDate)}&staging=1`,
+              { cache: "no-store" }
             )
-          : await fetch("/api/schedule");
+          : await fetch("/api/schedule", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setScheduleData(json);
         setMessage(null);
       }
       if (scheduleMode === "page") {
-        const listRes = await fetch("/api/schedule/list");
+        const listRes = await fetch("/api/schedule/list", { cache: "no-store" });
         if (listRes.ok) {
           const listJson = await listRes.json();
           setAvailableSchedules(listJson.schedules || []);
@@ -2225,7 +2751,8 @@ export default function AdminScheduleEditorPage() {
 
     try {
       const res = await fetch(
-        `/api/schedule?date=${encodeURIComponent(copySourceDate)}&staging=1`
+        `/api/schedule?date=${encodeURIComponent(copySourceDate)}&staging=1`,
+        { cache: "no-store" }
       );
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
@@ -3124,6 +3651,19 @@ export default function AdminScheduleEditorPage() {
           const content = cell;
           const isSelected =
             selectedCell?.person === person && selectedCell?.slotId === slot.id;
+          const isRangeSelected = selectedRange
+            ? rowIdx >= selectedRange.startRow &&
+              rowIdx <= selectedRange.endRow &&
+              colIdx >= selectedRange.startCol &&
+              colIdx <= selectedRange.endCol
+            : false;
+          const presenceBadge = presenceRanges.find(
+            (entry) =>
+              rowIdx >= entry.range.startRow &&
+              rowIdx <= entry.range.endRow &&
+              colIdx >= entry.range.startCol &&
+              colIdx <= entry.range.endCol
+          );
           const saving = pendingCells.has(`${person}-${slot.id}`);
           const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
           const isBlocked = Boolean(content.blocked);
@@ -3155,11 +3695,23 @@ export default function AdminScheduleEditorPage() {
             <td
               key={`${person}-${slot.id}`}
               className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
-                isSelected ? "bg-[#f0f4de]" : ""
+                isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
               } relative`}
-              onClick={() => selectCell(person, slot)}
+              onClick={(event) => selectCell(person, slot, event)}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                setIsSelectingRange(true);
+                const nextSelection = { person, slotId: slot.id };
+                setSelectionAnchor(nextSelection);
+                setSelectionEnd(nextSelection);
+                setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+              }}
+              onMouseEnter={() => {
+                if (!isSelectingRange) return;
+                setSelectionEnd({ person, slotId: slot.id });
+              }}
               onDragOver={(e) => {
                 if (isBlocked) return;
                 handleDragOverEvent(e, person, slot.id, content.tasks.length);
@@ -3209,6 +3761,25 @@ export default function AdminScheduleEditorPage() {
                   setPendingInsert(null);
                 }}
               >
+                {isRangeSelected &&
+                  selectionInitials &&
+                  selectedRange &&
+                  rowIdx === selectedRange.startRow &&
+                  colIdx === selectedRange.startCol && (
+                    <span className="absolute right-1 top-1 rounded-full bg-[#8fae4c] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">
+                      {selectionInitials}
+                    </span>
+                  )}
+                {presenceBadge &&
+                  rowIdx === presenceBadge.range.startRow &&
+                  colIdx === presenceBadge.range.startCol && (
+                    <span
+                      className="absolute right-1 top-5 rounded-full bg-[#6b7b4a] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white"
+                      title={presenceBadge.user}
+                    >
+                      {presenceBadge.initials}
+                    </span>
+                  )}
                 {!cellExists && (
                   <div className="rounded-md border border-dashed border-[#d0c9a4] bg-white/70 px-2 py-2 text-[11px] text-[#7a7f54]">
                     🔒 Cell not loaded yet. Please wait for the schedule to finish syncing.
@@ -3363,29 +3934,6 @@ export default function AdminScheduleEditorPage() {
                     )}
                     {isSelected && cellExists && (
                       <div className="space-y-1">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopyCell();
-                            }}
-                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-                          >
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePasteCell();
-                            }}
-                            disabled={!cellClipboard}
-                            className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] disabled:opacity-60"
-                          >
-                            Paste
-                          </button>
-                        </div>
                         <input
                           list="task-options"
                           value={customTask}
@@ -3553,6 +4101,13 @@ export default function AdminScheduleEditorPage() {
               )}
             </div>
           )}
+          <CustomTablesEditor
+            dateLabel={customTablesDateLabel}
+            canEdit={authorized}
+            userOptions={scheduleData?.people || []}
+            taskNameOptions={taskNameOptions}
+            currentUserName={currentUserName}
+          />
         </div>
         </div>
 
