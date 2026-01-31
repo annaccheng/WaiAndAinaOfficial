@@ -4163,7 +4163,7 @@ export default function AdminScheduleEditorPage() {
                                 loadTaskDetail(task.id, task.name);
                               }
                             }}
-                           className={`group relative flex w-[150px] items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 hover:z-[60] focus-within:z-[60]
+                          className={`group relative flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 hover:z-[60] focus-within:z-[60]
     ${typeColorClasses(meta?.typeColor)}
     ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
   `}
@@ -4817,9 +4817,9 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            className={`group relative flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug text-[#2f3b21] shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
                               task.typeColor
-                            )}`}
+                            )} hover:-translate-y-[1px] hover:shadow-md`}
                           >
                             <div>
                               <div className="flex items-center gap-1 font-semibold">
@@ -5117,9 +5117,9 @@ export default function AdminScheduleEditorPage() {
                         setPendingInsert(null);
                       }}
                       onClick={() => loadTaskDetail(task.id, task.name)}
-                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                      className={`group relative mb-2 flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug text-[#2f3b21] shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
                         task.typeColor
-                      )}`}
+                      )} hover:-translate-y-[1px] hover:shadow-md`}
                     >
                       <div>
                         <div className="flex items-center gap-1 font-semibold">
