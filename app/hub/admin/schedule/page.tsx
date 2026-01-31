@@ -300,6 +300,9 @@ export default function AdminScheduleEditorPage() {
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [desktopDockOpen, setDesktopDockOpen] = useState(true);
+  const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
+  const [dockDragging, setDockDragging] = useState(false);
+  const [dockDragOffset, setDockDragOffset] = useState({ x: 0, y: 0 });
   const [canvasExpanded, setCanvasExpanded] = useState(false);
   const [blackoutMode, setBlackoutMode] = useState(false);
   const [blackoutRangeStart, setBlackoutRangeStart] = useState("");
@@ -403,6 +406,32 @@ export default function AdminScheduleEditorPage() {
       editingTaskInputRef.current.select();
     }
   }, [editingTaskKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const dockWidth = canvasExpanded ? 240 : 320;
+    setDockPosition((prev) => ({
+      x: prev.x || Math.max(16, window.innerWidth - dockWidth - 16),
+      y: prev.y || 96,
+    }));
+  }, [canvasExpanded]);
+
+  useEffect(() => {
+    if (!dockDragging) return;
+    const handleMove = (event: MouseEvent) => {
+      setDockPosition({
+        x: Math.max(8, event.clientX - dockDragOffset.x),
+        y: Math.max(8, event.clientY - dockDragOffset.y),
+      });
+    };
+    const handleUp = () => setDockDragging(false);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [dockDragging, dockDragOffset]);
 
 
   useEffect(() => {
@@ -4407,31 +4436,47 @@ export default function AdminScheduleEditorPage() {
         </div>
         </div>
 
-        <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:fixed lg:right-4 lg:top-24 lg:z-[80] lg:h-[calc(100vh-6rem)] lg:self-start lg:overflow-hidden ${
-            canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
-          }`}
-        >
-          <div className="space-y-4 lg:flex lg:h-full lg:flex-col lg:overflow-y-auto lg:pr-1">
-            <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0">
+          <div
+            className={`hidden lg:flex lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-[#d0c9a4] lg:bg-white/95 lg:shadow-lg lg:backdrop-blur ${
+              canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
+            }`}
+            style={{ left: dockPosition.x, top: dockPosition.y, position: "fixed", zIndex: 80 }}
+          >
+            <div
+              onMouseDown={(event) => {
+                setDockDragging(true);
+                setDockDragOffset({
+                  x: event.clientX - dockPosition.x,
+                  y: event.clientY - dockPosition.y,
+                });
+              }}
+              className="flex cursor-move items-center justify-between rounded-t-2xl border-b border-[#e2d7b5] bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+            >
               <span>Task dock</span>
-              <button
-                type="button"
-                onClick={() => setDesktopDockOpen((prev) => !prev)}
-                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-              >
-                {desktopDockOpen ? "Collapse" : "Expand"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDesktopDockOpen((prev) => !prev)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                >
+                  {desktopDockOpen ? "Minimize" : "Expand"}
+                </button>
+              </div>
             </div>
 
-            {desktopDockOpen ? (
-              <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:gap-4">
-                <div className="flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
-                  <span>{desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}</span>
+            {desktopDockOpen && (
+              <div className="flex flex-col gap-3 p-3 text-[11px] text-[#4b5133]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                    {desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}
+                  </span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setDesktopDockTab("recurring")}
+                      onMouseDown={(event) => event.stopPropagation()}
                       className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
                         desktopDockTab === "recurring"
                           ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
@@ -4443,6 +4488,7 @@ export default function AdminScheduleEditorPage() {
                     <button
                       type="button"
                       onClick={() => setDesktopDockTab("oneOff")}
+                      onMouseDown={(event) => event.stopPropagation()}
                       className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
                         desktopDockTab === "oneOff"
                           ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
@@ -4455,13 +4501,9 @@ export default function AdminScheduleEditorPage() {
                 </div>
 
                 {desktopDockTab === "recurring" && (
-                  <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                  <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                    <span>Recurring task dock</span>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                        {selectedDate || "Pick a date"}
-                      </span>
+                  <>
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold text-[#4b5133]">
+                      <span>{selectedDate || "Pick a date"}</span>
                       <button
                         type="button"
                         onClick={() => setRecurringDockExpanded((prev) => !prev)}
@@ -4470,8 +4512,7 @@ export default function AdminScheduleEditorPage() {
                         {recurringDockExpanded ? "Collapse list" : "Expand list"}
                       </button>
                     </div>
-                  </div>
-                  <div className="space-y-2 p-3 text-sm">
+                    <div className="space-y-2 text-sm">
                     <div className="grid gap-2 md:grid-cols-2">
                       <input
                         value={taskSearch}
@@ -4603,7 +4644,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        recurringDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
+                        recurringDockExpanded ? "max-h-none overflow-visible" : "max-h-52 overflow-y-auto"
                       }`}
                     >
                       {filteredRecurringTasks.map((task) => {
@@ -4670,22 +4711,22 @@ export default function AdminScheduleEditorPage() {
                       )}
                     </div>
                   </div>
-                </div>
+                  </>
                 )}
 
                 {desktopDockTab === "oneOff" && (
-                  <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                  <div className="flex items-center justify-between rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                    <span>One-off task dock</span>
-                    <button
-                      type="button"
-                      onClick={() => setOneOffDockExpanded((prev) => !prev)}
-                      className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
-                    >
-                      {oneOffDockExpanded ? "Collapse list" : "Expand list"}
-                    </button>
-                  </div>
-                  <div className="space-y-2 p-3 text-sm">
+                  <>
+                    <div className="flex items-center justify-between rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold text-[#4b5133]">
+                      <span>One-off task dock</span>
+                      <button
+                        type="button"
+                        onClick={() => setOneOffDockExpanded((prev) => !prev)}
+                        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                      >
+                        {oneOffDockExpanded ? "Collapse list" : "Expand list"}
+                      </button>
+                    </div>
+                    <div className="space-y-2 text-sm">
                     <div className="rounded-lg border border-[#e2d7b5] bg-white/80 p-2 text-[11px] text-[#4b5133]">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
                         One-off filters
@@ -4748,7 +4789,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        oneOffDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
+                        oneOffDockExpanded ? "max-h-none overflow-visible" : "max-h-52 overflow-y-auto"
                       }`}
                     >
                       {filteredOneOffTasks.map((task) => {
@@ -4810,21 +4851,10 @@ export default function AdminScheduleEditorPage() {
                         <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
                       )}
                     </div>
-                  </div>
-                </div>
+                  </>
                 )}
-
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setDesktopDockOpen(true)}
-                className="hidden w-full rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm lg:block"
-              >
-                Open task dock
-              </button>
             )}
-
           </div>
         </div>
       </div>
