@@ -299,6 +299,7 @@ export default function AdminScheduleEditorPage() {
     y: number;
   } | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
+  const customTaskInputRef = useRef<HTMLInputElement | null>(null);
   const scheduleContainerRef = useRef<HTMLDivElement | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const lastActivityRef = useRef(Date.now());
@@ -426,6 +427,14 @@ export default function AdminScheduleEditorPage() {
       editingTaskInputRef.current.select();
     }
   }, [editingTaskKey]);
+
+  useEffect(() => {
+    if (!selectedCell) return;
+    requestAnimationFrame(() => {
+      customTaskInputRef.current?.focus();
+      customTaskInputRef.current?.select();
+    });
+  }, [selectedCell]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4511,6 +4520,7 @@ export default function AdminScheduleEditorPage() {
                     {isSelected && cellExists && (
                       <div className="space-y-1">
                         <input
+                          ref={customTaskInputRef}
                           list="task-options"
                           value={customTask}
                           onClick={(e) => e.stopPropagation()}
@@ -4699,7 +4709,7 @@ export default function AdminScheduleEditorPage() {
               position: "fixed",
               zIndex: 80,
               width: dockSize?.width ?? (canvasExpanded ? 240 : 320),
-              height: dockSize?.height ?? 560,
+              height: desktopDockOpen ? dockSize?.height ?? 560 : undefined,
             }}
           >
             <div
