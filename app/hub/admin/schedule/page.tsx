@@ -4851,6 +4851,7 @@ export default function AdminScheduleEditorPage() {
                         <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
                       )}
                     </div>
+                    </div>
                   </>
                 )}
               </div>
