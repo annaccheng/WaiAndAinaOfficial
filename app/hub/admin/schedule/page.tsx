@@ -4055,6 +4055,21 @@ export default function AdminScheduleEditorPage() {
               </div>
             )}
           </div>
+          <details className="rounded-lg border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-[11px] text-[#4b5133]">
+            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+              Keybinds & shortcuts
+            </summary>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-[#4b5133]">
+              <li>Drag a task card to move it to another cell.</li>
+              <li>
+                Hold <span className="font-semibold">Ctrl</span>/<span className="font-semibold">Cmd</span>{" "}
+                while dragging to duplicate the task instead of moving it.
+              </li>
+              <li>Shift + click to select a range of cells.</li>
+              <li>Double-click a task to rename it inline.</li>
+              <li>Press Esc to cancel inline editing.</li>
+            </ul>
+          </details>
 
           {scheduleLoading && (
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
@@ -4337,7 +4352,7 @@ export default function AdminScheduleEditorPage() {
                                   fromIndex: idx,
                                 })
                               );
-                              e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.effectAllowed = "copyMove";
                             }}
                             onDragEnd={() => {
                               setDraggingTask(null);
