@@ -4045,14 +4045,8 @@ export default function AdminScheduleEditorPage() {
                   </div>
                 )}
                 {isBlocked ? (
-                  <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-3 text-center text-[11px] text-[#2f3b21]">
+                  <div className="flex items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-1 text-center text-[11px] text-[#2f3b21]">
                     <span className="text-base">🛑</span>
-                    <span className="font-semibold uppercase tracking-[0.12em]">
-                      Blackout
-                    </span>
-                    <span className="text-[10px] text-[#4f5730]">
-                      No scheduling in this slot
-                    </span>
                   </div>
                 ) : (
                   <>
