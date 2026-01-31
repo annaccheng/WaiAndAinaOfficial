@@ -3785,11 +3785,11 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-    <div
-  className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
-    canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
-  }`}
->
+      <div
+        className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
+          canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
+        }`}
+      >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           <div
             className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
@@ -4436,7 +4436,7 @@ export default function AdminScheduleEditorPage() {
         </div>
         </div>
 
-        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0">
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:h-0 lg:w-0 lg:flex-none lg:shrink-0">
           <div
             className={`hidden lg:flex lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-[#d0c9a4] lg:bg-white/95 lg:shadow-lg lg:backdrop-blur ${
               canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
@@ -4467,7 +4467,7 @@ export default function AdminScheduleEditorPage() {
             </div>
 
             {desktopDockOpen && (
-              <div className="flex flex-col gap-3 p-3 text-[11px] text-[#4b5133]">
+              <div className="flex max-h-[calc(100vh-140px)] flex-col gap-3 overflow-y-auto p-3 text-[11px] text-[#4b5133]">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
                     {desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}
