@@ -84,6 +84,9 @@ const TASK_EDIT_SECTIONS_CACHE_KEY = "admin-schedule-task-edit-sections";
 const TASK_COMMENT_CACHE_KEY = "admin-schedule-task-comment-counts";
 const SCHEDULE_HIDDEN_SLOTS_CACHE_KEY = "admin-schedule-hidden-slots";
 const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
+const SCHEDULE_COLUMN_WIDTH_CACHE_KEY = "admin-schedule-column-width";
+const SCHEDULE_DOCK_SIZE_CACHE_KEY = "admin-schedule-dock-size";
+const AFK_TIMEOUT_MS = 20_000;
 
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
@@ -296,6 +299,9 @@ export default function AdminScheduleEditorPage() {
     y: number;
   } | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
+  const scheduleContainerRef = useRef<HTMLDivElement | null>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  const lastActivityRef = useRef(Date.now());
   const [taskCommentCache, setTaskCommentCache] = useState<Record<string, number>>({});
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
@@ -303,6 +309,14 @@ export default function AdminScheduleEditorPage() {
   const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
   const [dockDragging, setDockDragging] = useState(false);
   const [dockDragOffset, setDockDragOffset] = useState({ x: 0, y: 0 });
+  const [dockSize, setDockSize] = useState<{ width: number; height: number } | null>(null);
+  const [dockResizing, setDockResizing] = useState<{
+    axis: "x" | "y" | "both";
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
   const [canvasExpanded, setCanvasExpanded] = useState(false);
   const [blackoutMode, setBlackoutMode] = useState(false);
   const [blackoutRangeStart, setBlackoutRangeStart] = useState("");
@@ -330,6 +344,12 @@ export default function AdminScheduleEditorPage() {
   const [yesterdayRecurringTasks, setYesterdayRecurringTasks] = useState<TaskCatalogItem[]>([]);
   const [yesterdayLoading, setYesterdayLoading] = useState(false);
   const [carryOverTaskId, setCarryOverTaskId] = useState<string | null>(null);
+  const [columnWidth, setColumnWidth] = useState<number | null>(null);
+  const [columnResizing, setColumnResizing] = useState<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const [isAfk, setIsAfk] = useState(false);
 
   const formatDateInput = useCallback((value: string) => {
     if (!value) return "";
@@ -409,12 +429,12 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const dockWidth = canvasExpanded ? 240 : 320;
+    const dockWidth = dockSize?.width ?? (canvasExpanded ? 240 : 320);
     setDockPosition((prev) => ({
       x: prev.x || Math.max(16, window.innerWidth - dockWidth - 16),
       y: prev.y || 96,
     }));
-  }, [canvasExpanded]);
+  }, [canvasExpanded, dockSize?.width]);
 
   useEffect(() => {
     if (!dockDragging) return;
@@ -432,6 +452,88 @@ export default function AdminScheduleEditorPage() {
       window.removeEventListener("mouseup", handleUp);
     };
   }, [dockDragging, dockDragOffset]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_DOCK_SIZE_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        const width = Number(parsed.width);
+        const height = Number(parsed.height);
+        if (width > 0 && height > 0) {
+          setDockSize({ width, height });
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to parse dock size cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dockSize) return;
+    setDockSize({ width: canvasExpanded ? 240 : 320, height: 560 });
+  }, [canvasExpanded, dockSize]);
+
+  useEffect(() => {
+    if (!dockResizing) return;
+    const handleMove = (event: MouseEvent) => {
+      const nextWidth = Math.max(220, dockResizing.startWidth + (event.clientX - dockResizing.startX));
+      const nextHeight = Math.max(
+        240,
+        dockResizing.startHeight + (event.clientY - dockResizing.startY)
+      );
+      setDockSize((prev) => ({
+        width: dockResizing.axis === "y" ? prev?.width ?? nextWidth : nextWidth,
+        height: dockResizing.axis === "x" ? prev?.height ?? nextHeight : nextHeight,
+      }));
+    };
+    const handleUp = () => setDockResizing(null);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [dockResizing]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (dockResizing || !dockSize) return;
+    localStorage.setItem(SCHEDULE_DOCK_SIZE_CACHE_KEY, JSON.stringify(dockSize));
+  }, [dockResizing, dockSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_COLUMN_WIDTH_CACHE_KEY);
+    if (!cached) return;
+    const parsed = Number(cached);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      setColumnWidth(parsed);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (columnResizing || columnWidth === null) return;
+    localStorage.setItem(SCHEDULE_COLUMN_WIDTH_CACHE_KEY, String(columnWidth));
+  }, [columnResizing, columnWidth]);
+
+  useEffect(() => {
+    if (!columnResizing) return;
+    const handleMove = (event: MouseEvent) => {
+      const nextWidth = Math.max(120, columnResizing.startWidth + (event.clientX - columnResizing.startX));
+      setColumnWidth(nextWidth);
+    };
+    const handleUp = () => setColumnResizing(null);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [columnResizing]);
 
 
   useEffect(() => {
@@ -456,6 +558,18 @@ export default function AdminScheduleEditorPage() {
     if (!scheduleData?.slots?.length || hiddenSlotIds.size === 0) return [];
     return scheduleData.slots.filter((slot) => hiddenSlotIds.has(slot.id));
   }, [scheduleData?.slots, hiddenSlotIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (columnWidth !== null) return;
+    if (!visibleSlotsWithIndex.length) return;
+    const containerWidth = scheduleContainerRef.current?.clientWidth ?? window.innerWidth;
+    const personColumnWidth = 120;
+    const availableWidth = Math.max(containerWidth - personColumnWidth, 240);
+    const nextWidth = Math.max(120, Math.floor(availableWidth / visibleSlotsWithIndex.length));
+    setColumnWidth(nextWidth);
+    localStorage.setItem(SCHEDULE_COLUMN_WIDTH_CACHE_KEY, String(nextWidth));
+  }, [columnWidth, visibleSlotsWithIndex.length]);
 
 
   useEffect(() => {
@@ -499,7 +613,7 @@ export default function AdminScheduleEditorPage() {
   }, [authorized, scheduleMode, selectedDate]);
 
   useEffect(() => {
-    if (!authorized) return;
+    if (!authorized || isAfk) return;
     if (scheduleMode === "page" && !selectedDate) return;
     const interval = setInterval(async () => {
       try {
@@ -520,7 +634,7 @@ export default function AdminScheduleEditorPage() {
       }
     }, 10_000);
     return () => clearInterval(interval);
-  }, [authorized, pendingCells.size, scheduleMode, selectedDate]);
+  }, [authorized, isAfk, pendingCells.size, scheduleMode, selectedDate]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -631,6 +745,34 @@ export default function AdminScheduleEditorPage() {
       window.removeEventListener("keydown", handleKeyChange);
       window.removeEventListener("keyup", handleKeyChange);
       window.removeEventListener("blur", clearModifier);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const markActive = () => {
+      lastActivityRef.current = Date.now();
+      setIsAfk(false);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        markActive();
+      }
+    };
+    const activityEvents = ["mousemove", "keydown", "pointerdown", "scroll", "touchstart"];
+    activityEvents.forEach((event) => window.addEventListener(event, markActive, { passive: true }));
+    document.addEventListener("visibilitychange", handleVisibility);
+    const interval = window.setInterval(() => {
+      if (Date.now() - lastActivityRef.current >= AFK_TIMEOUT_MS) {
+        setIsAfk(true);
+      }
+    }, 1_000);
+    return () => {
+      activityEvents.forEach((event) =>
+        window.removeEventListener(event, markActive)
+      );
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -1119,6 +1261,28 @@ export default function AdminScheduleEditorPage() {
     }>;
   }, [getSelectionRange, presenceSelections, scheduleData]);
 
+  const getPresenceLockForCoord = useCallback(
+    (row: number, col: number) =>
+      presenceRanges.find(
+        (entry) =>
+          row >= entry.range.startRow &&
+          row <= entry.range.endRow &&
+          col >= entry.range.startCol &&
+          col <= entry.range.endCol
+      ) || null,
+    [presenceRanges]
+  );
+
+  const getPresenceLockForCell = useCallback(
+    (person: string, slotId: string) => {
+      if (!scheduleData) return null;
+      const coord = findCoord(person, slotId, scheduleData);
+      if (!coord) return null;
+      return getPresenceLockForCoord(coord.row, coord.col);
+    },
+    [findCoord, getPresenceLockForCoord, scheduleData]
+  );
+
   const selectedCells = useMemo(() => {
     if (!selectedRange || !scheduleData) return [];
     const cells: { person: string; slotId: string }[] = [];
@@ -1140,7 +1304,7 @@ export default function AdminScheduleEditorPage() {
   }, [currentUserName]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !currentUserName) return;
+    if (typeof window === "undefined" || !currentUserName || isAfk) return;
     if (customTablesDateLabel) {
       void fetch("/api/schedule/presence", {
         method: "POST",
@@ -1168,6 +1332,7 @@ export default function AdminScheduleEditorPage() {
   }, [
     currentUserName,
     customTablesDateLabel,
+    isAfk,
     selectionAnchor,
     selectionEnd,
     selectionInitials,
@@ -1205,7 +1370,7 @@ export default function AdminScheduleEditorPage() {
   }, [currentUserName]);
 
   useEffect(() => {
-    if (!customTablesDateLabel) return;
+    if (!customTablesDateLabel || isAfk) return;
     const interval = setInterval(async () => {
       try {
         const res = await fetch(
@@ -1234,7 +1399,7 @@ export default function AdminScheduleEditorPage() {
       }
     }, 3_000);
     return () => clearInterval(interval);
-  }, [currentUserName, customTablesDateLabel]);
+  }, [currentUserName, customTablesDateLabel, isAfk]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1903,6 +2068,16 @@ export default function AdminScheduleEditorPage() {
         });
         return;
       }
+      const presenceLock = getPresenceLockForCell(person, slot.id);
+      if (presenceLock) {
+        setSaveLog({
+          status: "error",
+          message: `${presenceLock.user} is editing this cell right now.`,
+          lastAttempt: new Date().toLocaleTimeString(),
+          payload: { person, slotId: slot.id },
+        });
+        return;
+      }
       const coord = findCoord(person, slot.id, scheduleData);
       if (coord) {
         const targetCell = scheduleData.cells?.[coord.row]?.[coord.col];
@@ -1959,6 +2134,7 @@ export default function AdminScheduleEditorPage() {
     [
       copyDragActive,
       handleTaskMove,
+      getPresenceLockForCell,
       resolveTaskEntry,
       scheduleData,
       scheduleMode,
@@ -2021,6 +2197,11 @@ export default function AdminScheduleEditorPage() {
   const applyCellContent = useCallback(
     (cell: { person: string; slotId: string }, nextContent: CellContent, label: string) => {
       if (!scheduleData) return;
+      const presenceLock = getPresenceLockForCell(cell.person, cell.slotId);
+      if (presenceLock) {
+        setMessage(`${presenceLock.user} is editing this cell right now.`);
+        return;
+      }
       const coord = findCoord(cell.person, cell.slotId, scheduleData);
       if (!coord) return;
       const nextCells = scheduleData.cells.map((row) =>
@@ -2042,7 +2223,7 @@ export default function AdminScheduleEditorPage() {
       setScheduleData({ ...scheduleData, cells: nextCells });
       persistCell(cell.person, cell.slotId, nextContent);
     },
-    [findCoord, persistCell, pushUndoEntry, scheduleData]
+    [findCoord, getPresenceLockForCell, persistCell, pushUndoEntry, scheduleData]
   );
 
   const applyCellRange = useCallback(
@@ -2063,6 +2244,8 @@ export default function AdminScheduleEditorPage() {
           if (!slot) break;
           const coord = findCoord(person, slot.id, scheduleData);
           if (!coord) continue;
+          const presenceLock = getPresenceLockForCell(person, slot.id);
+          if (presenceLock) continue;
           const nextContent = cloneCellContent(range.cells[row][col]);
           const previous = cloneCellContent(scheduleData.cells[coord.row][coord.col]);
           nextCells[coord.row][coord.col] = nextContent;
@@ -2082,7 +2265,7 @@ export default function AdminScheduleEditorPage() {
         persistCell(change.person, change.slotId, change.next);
       });
     },
-    [findCoord, persistCell, pushUndoEntry, scheduleData]
+    [findCoord, getPresenceLockForCell, persistCell, pushUndoEntry, scheduleData]
   );
 
   const handlePasteCell = useCallback(() => {
@@ -2483,6 +2666,11 @@ export default function AdminScheduleEditorPage() {
     slot: Slot,
     event?: React.MouseEvent<HTMLTableCellElement>
   ) => {
+    const presenceLock = getPresenceLockForCell(person, slot.id);
+    if (presenceLock) {
+      setMessage(`${presenceLock.user} is editing this cell right now.`);
+      return;
+    }
     const coord = findCoord(person, slot.id, scheduleData);
     const current = coord ? scheduleData?.cells?.[coord.row]?.[coord.col] : null;
     if (blackoutMode) {
@@ -2516,6 +2704,11 @@ export default function AdminScheduleEditorPage() {
 
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
+    const presenceLock = getPresenceLockForCell(selectedCell.person, selectedCell.slotId);
+    if (presenceLock) {
+      setMessage(`${presenceLock.user} is editing this cell right now.`);
+      return;
+    }
     const existing = getCellValue(selectedCell)?.content.tasks.length || 0;
     const taskEntry = await resolveTaskEntry(customTask.trim());
     if (!taskEntry) {
@@ -3785,6 +3978,23 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
+      {isAfk && (
+        <button
+          type="button"
+          onClick={() => {
+            lastActivityRef.current = Date.now();
+            setIsAfk(false);
+          }}
+          className="fixed inset-0 z-[100000] flex flex-col items-center justify-center gap-2 bg-black/60 text-white"
+          aria-label="Exit AFK mode"
+        >
+          <span className="text-3xl font-semibold tracking-[0.2em]">AFK MODE</span>
+          <span className="text-xs uppercase tracking-[0.2em] text-white/70">
+            Click anywhere to resume
+          </span>
+        </button>
+      )}
+
       <div
         className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
           canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
@@ -3850,6 +4060,7 @@ export default function AdminScheduleEditorPage() {
             <p className="mt-2 text-xs text-[#7a7f54]">Loading schedule…</p>
           )}
           <div
+            ref={scheduleContainerRef}
             className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
               scheduleLoading ? "pointer-events-none opacity-80" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
@@ -3859,7 +4070,7 @@ export default function AdminScheduleEditorPage() {
                 Loading schedule…
               </div>
             )}
-            <table className="w-full border-collapse text-[10px] sm:text-[11px]">
+            <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
   <thead className="bg-[#e5e7c5]">
     <tr>
       <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
@@ -3868,7 +4079,8 @@ export default function AdminScheduleEditorPage() {
       {visibleSlotsWithIndex.map(({ slot }) => (
  <th
   key={slot.id}
-  className="w-[300px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-10 bg-[#e5e7c5]"
+  className="relative border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-10 bg-[#e5e7c5]"
+  style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
 >
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -3892,6 +4104,19 @@ export default function AdminScheduleEditorPage() {
             </button>
             {slot.isMeal && <span className="text-lg">🍽️</span>}
           </div>
+          <button
+            type="button"
+            aria-label="Resize schedule columns"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setColumnResizing({
+                startX: event.clientX,
+                startWidth: columnWidth ?? 240,
+              });
+            }}
+            className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+          />
         </th>
       ))}
     </tr>
@@ -3916,18 +4141,14 @@ export default function AdminScheduleEditorPage() {
               colIdx >= selectedRange.startCol &&
               colIdx <= selectedRange.endCol
             : false;
-          const presenceBadge = presenceRanges.find(
-            (entry) =>
-              rowIdx >= entry.range.startRow &&
-              rowIdx <= entry.range.endRow &&
-              colIdx >= entry.range.startCol &&
-              colIdx <= entry.range.endCol
-          );
+          const presenceLock = getPresenceLockForCoord(rowIdx, colIdx);
+          const isPresenceLocked = Boolean(presenceLock);
           const saving = pendingCells.has(`${person}-${slot.id}`);
           const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
           const isBlocked = Boolean(content.blocked);
 
-          const dropLine = (index: number) => (
+          const dropLine = (index: number) =>
+            isPresenceLocked ? null : (
             <div
               key={`${person}-${slot.id}-drop-${index}`}
               onDragOver={(e) => handleDragOverEvent(e, person, slot.id, index)}
@@ -3957,10 +4178,12 @@ export default function AdminScheduleEditorPage() {
                 isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
-              } relative`}
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80" : ""} relative`}
+              style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
               onClick={(event) => selectCell(person, slot, event)}
               onMouseDown={(event) => {
                 if (event.button !== 0) return;
+                if (isPresenceLocked) return;
                 setIsSelectingRange(true);
                 const nextSelection = { person, slotId: slot.id };
                 setSelectionAnchor(nextSelection);
@@ -3969,13 +4192,16 @@ export default function AdminScheduleEditorPage() {
               }}
               onMouseEnter={() => {
                 if (!isSelectingRange) return;
+                if (isPresenceLocked) return;
                 setSelectionEnd({ person, slotId: slot.id });
               }}
               onDragOver={(e) => {
+                if (isPresenceLocked) return;
                 if (isBlocked) return;
                 handleDragOverEvent(e, person, slot.id, content.tasks.length);
               }}
               onDragEnter={(e) => {
+                if (isPresenceLocked) return;
                 if (isBlocked) return;
                 handleDragOverEvent(e, person, slot.id, content.tasks.length);
               }}
@@ -3986,6 +4212,7 @@ export default function AdminScheduleEditorPage() {
                 }
               }}
               onDrop={(e) => {
+                if (isPresenceLocked) return;
                 if (isBlocked) return;
                 handleDropEvent(e, person, slot, content.tasks.length);
                 setPendingInsert(null);
@@ -3994,14 +4221,17 @@ export default function AdminScheduleEditorPage() {
               <div
                 className="flex h-full w-full flex-col gap-0.5"
                 onDragOver={(e) => {
+                  if (isPresenceLocked) return;
                   if (isBlocked) return;
                   handleDragOverEvent(e, person, slot.id, content.tasks.length);
                 }}
                 onDragEnter={(e) => {
+                  if (isPresenceLocked) return;
                   if (isBlocked) return;
                   handleDragOverEvent(e, person, slot.id, content.tasks.length);
                 }}
                 onDrop={(e) => {
+                  if (isPresenceLocked) return;
                   if (isBlocked) return;
                   if (!cellExists) {
                     setSaveLog({
@@ -4029,14 +4259,14 @@ export default function AdminScheduleEditorPage() {
                       {selectionInitials}
                     </span>
                   )}
-                {presenceBadge &&
-                  rowIdx === presenceBadge.range.startRow &&
-                  colIdx === presenceBadge.range.startCol && (
+                {presenceLock &&
+                  rowIdx === presenceLock.range.startRow &&
+                  colIdx === presenceLock.range.startCol && (
                     <span
-                      className="absolute right-1 top-5 rounded-full bg-[#6b7b4a] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white"
-                      title={presenceBadge.user}
+                      className="absolute right-1 top-5 z-[200] rounded-full bg-[#6b7b4a] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white shadow-lg"
+                      title={presenceLock.user}
                     >
-                      {presenceBadge.initials}
+                      {presenceLock.initials}
                     </span>
                   )}
                 {!cellExists && (
@@ -4078,8 +4308,12 @@ export default function AdminScheduleEditorPage() {
                           <div
                             role="button"
                             tabIndex={0}
-                            draggable={!isEditing}
+                            draggable={!isEditing && !isPresenceLocked}
                             onDragStart={(e) => {
+                              if (isPresenceLocked) {
+                                e.preventDefault();
+                                return;
+                              }
                               if (isEditing) {
                                 e.preventDefault();
                                 return;
@@ -4110,7 +4344,9 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => {
-                              selectCell(person, slot);
+                              if (!isPresenceLocked) {
+                                selectCell(person, slot);
+                              }
                               loadTaskDetail(task.id, task.name);
                             }}
                             onMouseEnter={(event) => {
@@ -4146,6 +4382,10 @@ export default function AdminScheduleEditorPage() {
                             onDoubleClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
+                              if (isPresenceLocked) {
+                                setMessage(`${presenceLock?.user || "Someone"} is editing this cell right now.`);
+                                return;
+                              }
                               setEditingTaskKey(taskKey);
                               setEditingTaskId(task.id);
                               setEditingTaskName(task.name);
@@ -4153,7 +4393,9 @@ export default function AdminScheduleEditorPage() {
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                selectCell(person, slot);
+                                if (!isPresenceLocked) {
+                                  selectCell(person, slot);
+                                }
                                 loadTaskDetail(task.id, task.name);
                               }
                             }}
@@ -4432,10 +4674,18 @@ export default function AdminScheduleEditorPage() {
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:h-0 lg:w-0 lg:flex-none lg:shrink-0">
           <div
-            className={`hidden lg:flex lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-[#d0c9a4] lg:bg-white/95 lg:shadow-lg lg:backdrop-blur ${
+            ref={dockRef}
+            className={`relative hidden lg:flex lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-[#d0c9a4] lg:bg-white/95 lg:shadow-lg lg:backdrop-blur ${
               canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
             }`}
-            style={{ left: dockPosition.x, top: dockPosition.y, position: "fixed", zIndex: 80 }}
+            style={{
+              left: dockPosition.x,
+              top: dockPosition.y,
+              position: "fixed",
+              zIndex: 80,
+              width: dockSize?.width ?? (canvasExpanded ? 240 : 320),
+              height: dockSize?.height ?? 560,
+            }}
           >
             <div
               onMouseDown={(event) => {
@@ -4461,7 +4711,7 @@ export default function AdminScheduleEditorPage() {
             </div>
 
             {desktopDockOpen && (
-              <div className="flex max-h-[calc(100vh-140px)] flex-col gap-3 overflow-y-auto p-3 text-[11px] text-[#4b5133]">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 text-[11px] text-[#4b5133]">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
                     {desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}
@@ -4850,6 +5100,51 @@ export default function AdminScheduleEditorPage() {
                 )}
               </div>
             )}
+            <div
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = dockRef.current?.getBoundingClientRect();
+                setDockResizing({
+                  axis: "x",
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: rect?.width ?? dockSize?.width ?? 320,
+                  startHeight: rect?.height ?? dockSize?.height ?? 560,
+                });
+              }}
+              className="absolute right-0 top-0 h-full w-2 cursor-ew-resize"
+            />
+            <div
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = dockRef.current?.getBoundingClientRect();
+                setDockResizing({
+                  axis: "y",
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: rect?.width ?? dockSize?.width ?? 320,
+                  startHeight: rect?.height ?? dockSize?.height ?? 560,
+                });
+              }}
+              className="absolute bottom-0 left-0 h-2 w-full cursor-ns-resize"
+            />
+            <div
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = dockRef.current?.getBoundingClientRect();
+                setDockResizing({
+                  axis: "both",
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: rect?.width ?? dockSize?.width ?? 320,
+                  startHeight: rect?.height ?? dockSize?.height ?? 560,
+                });
+              }}
+              className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize"
+            />
           </div>
         </div>
       </div>
