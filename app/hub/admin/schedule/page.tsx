@@ -82,6 +82,8 @@ const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
 const TASK_EDIT_SECTIONS_CACHE_KEY = "admin-schedule-task-edit-sections";
 const TASK_COMMENT_CACHE_KEY = "admin-schedule-task-comment-counts";
+const SCHEDULE_HIDDEN_SLOTS_CACHE_KEY = "admin-schedule-hidden-slots";
+const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
 
 function typeColorClasses(color?: string) {
   const map: Record<string, string> = {
@@ -275,10 +277,32 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskName, setEditingTaskName] = useState("");
+  const [editingTaskSaving, setEditingTaskSaving] = useState(false);
+  const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
+  const [desktopDockTab, setDesktopDockTab] = useState<"recurring" | "oneOff">(
+    "recurring"
+  );
+  const [hiddenSlotIds, setHiddenSlotIds] = useState<Set<string>>(new Set());
+  const [hoveredTaskTooltip, setHoveredTaskTooltip] = useState<{
+    name: string;
+    status: string;
+    type: string;
+    assigned: number;
+    needed: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const [taskCommentCache, setTaskCommentCache] = useState<Record<string, number>>({});
   const [mobileDockOpen, setMobileDockOpen] = useState(false);
   const [mobileDockTab, setMobileDockTab] = useState<"recurring" | "oneOff">("recurring");
   const [desktopDockOpen, setDesktopDockOpen] = useState(true);
+  const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
+  const [dockDragging, setDockDragging] = useState(false);
+  const [dockDragOffset, setDockDragOffset] = useState({ x: 0, y: 0 });
   const [canvasExpanded, setCanvasExpanded] = useState(false);
   const [blackoutMode, setBlackoutMode] = useState(false);
   const [blackoutRangeStart, setBlackoutRangeStart] = useState("");
@@ -376,6 +400,39 @@ export default function AdminScheduleEditorPage() {
     loadStatic();
   }, [authorized]);
 
+  useEffect(() => {
+    if (editingTaskKey && editingTaskInputRef.current) {
+      editingTaskInputRef.current.focus();
+      editingTaskInputRef.current.select();
+    }
+  }, [editingTaskKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const dockWidth = canvasExpanded ? 240 : 320;
+    setDockPosition((prev) => ({
+      x: prev.x || Math.max(16, window.innerWidth - dockWidth - 16),
+      y: prev.y || 96,
+    }));
+  }, [canvasExpanded]);
+
+  useEffect(() => {
+    if (!dockDragging) return;
+    const handleMove = (event: MouseEvent) => {
+      setDockPosition({
+        x: Math.max(8, event.clientX - dockDragOffset.x),
+        y: Math.max(8, event.clientY - dockDragOffset.y),
+      });
+    };
+    const handleUp = () => setDockDragging(false);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [dockDragging, dockDragOffset]);
+
 
   useEffect(() => {
     if (!selectedDate) {
@@ -387,6 +444,18 @@ export default function AdminScheduleEditorPage() {
     () => availableSchedules.find((entry) => entry.dateLabel === selectedDate),
     [availableSchedules, selectedDate]
   );
+
+  const visibleSlotsWithIndex = useMemo(() => {
+    if (!scheduleData?.slots?.length) return [];
+    return scheduleData.slots
+      .map((slot, index) => ({ slot, index }))
+      .filter((entry) => !hiddenSlotIds.has(entry.slot.id));
+  }, [scheduleData?.slots, hiddenSlotIds]);
+
+  const hiddenSlots = useMemo(() => {
+    if (!scheduleData?.slots?.length || hiddenSlotIds.size === 0) return [];
+    return scheduleData.slots.filter((slot) => hiddenSlotIds.has(slot.id));
+  }, [scheduleData?.slots, hiddenSlotIds]);
 
 
   useEffect(() => {
@@ -407,6 +476,7 @@ export default function AdminScheduleEditorPage() {
           const json = await res.json();
           if (!cancelled) {
             setScheduleData(json);
+            setHasUnpublishedChanges(false);
             if (scheduleMode === "page" && !selectedDate && json?.scheduleDate) {
               setSelectedDate(json.scheduleDate);
             }
@@ -476,6 +546,42 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_HIDDEN_SLOTS_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        setHiddenSlotIds(new Set(parsed.map(String)));
+      }
+    } catch (err) {
+      console.warn("Failed to parse hidden slots cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      SCHEDULE_HIDDEN_SLOTS_CACHE_KEY,
+      JSON.stringify(Array.from(hiddenSlotIds))
+    );
+  }, [hiddenSlotIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(SCHEDULE_DOCK_TAB_CACHE_KEY);
+    if (!cached) return;
+    if (cached === "recurring" || cached === "oneOff") {
+      setDesktopDockTab(cached);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SCHEDULE_DOCK_TAB_CACHE_KEY, desktopDockTab);
+  }, [desktopDockTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const cached = localStorage.getItem(TASK_COMMENT_CACHE_KEY);
     if (!cached) return;
     try {
@@ -486,6 +592,22 @@ export default function AdminScheduleEditorPage() {
     } catch (err) {
       console.warn("Failed to parse task comment cache", err);
     }
+  }, []);
+
+  useEffect(() => {
+    const clearTooltip = () => setHoveredTaskTooltip(null);
+    window.addEventListener("scroll", clearTooltip, true);
+    window.addEventListener("blur", clearTooltip);
+    window.addEventListener("mouseleave", clearTooltip);
+    window.addEventListener("pointerdown", clearTooltip);
+    window.addEventListener("keydown", clearTooltip);
+    return () => {
+      window.removeEventListener("scroll", clearTooltip, true);
+      window.removeEventListener("blur", clearTooltip);
+      window.removeEventListener("mouseleave", clearTooltip);
+      window.removeEventListener("pointerdown", clearTooltip);
+      window.removeEventListener("keydown", clearTooltip);
+    };
   }, []);
 
   useEffect(() => {
@@ -1153,6 +1275,7 @@ export default function AdminScheduleEditorPage() {
         return;
       }
       const key = `${person}-${slotId}`;
+      setHasUnpublishedChanges(true);
       setPendingCells((prev) => new Set(prev).add(key));
       setSaveLog({
         status: "saving",
@@ -2505,7 +2628,9 @@ export default function AdminScheduleEditorPage() {
         statusOptions.find((opt) => opt.name)?.name || "Not Started";
       const nextStatus =
         taskEditDraft.status || taskDetail.status || defaultStatus;
-      const nextPriority = taskEditDraft.priority || taskDetail.priority || null;
+      const defaultPriority = "Medium";
+      const nextPriority =
+        taskEditDraft.priority || taskDetail.priority || defaultPriority;
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2561,6 +2686,73 @@ export default function AdminScheduleEditorPage() {
       setTaskEditSaving(false);
     }
   };
+
+  const updateTaskNameInState = useCallback((taskId: string, name: string) => {
+    setScheduleData((prev) => {
+      if (!prev) return prev;
+      const nextCells = prev.cells.map((row) =>
+        row.map((cell) => ({
+          ...cell,
+          tasks: cell.tasks.map((task) =>
+            task.id === taskId ? { ...task, name } : task
+          ),
+        }))
+      );
+      return { ...prev, cells: nextCells };
+    });
+    setRecurringTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+    setOneOffTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+    setYesterdayRecurringTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, name } : task))
+    );
+  }, []);
+
+  const saveInlineTaskName = useCallback(
+    async (taskId: string, name: string, reset = true) => {
+      const trimmed = name.trim();
+      if (!trimmed || editingTaskSaving) {
+        if (reset) {
+          setEditingTaskKey(null);
+          setEditingTaskId(null);
+        }
+        return;
+      }
+      setEditingTaskSaving(true);
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: taskId,
+            applyTo: "single",
+            name: trimmed,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to update task name.");
+        }
+        updateTaskNameInState(taskId, trimmed);
+        setTaskEditMessage("Task name updated.");
+      } catch (err) {
+        console.error("Failed to update task name", err);
+        const friendly =
+          err instanceof Error ? err.message : "Failed to update task name.";
+        setTaskEditMessage(friendly);
+      } finally {
+        setEditingTaskSaving(false);
+        if (reset) {
+          setEditingTaskKey(null);
+          setEditingTaskId(null);
+        }
+      }
+    },
+    [editingTaskSaving, updateTaskNameInState]
+  );
 
   const handlePhotoUpload = async (overrideFile?: File | null) => {
     if (!taskDetail?.id || !taskDetail?.name) {
@@ -2728,6 +2920,7 @@ export default function AdminScheduleEditorPage() {
       if (!res.ok) {
         throw new Error(json.error || "Failed to publish schedule");
       }
+      setHasUnpublishedChanges(false);
       setScheduleNote(`Published staging schedule for ${selectedDate}.`);
     } catch (err) {
       console.error("Failed to publish schedule", err);
@@ -3325,12 +3518,12 @@ export default function AdminScheduleEditorPage() {
 
   return (
     <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
-      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-2 py-4">
+      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-1 sm:px-2 py-3">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
-            <h1 className="text-2xl font-semibold text-[#314123]">{scheduleTitle}</h1>
-            <p className="text-sm text-[#5f5a3b]">
+            <h1 className="text-xl font-semibold text-[#314123]">{scheduleTitle}</h1>
+            <p className="text-xs text-[#5f5a3b]">
               Staging schedule with auto-synced volunteers and background saves.
             </p>
             {selectedEntry && (
@@ -3349,7 +3542,7 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={undoLastChange}
                 disabled={!undoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
               >
                 Undo
               </button>
@@ -3357,7 +3550,7 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={redoLastChange}
                 disabled={!redoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
+                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
               >
                 Redo
               </button>
@@ -3365,14 +3558,14 @@ export default function AdminScheduleEditorPage() {
                 type="button"
                 onClick={publishSchedule}
                 disabled={!selectedDate || scheduleMode !== "page"}
-                className="rounded-md bg-[#8fae4c] px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
                 Publish
               </button>
               <button
                 type="button"
                 onClick={() => setBlackoutMode((prev) => !prev)}
-                className={`rounded-md border px-4 py-2 font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
+                className={`rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
                   blackoutMode
                     ? "border-[#22311b] bg-[#2f3b21] text-[#f9f9ec] hover:bg-[#25301b]"
                     : "border-[#d0c9a4] bg-white text-[#314123] hover:bg-[#f1edd8]"
@@ -3381,7 +3574,7 @@ export default function AdminScheduleEditorPage() {
                 {blackoutMode ? "Blackout mode: On" : "Blackout mode"}
               </button>
               <details className="relative">
-                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-4 py-2 font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
+                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
                   More actions
                 </summary>
                 <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
@@ -3562,11 +3755,41 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
-    <div
-  className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
-    canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
-  }`}
->
+      {scheduleMode === "page" && hasUnpublishedChanges && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-base font-semibold text-red-700 shadow-sm">
+          Unpublished changes: remember to publish this schedule.
+        </div>
+      )}
+
+      {hoveredTaskTooltip && (
+        <div
+          className="fixed z-[99999] max-w-[240px] rounded-lg border border-[#5d7f3b] bg-[#2f3b21] px-3 py-2 text-[10px] text-white shadow-lg pointer-events-none"
+          style={{
+            left: hoveredTaskTooltip.x,
+            top: hoveredTaskTooltip.y,
+          }}
+        >
+          <div className="mb-1.5 font-semibold">{hoveredTaskTooltip.name}</div>
+          <div className="space-y-0.5 text-[9px] text-gray-300">
+            <div>
+              <span className="text-gray-400">Type:</span> {hoveredTaskTooltip.type}
+            </div>
+            <div>
+              <span className="text-gray-400">Status:</span> {hoveredTaskTooltip.status}
+            </div>
+            <div>
+              <span className="text-gray-400">Assigned:</span>{" "}
+              {hoveredTaskTooltip.assigned}/{hoveredTaskTooltip.needed}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`flex min-w-0 flex-1 flex-col gap-3 px-1 py-3 pb-24 lg:flex-row lg:px-2 lg:pb-32 ${
+          canvasExpanded ? "lg:min-h-[calc(100vh-12rem)]" : ""
+        }`}
+      >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           <div
             className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
@@ -3598,6 +3821,29 @@ export default function AdminScheduleEditorPage() {
             <span className="text-[11px] text-[#7a7f54]">
               {pendingCells.size ? "Saving updates…" : "All changes saved."}
             </span>
+            {hiddenSlots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">
+                  Hidden shifts:
+                </span>
+                {hiddenSlots.map((slot) => (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() =>
+                      setHiddenSlotIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(slot.id);
+                        return next;
+                      })
+                    }
+                    className="rounded-full border border-[#d1d4aa] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133] hover:bg-[#f7f4e6]"
+                  >
+                    Show {slot.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {scheduleLoading && (
@@ -3619,7 +3865,7 @@ export default function AdminScheduleEditorPage() {
       <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
         Person
       </th>
-      {scheduleData?.slots.map((slot) => (
+      {visibleSlotsWithIndex.map(({ slot }) => (
  <th
   key={slot.id}
   className="w-[300px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-10 bg-[#e5e7c5]"
@@ -3631,6 +3877,19 @@ export default function AdminScheduleEditorPage() {
                 <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() =>
+                setHiddenSlotIds((prev) => {
+                  const next = new Set(prev);
+                  next.add(slot.id);
+                  return next;
+                })
+              }
+              className="rounded-full border border-[#c8d0a4] bg-white/80 px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#5d7f3b] hover:bg-white"
+            >
+              Hide
+            </button>
             {slot.isMeal && <span className="text-lg">🍽️</span>}
           </div>
         </th>
@@ -3646,7 +3905,7 @@ export default function AdminScheduleEditorPage() {
             <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
           </div>
         </td>
-        {scheduleData.slots.map((slot, colIdx) => {
+        {visibleSlotsWithIndex.map(({ slot, index: colIdx }) => {
           const cell = scheduleData.cells?.[rowIdx]?.[colIdx] || { tasks: [], note: "" };
           const content = cell;
           const isSelected =
@@ -3786,24 +4045,20 @@ export default function AdminScheduleEditorPage() {
                   </div>
                 )}
                 {isBlocked ? (
-                  <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-3 text-center text-[11px] text-[#2f3b21]">
+                  <div className="flex items-center justify-center rounded-md border border-dashed border-[#2f3b21]/40 bg-[#2f3b21]/10 px-2 py-1 text-center text-[11px] text-[#2f3b21]">
                     <span className="text-base">🛑</span>
-                    <span className="font-semibold uppercase tracking-[0.12em]">
-                      Blackout
-                    </span>
-                    <span className="text-[10px] text-[#4f5730]">
-                      No scheduling in this slot
-                    </span>
                   </div>
                 ) : (
                   <>
                     {dropLine(0)}
                     {content.tasks.map((task, idx) => {
+                      const taskKey = `${person}-${slot.id}-${task.id}-${idx}`;
                       const meta = taskMetaById.get(task.id);
                       const isDraggingThis =
                         draggingTask?.taskId === task.id &&
                         draggingTask?.fromPerson === person &&
                         draggingTask?.fromSlotId === slot.id;
+                      const isEditing = editingTaskKey === taskKey;
                       const assignedCount =
                         taskPeopleCountById.byId.get(task.id) ??
                         taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
@@ -3823,8 +4078,12 @@ export default function AdminScheduleEditorPage() {
                           <div
                             role="button"
                             tabIndex={0}
-                            draggable
+                            draggable={!isEditing}
                             onDragStart={(e) => {
+                              if (isEditing) {
+                                e.preventDefault();
+                                return;
+                              }
                               setDraggingTask({
                                 taskId: task.id,
                                 taskName: task.name,
@@ -3854,6 +4113,43 @@ export default function AdminScheduleEditorPage() {
                               selectCell(person, slot);
                               loadTaskDetail(task.id, task.name);
                             }}
+                            onMouseEnter={(event) => {
+                              const offsetX = 12;
+                              const offsetY = 12;
+                              setHoveredTaskTooltip({
+                                name: task.name,
+                                status: taskStatus,
+                                type: taskType,
+                                assigned: assignedCount,
+                                needed: neededCount,
+                                x: event.clientX + offsetX,
+                                y: event.clientY + offsetY,
+                              });
+                            }}
+                            onMouseMove={(event) => {
+                              if (!hoveredTaskTooltip) return;
+                              const offsetX = 12;
+                              const offsetY = 12;
+                              setHoveredTaskTooltip((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      x: event.clientX + offsetX,
+                                      y: event.clientY + offsetY,
+                                    }
+                                  : prev
+                              );
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredTaskTooltip(null);
+                            }}
+                            onDoubleClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setEditingTaskKey(taskKey);
+                              setEditingTaskId(task.id);
+                              setEditingTaskName(task.name);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
@@ -3861,7 +4157,7 @@ export default function AdminScheduleEditorPage() {
                                 loadTaskDetail(task.id, task.name);
                               }
                             }}
-                           className={`group relative flex w-[150px] items-center justify-between gap-1 rounded-md border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0
+                          className={`group relative flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] min-w-0 hover:z-[60] focus-within:z-[60]
     ${typeColorClasses(meta?.typeColor)}
     ${isDraggingThis ? "scale-[1.01] shadow-md ring-2 ring-[#c8d99a]" : "hover:-translate-y-[1px] hover:shadow-md"}
   `}
@@ -3886,9 +4182,37 @@ export default function AdminScheduleEditorPage() {
                               </button>
 
                               {/* Task name - truncated with ellipsis */}
-                              <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
-                                {task.name}
-                              </span>
+                              {isEditing ? (
+                                <input
+                                  ref={editingTaskInputRef}
+                                  value={editingTaskName}
+                                  onChange={(e) => setEditingTaskName(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={() => {
+                                    if (editingTaskId) {
+                                      saveInlineTaskName(editingTaskId, editingTaskName);
+                                    } else {
+                                      setEditingTaskKey(null);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && editingTaskId) {
+                                      e.preventDefault();
+                                      saveInlineTaskName(editingTaskId, editingTaskName);
+                                    }
+                                    if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      setEditingTaskKey(null);
+                                      setEditingTaskId(null);
+                                    }
+                                  }}
+                                  className="min-w-0 flex-1 rounded-sm border border-[#d1d4aa] bg-white px-1 py-[1px] text-[10px] font-semibold text-[#2f3b21] focus:border-[#8fae4c] focus:outline-none"
+                                />
+                              ) : (
+                                <span className="min-w-0 truncate font-semibold text-[#2f3b21] leading-tight">
+                                  {task.name}
+                                </span>
+                              )}
                               {hasComments && (
                                 <span
                                   className="text-[11px] text-amber-500"
@@ -3901,6 +4225,12 @@ export default function AdminScheduleEditorPage() {
 
                             {/* Assignment counter and completion indicator */}
                             <div className="flex shrink-0 items-center gap-1">
+                              {scheduleMode === "page" && hasUnpublishedChanges && (
+                                <span
+                                  className="h-2 w-2 rounded-full bg-red-500"
+                                  aria-label="Unpublished changes"
+                                />
+                              )}
                               <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
                                 {assignedCount}/{neededCount}
                               </span>
@@ -3911,17 +4241,6 @@ export default function AdminScheduleEditorPage() {
                               )}
                             </div>
 
-                            {/* Hover tooltip with full task details - HIGH Z-INDEX TO APPEAR ON TOP */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[9999] bg-[#2f3b21] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#5d7f3b] pointer-events-none">
-                              <div className="font-semibold mb-1.5">{task.name}</div>
-                              <div className="text-[9px] text-gray-300 space-y-0.5">
-                                <div><span className="text-gray-400">Type:</span> {taskType}</div>
-                                <div><span className="text-gray-400">Status:</span> {taskStatus}</div>
-                                <div><span className="text-gray-400">Assigned:</span> {assignedCount}/{neededCount}</div>
-                              </div>
-                              {/* Arrow pointer */}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2f3b21]"></div>
-                            </div>
                           </div>
 
                           {dropLine(idx + 1)}
@@ -4111,32 +4430,74 @@ export default function AdminScheduleEditorPage() {
         </div>
         </div>
 
-        <div
-          className={`order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-hidden ${
-            canvasExpanded ? "lg:w-[240px]" : "lg:w-[300px]"
-          }`}
-        >
-          <div className="space-y-4 lg:flex lg:h-full lg:flex-col lg:overflow-y-auto lg:pr-1">
-            <div className="hidden lg:flex items-center justify-between rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133] shadow-sm">
+        <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:h-0 lg:w-0 lg:flex-none lg:shrink-0">
+          <div
+            className={`hidden lg:flex lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-[#d0c9a4] lg:bg-white/95 lg:shadow-lg lg:backdrop-blur ${
+              canvasExpanded ? "lg:w-[240px]" : "lg:w-[320px]"
+            }`}
+            style={{ left: dockPosition.x, top: dockPosition.y, position: "fixed", zIndex: 80 }}
+          >
+            <div
+              onMouseDown={(event) => {
+                setDockDragging(true);
+                setDockDragOffset({
+                  x: event.clientX - dockPosition.x,
+                  y: event.clientY - dockPosition.y,
+                });
+              }}
+              className="flex cursor-move items-center justify-between rounded-t-2xl border-b border-[#e2d7b5] bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+            >
               <span>Task dock</span>
-              <button
-                type="button"
-                onClick={() => setDesktopDockOpen((prev) => !prev)}
-                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-              >
-                {desktopDockOpen ? "Collapse" : "Expand"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDesktopDockOpen((prev) => !prev)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                >
+                  {desktopDockOpen ? "Minimize" : "Expand"}
+                </button>
+              </div>
             </div>
 
-            {desktopDockOpen ? (
-              <div className="hidden lg:flex lg:flex-1 lg:flex-col lg:gap-4">
-                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                  <div className="flex items-center justify-between gap-2 rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                    <span>Recurring task dock</span>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
-                        {selectedDate || "Pick a date"}
-                      </span>
+            {desktopDockOpen && (
+              <div className="flex max-h-[calc(100vh-140px)] flex-col gap-3 overflow-y-auto p-3 text-[11px] text-[#4b5133]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4b5133]">
+                    {desktopDockTab === "recurring" ? "Recurring tasks" : "One-off tasks"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDesktopDockTab("recurring")}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        desktopDockTab === "recurring"
+                          ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
+                          : "border-[#d0c9a4] bg-white text-[#4b5133]"
+                      }`}
+                    >
+                      Recurring
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDesktopDockTab("oneOff")}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      className={`rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        desktopDockTab === "oneOff"
+                          ? "border-[#5d7f3b] bg-[#f0f4de] text-[#314123]"
+                          : "border-[#d0c9a4] bg-white text-[#4b5133]"
+                      }`}
+                    >
+                      One-off
+                    </button>
+                  </div>
+                </div>
+
+                {desktopDockTab === "recurring" && (
+                  <>
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold text-[#4b5133]">
+                      <span>{selectedDate || "Pick a date"}</span>
                       <button
                         type="button"
                         onClick={() => setRecurringDockExpanded((prev) => !prev)}
@@ -4145,8 +4506,7 @@ export default function AdminScheduleEditorPage() {
                         {recurringDockExpanded ? "Collapse list" : "Expand list"}
                       </button>
                     </div>
-                  </div>
-                  <div className="space-y-2 p-3 text-sm">
+                    <div className="space-y-2 text-sm">
                     <div className="grid gap-2 md:grid-cols-2">
                       <input
                         value={taskSearch}
@@ -4278,7 +4638,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        recurringDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
+                        recurringDockExpanded ? "max-h-none overflow-visible" : "max-h-52 overflow-y-auto"
                       }`}
                     >
                       {filteredRecurringTasks.map((task) => {
@@ -4345,20 +4705,22 @@ export default function AdminScheduleEditorPage() {
                       )}
                     </div>
                   </div>
-                </div>
+                  </>
+                )}
 
-                <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 shadow-lg backdrop-blur">
-                  <div className="flex items-center justify-between rounded-t-2xl bg-[#f0f4de] px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#4b5133]">
-                    <span>One-off task dock</span>
-                    <button
-                      type="button"
-                      onClick={() => setOneOffDockExpanded((prev) => !prev)}
-                      className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
-                    >
-                      {oneOffDockExpanded ? "Collapse list" : "Expand list"}
-                    </button>
-                  </div>
-                  <div className="space-y-2 p-3 text-sm">
+                {desktopDockTab === "oneOff" && (
+                  <>
+                    <div className="flex items-center justify-between rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold text-[#4b5133]">
+                      <span>One-off task dock</span>
+                      <button
+                        type="button"
+                        onClick={() => setOneOffDockExpanded((prev) => !prev)}
+                        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]"
+                      >
+                        {oneOffDockExpanded ? "Collapse list" : "Expand list"}
+                      </button>
+                    </div>
+                    <div className="space-y-2 text-sm">
                     <div className="rounded-lg border border-[#e2d7b5] bg-white/80 p-2 text-[11px] text-[#4b5133]">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
                         One-off filters
@@ -4421,7 +4783,7 @@ export default function AdminScheduleEditorPage() {
 
                     <div
                       className={`space-y-2 pr-1 ${
-                        oneOffDockExpanded ? "max-h-none overflow-visible" : "max-h-48 overflow-y-auto"
+                        oneOffDockExpanded ? "max-h-none overflow-visible" : "max-h-52 overflow-y-auto"
                       }`}
                     >
                       {filteredOneOffTasks.map((task) => {
@@ -4449,9 +4811,9 @@ export default function AdminScheduleEditorPage() {
                               setPendingInsert(null);
                             }}
                             onClick={() => loadTaskDetail(task.id, task.name)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                            className={`group relative flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug text-[#2f3b21] shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
                               task.typeColor
-                            )}`}
+                            )} hover:-translate-y-[1px] hover:shadow-md`}
                           >
                             <div>
                               <div className="flex items-center gap-1 font-semibold">
@@ -4483,20 +4845,11 @@ export default function AdminScheduleEditorPage() {
                         <p className="text-[12px] text-[#7a7f54]">No one-off tasks loaded.</p>
                       )}
                     </div>
-                  </div>
-                </div>
-
+                    </div>
+                  </>
+                )}
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setDesktopDockOpen(true)}
-                className="hidden w-full rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm lg:block"
-              >
-                Open task dock
-              </button>
             )}
-
           </div>
         </div>
       </div>
@@ -4758,9 +5111,9 @@ export default function AdminScheduleEditorPage() {
                         setPendingInsert(null);
                       }}
                       onClick={() => loadTaskDetail(task.id, task.name)}
-                      className={`mb-2 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-sm text-[#2f3b21] shadow-sm transition hover:-translate-y-[1px] hover:border-[#9fb668] ${typeColorClasses(
+                      className={`group relative mb-2 flex w-full items-center justify-between gap-1 rounded-sm border px-1.5 py-0.5 text-left text-[9px] leading-snug text-[#2f3b21] shadow-sm transition duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[#8fae4c] sm:text-[10px] ${typeColorClasses(
                         task.typeColor
-                      )}`}
+                      )} hover:-translate-y-[1px] hover:shadow-md`}
                     >
                       <div>
                         <div className="flex items-center gap-1 font-semibold">
