@@ -80,7 +80,7 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
         {value || placeholder}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
+        <div className="absolute z-50 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
           <div className="flex gap-1">
             <input
               value={filter}
