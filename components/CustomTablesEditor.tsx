@@ -159,7 +159,6 @@ export function CustomTablesEditor({
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
   const [customTablesError, setCustomTablesError] = useState<string | null>(null);
   const [customTablesDirty, setCustomTablesDirty] = useState<Record<string, boolean>>({});
-  const [customTablesAnchorDate, setCustomTablesAnchorDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const [customTablesDeleting, setCustomTablesDeleting] = useState<string | null>(null);
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
@@ -276,9 +275,6 @@ export function CustomTablesEditor({
         const tables = Array.isArray(json.tables) ? json.tables : [];
         const normalized = tables.map(normalizeCustomTable);
         setCustomTables(normalized);
-        if (normalized.length) {
-          setCustomTablesAnchorDate(normalized[0].scheduleDate || isoDate);
-        }
         setCustomTablesDirty({});
       } catch (err) {
         console.error("Failed to load custom tables:", err);
@@ -307,33 +303,6 @@ export function CustomTablesEditor({
     });
     setCustomTablesDirty((prev) => ({ ...prev, [fromId]: true, [toId]: true }));
   }, []);
-
-  const handleAddCustomTable = useCallback(async () => {
-    const anchorDate = customTablesAnchorDate || dateLabel;
-    if (!anchorDate) return;
-    const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
-    setCustomTablesError(null);
-    try {
-      const res = await fetch("/api/schedule/custom-tables", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scheduleDate: isoDate,
-          visibleStart: isoDate,
-          visibleEnd: isoDate,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.table) {
-        setCustomTables((prev) => [...prev, normalizeCustomTable(json.table)]);
-        setCustomTablesAnchorDate(isoDate);
-      }
-    } catch (err) {
-      console.error("Failed to add custom table:", err);
-      setCustomTablesError("Unable to add a custom table.");
-    }
-  }, [customTablesAnchorDate, dateLabel, normalizeCustomTable]);
 
   const handleSaveCustomTable = useCallback(
     async (table: CustomTable) => {
@@ -416,7 +385,7 @@ export function CustomTablesEditor({
         <div>
           <h3 className="text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
           <p className="text-xs text-[#7a7f54]">
-            Add custom sections with editable headers and volunteer selections.
+            Review custom sections with editable headers and volunteer selections.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -427,16 +396,6 @@ export function CustomTablesEditor({
           >
             Refresh
           </button>
-          {canEditCustomTables && (
-            <button
-              type="button"
-              onClick={handleAddCustomTable}
-              disabled={!dateLabel}
-              className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Add Section
-            </button>
-          )}
         </div>
       </div>
 
