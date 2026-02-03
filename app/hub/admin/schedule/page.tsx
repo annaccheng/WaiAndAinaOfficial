@@ -185,6 +185,7 @@ function cloneCellContent(cell: CellContent): CellContent {
   };
 }
 
+const stripTaskNameCommas = (value: string) => value.replace(/,/g, "");
 
 export default function AdminScheduleEditorPage() {
   const router = useRouter();
@@ -1664,6 +1665,10 @@ export default function AdminScheduleEditorPage() {
 
   const createQuickTask = useCallback(async () => {
     if (!quickTaskName.trim() || !selectedDate) return;
+    if (quickTaskName.includes(",")) {
+      setMessage("Task name cannot include commas.");
+      return;
+    }
     const dateParam = formatLabelToInput(selectedDate);
     try {
       const res = await fetch("/api/tasks", {
@@ -1709,10 +1714,14 @@ export default function AdminScheduleEditorPage() {
       console.error("Failed to create quick task", err);
       setMessage("Unable to create quick task.");
     }
-  }, [quickTaskDescription, quickTaskName, selectedDate]);
+  }, [quickTaskDescription, quickTaskName, selectedDate, setMessage]);
 
   const createRecurringQuickTask = useCallback(async () => {
     if (!recurringQuickName.trim()) return;
+    if (recurringQuickName.includes(",")) {
+      setMessage("Task name cannot include commas.");
+      return;
+    }
     const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
     const originDate = dateParam || new Date().toISOString().slice(0, 10);
     const untilDate = recurringQuickUntil || addDaysToIso(originDate, 30);
@@ -1778,12 +1787,17 @@ export default function AdminScheduleEditorPage() {
     recurringQuickUnit,
     recurringQuickUntil,
     selectedDate,
+    setMessage,
   ]);
 
   const resolveTaskEntry = useCallback(
     async (taskName: string): Promise<ScheduledTask | null> => {
       const trimmed = taskName.trim();
       if (!trimmed) return null;
+      if (trimmed.includes(",")) {
+        setMessage("Task name cannot include commas.");
+        return null;
+      }
       const normalized = trimmed.toLowerCase();
       const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
 
@@ -1916,7 +1930,7 @@ export default function AdminScheduleEditorPage() {
       }
       return null;
     },
-    [oneOffTasks, recurringTasks, selectedDate]
+    [oneOffTasks, recurringTasks, selectedDate, setMessage]
   );
 
   const handleTaskMove = useCallback(
@@ -2312,13 +2326,16 @@ export default function AdminScheduleEditorPage() {
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
+        const isCustomTaskInput = customTaskInputRef.current === target;
         if (
           tag === "INPUT" ||
           tag === "TEXTAREA" ||
           tag === "SELECT" ||
           target.isContentEditable
         ) {
-          return;
+          if (!isCustomTaskInput) {
+            return;
+          }
         }
       }
       if (!selectedCell || !scheduleData) return;
@@ -2716,6 +2733,10 @@ export default function AdminScheduleEditorPage() {
 
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
+    if (customTask.includes(",")) {
+      setMessage("Task name cannot include commas.");
+      return;
+    }
     const presenceLock = getPresenceLockForCell(selectedCell.person, selectedCell.slotId);
     if (presenceLock) {
       setMessage(`${presenceLock.user} is editing this cell right now.`);
@@ -4538,7 +4559,13 @@ export default function AdminScheduleEditorPage() {
                           list="task-options"
                           value={customTask}
                           onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => setCustomTask(e.target.value)}
+                          onChange={(e) => {
+                            const sanitized = stripTaskNameCommas(e.target.value);
+                            if (sanitized !== e.target.value) {
+                              setMessage("Task name cannot include commas.");
+                            }
+                            setCustomTask(sanitized);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -4863,7 +4890,13 @@ export default function AdminScheduleEditorPage() {
                       <div className="mt-2 space-y-2">
                         <input
                           value={recurringQuickName}
-                          onChange={(e) => setRecurringQuickName(e.target.value)}
+                          onChange={(e) => {
+                            const sanitized = stripTaskNameCommas(e.target.value);
+                            if (sanitized !== e.target.value) {
+                              setMessage("Task name cannot include commas.");
+                            }
+                            setRecurringQuickName(sanitized);
+                          }}
                           className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
                           placeholder="Task name"
                         />
@@ -5041,7 +5074,13 @@ export default function AdminScheduleEditorPage() {
                       <div className="mt-2 space-y-2">
                         <input
                           value={quickTaskName}
-                          onChange={(e) => setQuickTaskName(e.target.value)}
+                          onChange={(e) => {
+                            const sanitized = stripTaskNameCommas(e.target.value);
+                            if (sanitized !== e.target.value) {
+                              setMessage("Task name cannot include commas.");
+                            }
+                            setQuickTaskName(sanitized);
+                          }}
                           className="w-full rounded-md border border-[#d0c9a4] px-2 py-1.5 text-xs focus:border-[#8fae4c] focus:outline-none"
                           placeholder="Task name"
                         />
@@ -5296,7 +5335,13 @@ export default function AdminScheduleEditorPage() {
                     <div className="mt-2 space-y-2">
                       <input
                         value={recurringQuickName}
-                        onChange={(e) => setRecurringQuickName(e.target.value)}
+                        onChange={(e) => {
+                          const sanitized = stripTaskNameCommas(e.target.value);
+                          if (sanitized !== e.target.value) {
+                            setMessage("Task name cannot include commas.");
+                          }
+                          setRecurringQuickName(sanitized);
+                        }}
                         className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
                         placeholder="Task name"
                       />
@@ -5389,7 +5434,13 @@ export default function AdminScheduleEditorPage() {
                     <div className="mt-2 space-y-2">
                       <input
                         value={quickTaskName}
-                        onChange={(e) => setQuickTaskName(e.target.value)}
+                        onChange={(e) => {
+                          const sanitized = stripTaskNameCommas(e.target.value);
+                          if (sanitized !== e.target.value) {
+                            setMessage("Task name cannot include commas.");
+                          }
+                          setQuickTaskName(sanitized);
+                        }}
                         className="w-full rounded-md border border-[#d0c9a4] px-2 py-2 text-xs focus:border-[#8fae4c] focus:outline-none"
                         placeholder="Task name"
                       />

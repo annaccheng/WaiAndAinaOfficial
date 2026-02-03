@@ -673,7 +673,7 @@ export function CustomTablesEditor({
                 </div>
               )}
 
-              <div className="mt-4 overflow-x-auto">
+              <div className="mt-4 overflow-x-auto overflow-y-visible">
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
                     <tr>
