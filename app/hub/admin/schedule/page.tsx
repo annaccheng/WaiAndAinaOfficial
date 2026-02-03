@@ -2788,51 +2788,6 @@ export default function AdminScheduleEditorPage() {
     }
   }, [blackoutRangeEnd, blackoutRangeStart, scheduleData]);
 
-  const selectCell = (
-    person: string,
-    slot: Slot,
-    event?: React.MouseEvent<HTMLTableCellElement>
-  ) => {
-    const presenceLock = getPresenceLockForCell(person, slot.id);
-    if (presenceLock) {
-      setMessage(`${presenceLock.user} is editing this cell right now.`);
-      return;
-    }
-    const coord = findCoord(person, slot.id, scheduleData);
-    const current = coord ? scheduleData?.cells?.[coord.row]?.[coord.col] : null;
-    if (blackoutMode) {
-      const nextBlocked = !current?.blocked;
-      toggleBlackoutCell(person, slot, nextBlocked);
-      return;
-    }
-    if (current?.blocked) {
-      setMessage("This cell is blocked. Toggle blackout mode to edit it.");
-      return;
-    }
-    if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
-      if (customTask.trim() && selectedCell) {
-        skipCustomTaskBlurRef.current = true;
-        void commitCustomTask(selectedCell, customTask);
-      }
-      setCustomTask("");
-    }
-    const nextSelection = { person, slotId: slot.id };
-    if (event?.shiftKey && selectionAnchor) {
-      setSelectionEnd(nextSelection);
-    } else {
-      setSelectionAnchor(nextSelection);
-      setSelectionEnd(nextSelection);
-    }
-    setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
-  };
-
-  useEffect(() => {
-    if (!isSelectingRange) return;
-    const stopSelection = () => setIsSelectingRange(false);
-    window.addEventListener("mouseup", stopSelection);
-    return () => window.removeEventListener("mouseup", stopSelection);
-  }, [isSelectingRange]);
-
   const commitCustomTask = useCallback(
     async (
       cell: { person: string; slotId: string; slotLabel?: string },
@@ -2866,6 +2821,61 @@ export default function AdminScheduleEditorPage() {
     },
     [getCellValue, getPresenceLockForCell, handleTaskMove, resolveSlotLabel, resolveTaskEntry]
   );
+
+  const commitPendingCustomTask = useCallback(
+    (nextCell: { person: string; slotId: string }) => {
+      if (!selectedCell) return;
+      if (selectedCell.person === nextCell.person && selectedCell.slotId === nextCell.slotId) {
+        return;
+      }
+      if (!customTask.trim()) return;
+      skipCustomTaskBlurRef.current = true;
+      void commitCustomTask(selectedCell, customTask);
+      setCustomTask("");
+    },
+    [commitCustomTask, customTask, selectedCell]
+  );
+
+  const selectCell = (
+    person: string,
+    slot: Slot,
+    event?: React.MouseEvent<HTMLTableCellElement>
+  ) => {
+    const presenceLock = getPresenceLockForCell(person, slot.id);
+    if (presenceLock) {
+      setMessage(`${presenceLock.user} is editing this cell right now.`);
+      return;
+    }
+    const coord = findCoord(person, slot.id, scheduleData);
+    const current = coord ? scheduleData?.cells?.[coord.row]?.[coord.col] : null;
+    if (blackoutMode) {
+      const nextBlocked = !current?.blocked;
+      toggleBlackoutCell(person, slot, nextBlocked);
+      return;
+    }
+    if (current?.blocked) {
+      setMessage("This cell is blocked. Toggle blackout mode to edit it.");
+      return;
+    }
+    if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
+      commitPendingCustomTask({ person, slotId: slot.id });
+    }
+    const nextSelection = { person, slotId: slot.id };
+    if (event?.shiftKey && selectionAnchor) {
+      setSelectionEnd(nextSelection);
+    } else {
+      setSelectionAnchor(nextSelection);
+      setSelectionEnd(nextSelection);
+    }
+    setSelectedCell({ person, slotId: slot.id, slotLabel: slot.label });
+  };
+
+  useEffect(() => {
+    if (!isSelectingRange) return;
+    const stopSelection = () => setIsSelectingRange(false);
+    window.addEventListener("mouseup", stopSelection);
+    return () => window.removeEventListener("mouseup", stopSelection);
+  }, [isSelectingRange]);
 
   const handleCustomAdd = async () => {
     if (!customTask.trim()) return;
@@ -4403,6 +4413,7 @@ export default function AdminScheduleEditorPage() {
               onMouseDown={(event) => {
                 if (event.button !== 0) return;
                 if (isPresenceLocked) return;
+                commitPendingCustomTask({ person, slotId: slot.id });
                 setIsSelectingRange(true);
                 const nextSelection = { person, slotId: slot.id };
                 setSelectionAnchor(nextSelection);
@@ -4645,6 +4656,7 @@ export default function AdminScheduleEditorPage() {
                                     }
                                   }}
                                   onKeyDown={(e) => {
+                                    e.stopPropagation();
                                     if (e.key === "Enter" && editingTaskId) {
                                       e.preventDefault();
                                       saveInlineTaskName(editingTaskId, editingTaskName);
