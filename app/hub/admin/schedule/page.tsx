@@ -318,6 +318,10 @@ export default function AdminScheduleEditorPage() {
   } | null>(null);
   const editingTaskInputRef = useRef<HTMLInputElement | null>(null);
   const customTaskInputRef = useRef<HTMLInputElement | null>(null);
+  const customTaskCellRef = useRef<{ person: string; slotId: string; slotLabel: string } | null>(
+    null
+  );
+  const skipCustomTaskBlurRef = useRef(false);
   const scheduleContainerRef = useRef<HTMLDivElement | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const lastActivityRef = useRef(Date.now());
@@ -453,6 +457,15 @@ export default function AdminScheduleEditorPage() {
       customTaskInputRef.current?.select();
     });
   }, [editingTaskKey, selectedCell]);
+
+  useEffect(() => {
+    if (!selectedCell) return;
+    customTaskCellRef.current = {
+      person: selectedCell.person,
+      slotId: selectedCell.slotId,
+      slotLabel: selectedCell.slotLabel,
+    };
+  }, [selectedCell]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2798,6 +2811,7 @@ export default function AdminScheduleEditorPage() {
     }
     if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
       if (customTask.trim() && selectedCell) {
+        skipCustomTaskBlurRef.current = true;
         void commitCustomTask(selectedCell, customTask);
       }
       setCustomTask("");
@@ -2854,8 +2868,10 @@ export default function AdminScheduleEditorPage() {
   );
 
   const handleCustomAdd = async () => {
-    if (!customTask.trim() || !selectedCell) return;
-    await commitCustomTask(selectedCell, customTask);
+    if (!customTask.trim()) return;
+    const targetCell = customTaskCellRef.current || selectedCell;
+    if (!targetCell) return;
+    await commitCustomTask(targetCell, customTask);
     setCustomTask("");
   };
 
@@ -4625,9 +4641,7 @@ export default function AdminScheduleEditorPage() {
                                   onClick={(e) => e.stopPropagation()}
                                   onBlur={() => {
                                     if (editingTaskId) {
-                                      saveInlineTaskName(editingTaskId, editingTaskName);
-                                    } else {
-                                      setEditingTaskKey(null);
+                                      void saveInlineTaskName(editingTaskId, editingTaskName, false);
                                     }
                                   }}
                                   onKeyDown={(e) => {
@@ -4710,6 +4724,10 @@ export default function AdminScheduleEditorPage() {
                             }
                           }}
                           onBlur={() => {
+                            if (skipCustomTaskBlurRef.current) {
+                              skipCustomTaskBlurRef.current = false;
+                              return;
+                            }
                             if (customTask.trim()) {
                               void handleCustomAdd();
                             }
