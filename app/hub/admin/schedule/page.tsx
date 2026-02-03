@@ -77,6 +77,14 @@ type OverviewTaskEntry = {
   recurring: boolean;
   parentTaskId: string | null;
 };
+type IndicatorRuleType = "missing_description" | "status" | "priority" | "missing_person_count";
+type IndicatorRule = {
+  id: string;
+  label: string;
+  emoji: string;
+  type: IndicatorRuleType;
+  value?: string;
+};
 type DayOverviewSummary = {
   tasks: OverviewTaskEntry[];
   recurringTasks: OverviewTaskEntry[];
@@ -144,17 +152,7 @@ const STATUS_EMOJI_MAP: Record<string, string> = {
   completed: "✅",
   blocked: "⛔",
 };
-const CUSTOM_TASK_EMOJI_RULES: Array<{
-  label: string;
-  emoji: string;
-  when: (task?: TaskCatalogItem) => boolean;
-}> = [
-  {
-    label: "Missing description",
-    emoji: "⚠️",
-    when: (task) => !task?.description?.trim(),
-  },
-];
+const INDICATOR_RULES_STORAGE_KEY = "admin-schedule-indicator-rules";
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -229,6 +227,14 @@ export default function AdminScheduleEditorPage() {
   const [showAllRecurring, setShowAllRecurring] = useState(false);
   const [hideCompletedRecurring, setHideCompletedRecurring] = useState(false);
   const [hideFullyScheduledRecurring, setHideFullyScheduledRecurring] = useState(false);
+  const [indicatorRules, setIndicatorRules] = useState<IndicatorRule[]>([
+    {
+      id: "missing-description",
+      label: "Missing description",
+      emoji: "⚠️",
+      type: "missing_description",
+    },
+  ]);
   const [sectionVisibility, setSectionVisibility] = useState({
     customTables: true,
     scheduleCanvas: true,
@@ -796,6 +802,28 @@ export default function AdminScheduleEditorPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(INDICATOR_RULES_STORAGE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.filter((rule) => rule && typeof rule === "object");
+        if (normalized.length) {
+          setIndicatorRules(normalized as IndicatorRule[]);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to parse indicator rules cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(INDICATOR_RULES_STORAGE_KEY, JSON.stringify(indicatorRules));
+  }, [indicatorRules]);
+
+  useEffect(() => {
     const clearTooltip = () => setHoveredTaskTooltip(null);
     window.addEventListener("scroll", clearTooltip, true);
     window.addEventListener("blur", clearTooltip);
@@ -1092,22 +1120,69 @@ export default function AdminScheduleEditorPage() {
     return map[status] ?? 3;
   }, []);
 
-  const getTaskIndicators = useCallback((task?: TaskCatalogItem) => {
-    const indicators: Array<{ emoji: string; label: string }> = [];
-    const statusKey = (task?.status || "").toLowerCase();
-    const statusEmoji = STATUS_EMOJI_MAP[statusKey];
-    if (statusEmoji) {
-      indicators.push({
-        emoji: statusEmoji,
-        label: `Status: ${task?.status || "Unknown"}`,
-      });
+  const ruleMatches = useCallback((rule: IndicatorRule, task?: TaskCatalogItem) => {
+    if (!task) return false;
+    switch (rule.type) {
+      case "missing_description":
+        return !task.description?.trim();
+      case "missing_person_count":
+        return !task.personCount || task.personCount <= 0;
+      case "status":
+        return Boolean(rule.value) && task.status?.toLowerCase() === rule.value?.toLowerCase();
+      case "priority":
+        return Boolean(rule.value) && task.priority?.toLowerCase() === rule.value?.toLowerCase();
+      default:
+        return false;
     }
-    CUSTOM_TASK_EMOJI_RULES.forEach((rule) => {
-      if (rule.when(task)) {
-        indicators.push({ emoji: rule.emoji, label: rule.label });
+  }, []);
+
+  const getTaskIndicators = useCallback(
+    (task?: TaskCatalogItem) => {
+      const indicators: Array<{ emoji: string; label: string }> = [];
+      const statusKey = (task?.status || "").toLowerCase();
+      const statusEmoji = STATUS_EMOJI_MAP[statusKey];
+      if (statusEmoji) {
+        indicators.push({
+          emoji: statusEmoji,
+          label: `Status: ${task?.status || "Unknown"}`,
+        });
       }
-    });
-    return indicators;
+      indicatorRules.forEach((rule) => {
+        if (!rule.emoji) return;
+        if (ruleMatches(rule, task)) {
+          indicators.push({ emoji: rule.emoji, label: rule.label });
+        }
+      });
+      return indicators;
+    },
+    [indicatorRules, ruleMatches]
+  );
+
+  const addIndicatorRule = useCallback(() => {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `rule-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    setIndicatorRules((prev) => [
+      ...prev,
+      {
+        id,
+        label: "New indicator",
+        emoji: "✨",
+        type: "status",
+        value: "Not Started",
+      },
+    ]);
+  }, []);
+
+  const updateIndicatorRule = useCallback((id: string, updates: Partial<IndicatorRule>) => {
+    setIndicatorRules((prev) =>
+      prev.map((rule) => (rule.id === id ? { ...rule, ...updates } : rule))
+    );
+  }, []);
+
+  const removeIndicatorRule = useCallback((id: string) => {
+    setIndicatorRules((prev) => prev.filter((rule) => rule.id !== id));
   }, []);
 
   const isTaskHandled = useCallback(
@@ -4008,7 +4083,7 @@ export default function AdminScheduleEditorPage() {
                 <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
                   More actions
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
+                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
                   <button
                     type="button"
                     onClick={refreshSchedule}
@@ -4058,6 +4133,97 @@ export default function AdminScheduleEditorPage() {
                   >
                     🏡 Back to admin
                   </Link>
+                  <div className="mt-2 border-t border-dashed border-[#d0c9a4] pt-2">
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                      Indicator emojis
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {indicatorRules.map((rule) => {
+                        const statusChoices = statusOptions.length
+                          ? statusOptions.map((opt) => opt.name)
+                          : ["Not Started", "In Progress", "Completed"];
+                        const priorityChoices = ["High", "Medium", "Low"];
+                        return (
+                          <div
+                            key={rule.id}
+                            className="rounded-md border border-[#e2d7b5] bg-[#faf7eb] p-2 text-[10px] text-[#4b5133]"
+                          >
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={rule.emoji}
+                                onChange={(e) =>
+                                  updateIndicatorRule(rule.id, { emoji: e.target.value })
+                                }
+                                className="w-10 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-center text-xs"
+                                aria-label="Indicator emoji"
+                              />
+                              <input
+                                value={rule.label}
+                                onChange={(e) =>
+                                  updateIndicatorRule(rule.id, { label: e.target.value })
+                                }
+                                className="min-w-0 flex-1 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+                                placeholder="Label"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeIndicatorRule(rule.id)}
+                                className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] text-[#a05252] hover:bg-[#f7e3e3]"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <select
+                                value={rule.type}
+                                onChange={(e) =>
+                                  updateIndicatorRule(rule.id, {
+                                    type: e.target.value as IndicatorRuleType,
+                                    value:
+                                      e.target.value === "status"
+                                        ? statusChoices[0]
+                                        : e.target.value === "priority"
+                                          ? priorityChoices[0]
+                                          : "",
+                                  })
+                                }
+                                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+                              >
+                                <option value="missing_description">Missing description</option>
+                                <option value="missing_person_count">Missing person count</option>
+                                <option value="status">Status equals</option>
+                                <option value="priority">Priority equals</option>
+                              </select>
+                              {(rule.type === "status" || rule.type === "priority") && (
+                                <select
+                                  value={rule.value || ""}
+                                  onChange={(e) =>
+                                    updateIndicatorRule(rule.id, { value: e.target.value })
+                                  }
+                                  className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+                                >
+                                  {(rule.type === "status" ? statusChoices : priorityChoices).map(
+                                    (choice) => (
+                                      <option key={choice} value={choice}>
+                                        {choice}
+                                      </option>
+                                    )
+                                  )}
+                                </select>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={addIndicatorRule}
+                        className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#314123] hover:bg-[#f1edd8]"
+                      >
+                        ➕ Add indicator
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </details>
             </div>
