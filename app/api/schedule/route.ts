@@ -347,8 +347,8 @@ export async function GET(req: Request) {
       row.map((cell) => {
         const names = cell.tasks.map((task) => task.name).filter(Boolean);
         if (!names.length && !cell.note) return "";
-        if (!cell.note) return names.join(", ");
-        return `${names.join(", ")}\n${cell.note}`.trim();
+        if (!cell.note) return names.join(" • ");
+        return `${names.join(" • ")}\n${cell.note}`.trim();
       })
     );
     const existsMatrix = activeSchedulePeople.map((person) =>

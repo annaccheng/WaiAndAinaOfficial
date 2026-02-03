@@ -127,6 +127,8 @@ function parseEstimatedHours(value?: string | null) {
   return parsed;
 }
 
+const TASK_SEPARATOR_REGEX = /\s*•\s*/;
+
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -2426,8 +2428,9 @@ export default function AdminScheduleEditorPage() {
             const rowCells: CellContent[] = [];
             for (let colIdx = 0; colIdx < rangePayload.cols; colIdx += 1) {
               const cellValue = grid[rowIdx]?.[colIdx] || "";
-              const entries = cellValue
-                .split(",")
+              const taskLine = cellValue.split(/\r?\n/)[0] ?? "";
+              const entries = taskLine
+                .split(TASK_SEPARATOR_REGEX)
                 .map((value) => value.trim())
                 .filter(Boolean);
               const tasks: ScheduledTask[] = [];
@@ -3533,14 +3536,18 @@ export default function AdminScheduleEditorPage() {
             <span className="text-[12px] font-semibold text-[#5f5a3b]">
               Priority
             </span>
-            <input
+            <select
               value={taskEditDraft.priority}
               onChange={(e) =>
                 setTaskEditDraft((prev) => ({ ...prev, priority: e.target.value }))
               }
               className="w-full rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm focus:border-[#8fae4c] focus:outline-none"
-              placeholder="Low / Medium / High"
-            />
+            >
+              <option value="">—</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+            </select>
           </label>
         )}
         {taskEditSections.taskType && (
@@ -4010,6 +4017,13 @@ export default function AdminScheduleEditorPage() {
         }`}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+          <CustomTablesEditor
+            dateLabel={customTablesDateLabel}
+            canEdit={authorized}
+            userOptions={scheduleData?.people || []}
+            taskNameOptions={taskNameOptions}
+            currentUserName={currentUserName}
+          />
           <div
             className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
               canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
@@ -4687,13 +4701,6 @@ export default function AdminScheduleEditorPage() {
               )}
             </div>
           )}
-          <CustomTablesEditor
-            dateLabel={customTablesDateLabel}
-            canEdit={authorized}
-            userOptions={scheduleData?.people || []}
-            taskNameOptions={taskNameOptions}
-            currentUserName={currentUserName}
-          />
         </div>
         </div>
 

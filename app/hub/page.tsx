@@ -108,6 +108,8 @@ type CustomTable = {
   cellType: "user" | "task" | "text";
 };
 
+const TASK_SEPARATOR_REGEX = /\s*•\s*/;
+
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
 
@@ -115,7 +117,7 @@ function splitCellTasks(cell: string): string[] {
   const note = rest.join("\n").trim();
 
   return firstLine
-    .split(",")
+    .split(TASK_SEPARATOR_REGEX)
     .map((t) => t.trim())
     .filter(Boolean)
     .map((t) => (note ? `${t}\n${note}` : t))
@@ -144,6 +146,13 @@ function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
+}
+
+function addDaysIso(dateValue: string, days: number) {
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return dateValue;
+  parsed.setDate(parsed.getDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function formatCommentTime(value?: string) {
@@ -973,17 +982,11 @@ export default function HubSchedulePage() {
     });
   }, []);
 
-  const splitMultiValue = useCallback((value: string) => {
-    return value
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
-  }, []);
-
   const handleAddCustomTable = useCallback(async () => {
     const anchorDate = customTablesAnchorDate || scheduleDateLabel;
     if (!isAdmin || adminViewAsVolunteer || !anchorDate) return;
     const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
+    const visibleEnd = addDaysIso(isoDate, 7);
     try {
       const res = await fetch("/api/schedule/custom-tables", {
         method: "POST",
@@ -991,7 +994,7 @@ export default function HubSchedulePage() {
         body: JSON.stringify({
           scheduleDate: isoDate,
           visibleStart: isoDate,
-          visibleEnd: isoDate,
+          visibleEnd,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1011,6 +1014,13 @@ export default function HubSchedulePage() {
     normalizeCustomTable,
     scheduleDateLabel,
   ]);
+
+  const splitMultiValue = useCallback((value: string) => {
+    return value
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }, []);
 
   const handleSaveCustomTable = useCallback(
     async (table: CustomTable) => {
@@ -2492,7 +2502,7 @@ export default function HubSchedulePage() {
                         Custom Tables
                       </h3>
                       <p className="text-xs text-[#7a7f54]">
-                        Add custom sections with editable headers and volunteer selections.
+                        Review custom sections with editable headers and volunteer selections.
                       </p>
                     </div>
                     {canEditCustomTables && (
@@ -2502,7 +2512,7 @@ export default function HubSchedulePage() {
                         disabled={!scheduleDateLabel}
                         className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Add Section
+                        Create Table
                       </button>
                     )}
                   </div>

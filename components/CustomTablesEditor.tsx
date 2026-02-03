@@ -80,7 +80,7 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
         {value || placeholder}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
+        <div className="absolute z-50 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
           <div className="flex gap-1">
             <input
               value={filter}
@@ -146,6 +146,13 @@ function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
+}
+
+function addDaysIso(dateValue: string, days: number) {
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return dateValue;
+  parsed.setDate(parsed.getDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 export function CustomTablesEditor({
@@ -312,6 +319,7 @@ export function CustomTablesEditor({
     const anchorDate = customTablesAnchorDate || dateLabel;
     if (!anchorDate) return;
     const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
+    const visibleEnd = addDaysIso(isoDate, 7);
     setCustomTablesError(null);
     try {
       const res = await fetch("/api/schedule/custom-tables", {
@@ -320,7 +328,7 @@ export function CustomTablesEditor({
         body: JSON.stringify({
           scheduleDate: isoDate,
           visibleStart: isoDate,
-          visibleEnd: isoDate,
+          visibleEnd,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -416,7 +424,7 @@ export function CustomTablesEditor({
         <div>
           <h3 className="text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
           <p className="text-xs text-[#7a7f54]">
-            Add custom sections with editable headers and volunteer selections.
+            Review custom sections with editable headers and volunteer selections.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -434,7 +442,7 @@ export function CustomTablesEditor({
               disabled={!dateLabel}
               className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Add Section
+              Create Table
             </button>
           )}
         </div>
