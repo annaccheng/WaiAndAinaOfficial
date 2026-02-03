@@ -138,6 +138,23 @@ function parseEstimatedHours(value?: string | null) {
 }
 
 const TASK_SEPARATOR_REGEX = /\s*•\s*/;
+const STATUS_EMOJI_MAP: Record<string, string> = {
+  "not started": "🕒",
+  "in progress": "⚙️",
+  completed: "✅",
+  blocked: "⛔",
+};
+const CUSTOM_TASK_EMOJI_RULES: Array<{
+  label: string;
+  emoji: string;
+  when: (task?: TaskCatalogItem) => boolean;
+}> = [
+  {
+    label: "Missing description",
+    emoji: "⚠️",
+    when: (task) => !task?.description?.trim(),
+  },
+];
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -1073,6 +1090,24 @@ export default function AdminScheduleEditorPage() {
     const map: Record<string, number> = { "Not Started": 0, "In Progress": 1, Completed: 2 };
     if (!status) return 3;
     return map[status] ?? 3;
+  }, []);
+
+  const getTaskIndicators = useCallback((task?: TaskCatalogItem) => {
+    const indicators: Array<{ emoji: string; label: string }> = [];
+    const statusKey = (task?.status || "").toLowerCase();
+    const statusEmoji = STATUS_EMOJI_MAP[statusKey];
+    if (statusEmoji) {
+      indicators.push({
+        emoji: statusEmoji,
+        label: `Status: ${task?.status || "Unknown"}`,
+      });
+    }
+    CUSTOM_TASK_EMOJI_RULES.forEach((rule) => {
+      if (rule.when(task)) {
+        indicators.push({ emoji: rule.emoji, label: rule.label });
+      }
+    });
+    return indicators;
   }, []);
 
   const isTaskHandled = useCallback(
@@ -2954,6 +2989,17 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const updateTaskMetadata = useCallback(
+    (taskId: string, updates: Partial<TaskCatalogItem>) => {
+      const applyUpdates = (task: TaskCatalogItem) =>
+        task.id === taskId ? { ...task, ...updates } : task;
+      setRecurringTasks((prev) => prev.map(applyUpdates));
+      setOneOffTasks((prev) => prev.map(applyUpdates));
+      setYesterdayRecurringTasks((prev) => prev.map(applyUpdates));
+    },
+    []
+  );
+
   const saveTaskEdits = async () => {
     if (!taskDetail?.id) return;
     setTaskEditSaving(true);
@@ -3018,6 +3064,15 @@ export default function AdminScheduleEditorPage() {
           ? { name: taskTypeMatch.name, color: taskTypeMatch.color }
           : taskDetail.taskType,
         links,
+      });
+      updateTaskMetadata(taskDetail.id, {
+        name: trimmedName || taskDetail.name,
+        description: taskEditDraft.description.trim(),
+        personCount: Number.isNaN(personCount) ? null : personCount,
+        status: nextStatus || "",
+        priority: nextPriority || "",
+        type: taskTypeMatch?.name || taskDetail.taskType?.name || "",
+        typeColor: taskTypeMatch?.color || taskDetail.taskType?.color || "default",
       });
       if (trimmedName && trimmedName !== taskDetail.name && scheduleData) {
         setScheduleData((prev) => {
@@ -4531,6 +4586,7 @@ export default function AdminScheduleEditorPage() {
                       const cachedCommentCount = taskCommentCache[task.id] ?? 0;
                       const hasComments = commentCount > 0;
                       const hasNewComments = commentCount > cachedCommentCount;
+                      const taskIndicators = getTaskIndicators(meta);
 
                       return (
                         <React.Fragment key={`${person}-${slot.id}-${task.id}-${idx}`}>
@@ -4683,12 +4739,21 @@ export default function AdminScheduleEditorPage() {
                                   {task.name}
                                 </span>
                               )}
+                              {taskIndicators.map((indicator, indicatorIdx) => (
+                                <span
+                                  key={`${taskKey}-indicator-${indicatorIdx}`}
+                                  className="text-[11px] text-amber-600"
+                                  title={indicator.label}
+                                >
+                                  {indicator.emoji}
+                                </span>
+                              ))}
                               {hasComments && (
                                 <span
                                   className="text-[11px] text-amber-500"
                                   title={hasNewComments ? "New comments added" : "Task has comments"}
                                 >
-                                  ⚠️
+                                  💬
                                 </span>
                               )}
                             </div>
