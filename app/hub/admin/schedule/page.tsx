@@ -2326,16 +2326,13 @@ export default function AdminScheduleEditorPage() {
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
-        const isCustomTaskInput = customTaskInputRef.current === target;
         if (
           tag === "INPUT" ||
           tag === "TEXTAREA" ||
           tag === "SELECT" ||
           target.isContentEditable
         ) {
-          if (!isCustomTaskInput) {
-            return;
-          }
+          return;
         }
       }
       if (!selectedCell || !scheduleData) return;
@@ -2501,6 +2498,16 @@ export default function AdminScheduleEditorPage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (modifierPressed && key === "d" && selectedCell) {
+        handleCopyCell();
+        event.preventDefault();
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
@@ -2513,12 +2520,7 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
-      const isMac =
-        typeof navigator !== "undefined" &&
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       if (!modifierPressed) return;
-      const key = event.key.toLowerCase();
       if (key === "z") {
         if (event.shiftKey) {
           redoLastChange();

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type CustomTable = {
   id: string;
@@ -44,12 +45,50 @@ const formatMultiValue = (values: string[]) => values.join(", ");
 function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSelectChecklistProps) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
+  const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; width: number } | null>(
+    null
+  );
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const selectedValues = useMemo(() => new Set(parseMultiValue(value)), [value]);
   const filteredOptions = useMemo(() => {
     const lower = filter.trim().toLowerCase();
     if (!lower) return options;
     return options.filter((opt) => opt.toLowerCase().includes(lower));
   }, [filter, options]);
+
+  const updateMenuPosition = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    setMenuStyle({
+      top: rect.bottom + window.scrollY + 6,
+      left: rect.left + window.scrollX,
+      width: Math.max(rect.width, 224),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+    const handlePosition = () => updateMenuPosition();
+    window.addEventListener("scroll", handlePosition, true);
+    window.addEventListener("resize", handlePosition);
+    return () => {
+      window.removeEventListener("scroll", handlePosition, true);
+      window.removeEventListener("resize", handlePosition);
+    };
+  }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, [open]);
 
   const toggleValue = (option: string) => {
     const next = new Set(selectedValues);
@@ -75,58 +114,65 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
+        ref={buttonRef}
         className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-left text-[11px] font-semibold text-[#3b4224]"
       >
         {value || placeholder}
       </button>
-      {open && (
-        <div className="absolute z-50 mt-1 w-56 rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
-          <div className="flex gap-1">
-            <input
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  handleAddCustom();
-                }
-              }}
-              placeholder="Search or add..."
-              className="w-full rounded-md border border-[#d0c9a4] px-2 py-1 text-[11px]"
-            />
+      {open &&
+        menuStyle &&
+        createPortal(
+          <div
+            className="absolute z-[99999] rounded-md border border-[#d0c9a4] bg-white p-2 shadow-2xl"
+            style={{ top: menuStyle.top, left: menuStyle.left, width: menuStyle.width }}
+          >
+            <div className="flex gap-1">
+              <input
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleAddCustom();
+                  }
+                }}
+                placeholder="Search or add..."
+                className="w-full rounded-md border border-[#d0c9a4] px-2 py-1 text-[11px]"
+              />
+              <button
+                type="button"
+                onClick={handleAddCustom}
+                className="rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 text-[11px] font-semibold text-[#4b5133]"
+              >
+                +
+              </button>
+            </div>
+            <div className="mt-2 max-h-40 overflow-y-auto space-y-1 text-[11px]">
+              {filteredOptions.length ? (
+                filteredOptions.map((option) => (
+                  <label key={option} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedValues.has(option)}
+                      onChange={() => toggleValue(option)}
+                    />
+                    <span>{option}</span>
+                  </label>
+                ))
+              ) : (
+                <p className="text-[#7a7f54]">No matches.</p>
+              )}
+            </div>
             <button
               type="button"
-              onClick={handleAddCustom}
-              className="rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 text-[11px] font-semibold text-[#4b5133]"
+              onClick={() => setOpen(false)}
+              className="mt-2 w-full rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
             >
-              +
+              Done
             </button>
-          </div>
-          <div className="mt-2 max-h-40 overflow-y-auto space-y-1 text-[11px]">
-            {filteredOptions.length ? (
-              filteredOptions.map((option) => (
-                <label key={option} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedValues.has(option)}
-                    onChange={() => toggleValue(option)}
-                  />
-                  <span>{option}</span>
-                </label>
-              ))
-            ) : (
-              <p className="text-[#7a7f54]">No matches.</p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="mt-2 w-full rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 py-1 text-[11px] font-semibold text-[#4b5133]"
-          >
-            Done
-          </button>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
