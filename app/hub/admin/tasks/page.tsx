@@ -448,6 +448,10 @@ export default function TaskEditorPage() {
       setMessage("Task name is required.");
       return;
     }
+    if (!editing && draft.name.includes(",")) {
+      setMessage("Task name cannot include commas.");
+      return;
+    }
     if (draft.recurring && !draft.recurrence_until) {
       setMessage("Set an end date so recurring tasks create all occurrences.");
       return;
@@ -689,7 +693,8 @@ export default function TaskEditorPage() {
   );
   const editingDateLabel =
     draft.occurrence_date || draft.origin_date || editing?.occurrence_date || editing?.origin_date;
-  const nameInvalid = showValidation && !draft.name.trim();
+  const nameInvalid =
+    showValidation && (!draft.name.trim() || (!editing && draft.name.includes(",")));
   const recurringUntilInvalid = showValidation && draft.recurring && !draft.recurrence_until;
 
   if (!authorized) {
@@ -1115,7 +1120,15 @@ export default function TaskEditorPage() {
                 <label className="text-xs font-semibold uppercase text-[#6b6f4c]">Task name</label>
                 <input
                   value={draft.name}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => {
+                    const nextValue = editing
+                      ? e.target.value
+                      : e.target.value.replace(/,/g, "");
+                    if (!editing && nextValue !== e.target.value) {
+                      setMessage("Task name cannot include commas.");
+                    }
+                    setDraft((prev) => ({ ...prev, name: nextValue }));
+                  }}
                   className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none ${
                     nameInvalid
                       ? "border-red-500 ring-2 ring-red-200"

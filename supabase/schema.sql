@@ -17,6 +17,8 @@ create table if not exists users (
   capabilities text[] not null default '{}',
   likes text[] not null default '{}',
   dislikes text[] not null default '{}',
+  goats integer not null default 0,
+  best_run integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
