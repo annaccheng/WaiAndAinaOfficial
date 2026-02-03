@@ -77,6 +77,15 @@ type OverviewTaskEntry = {
   recurring: boolean;
   parentTaskId: string | null;
 };
+type DayOverviewSummary = {
+  tasks: OverviewTaskEntry[];
+  recurringTasks: OverviewTaskEntry[];
+  oneOffTasks: OverviewTaskEntry[];
+  total: number;
+  completed: number;
+  open: number;
+  standaloneNotes: string[];
+};
 
 const DRAG_DATA_TYPE = "application/json/task";
 const DEFAULT_SHIFT_HOURS = 1.5;
@@ -438,12 +447,12 @@ export default function AdminScheduleEditorPage() {
   }, [editingTaskKey]);
 
   useEffect(() => {
-    if (!selectedCell) return;
+    if (!selectedCell || editingTaskKey) return;
     requestAnimationFrame(() => {
       customTaskInputRef.current?.focus();
       customTaskInputRef.current?.select();
     });
-  }, [selectedCell]);
+  }, [editingTaskKey, selectedCell]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1163,7 +1172,7 @@ export default function AdminScheduleEditorPage() {
       data: ScheduleResponse | null,
       metaById: Map<string, TaskCatalogItem>,
       metaByName: Map<string, TaskCatalogItem>
-    ) => {
+    ): DayOverviewSummary | null => {
       if (!data) return null;
 
       const taskMap = new Map<string, OverviewTaskEntry>();
@@ -1203,14 +1212,16 @@ export default function AdminScheduleEditorPage() {
         });
       });
 
-      const tasks = Array.from(taskMap.values()).sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
+      const tasks = Array.from(taskMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+      const recurringTasks = tasks.filter((task) => task.recurring);
+      const oneOffTasks = tasks.filter((task) => !task.recurring);
       const completed = tasks.filter(
         (task) => task.status.toLowerCase() === "completed"
       ).length;
       return {
         tasks,
+        recurringTasks,
+        oneOffTasks,
         total: tasks.length,
         completed,
         open: tasks.length - completed,
@@ -1255,6 +1266,32 @@ export default function AdminScheduleEditorPage() {
       ),
     [buildDayOverviewSummary, yesterdayScheduleData, yesterdayTaskMetaById, yesterdayTaskMetaByName]
   );
+
+  const selectedDateIso = useMemo(
+    () => (selectedDate ? formatLabelToInput(selectedDate) : ""),
+    [formatLabelToInput, selectedDate]
+  );
+
+  const dayOverviewRecurring = useMemo(
+    () => dayOverviewSummary?.recurringTasks ?? [],
+    [dayOverviewSummary]
+  );
+  const dayOverviewOneOff = useMemo(
+    () => dayOverviewSummary?.oneOffTasks ?? [],
+    [dayOverviewSummary]
+  );
+  const yesterdayOpenRecurring = useMemo(() => {
+    if (!yesterdayOverviewSummary) return [];
+    return yesterdayOverviewSummary.recurringTasks.filter(
+      (task) => task.status.toLowerCase() !== "completed"
+    );
+  }, [yesterdayOverviewSummary]);
+  const yesterdayOpenOneOff = useMemo(() => {
+    if (!yesterdayOverviewSummary) return [];
+    return yesterdayOverviewSummary.oneOffTasks.filter(
+      (task) => task.status.toLowerCase() !== "completed"
+    );
+  }, [yesterdayOverviewSummary]);
 
   const findCoord = useCallback(
     (person: string | undefined, slotId: string | undefined, data: ScheduleResponse | null) => {
@@ -2329,6 +2366,11 @@ export default function AdminScheduleEditorPage() {
     [findCoord, getPresenceLockForCell, persistCell, pushUndoEntry, scheduleData]
   );
 
+  const resolveSlotLabel = useCallback(
+    (slotId: string) => scheduleData?.slots.find((slot) => slot.id === slotId)?.label || slotId,
+    [scheduleData]
+  );
+
   const handlePasteCell = useCallback(() => {
     if (!selectedCell || !scheduleData) return;
     if (cellClipboardRange) {
@@ -2755,6 +2797,9 @@ export default function AdminScheduleEditorPage() {
       return;
     }
     if (selectedCell?.person !== person || selectedCell?.slotId !== slot.id) {
+      if (customTask.trim() && selectedCell) {
+        void commitCustomTask(selectedCell, customTask);
+      }
       setCustomTask("");
     }
     const nextSelection = { person, slotId: slot.id };
@@ -2774,27 +2819,43 @@ export default function AdminScheduleEditorPage() {
     return () => window.removeEventListener("mouseup", stopSelection);
   }, [isSelectingRange]);
 
+  const commitCustomTask = useCallback(
+    async (
+      cell: { person: string; slotId: string; slotLabel?: string },
+      taskName: string
+    ) => {
+      if (!taskName.trim()) return;
+      if (taskName.includes(",")) {
+        setMessage("Task name cannot include commas.");
+        return;
+      }
+      const presenceLock = getPresenceLockForCell(cell.person, cell.slotId);
+      if (presenceLock) {
+        setMessage(`${presenceLock.user} is editing this cell right now.`);
+        return;
+      }
+      const existing = getCellValue(cell)?.content.tasks.length || 0;
+      const taskEntry = await resolveTaskEntry(taskName.trim());
+      if (!taskEntry) {
+        setMessage("Couldn't find or create that task yet.");
+        return;
+      }
+      handleTaskMove(
+        { taskId: taskEntry.id, taskName: taskEntry.name },
+        {
+          person: cell.person,
+          slotId: cell.slotId,
+          slotLabel: cell.slotLabel ?? resolveSlotLabel(cell.slotId),
+          targetIndex: existing,
+        }
+      );
+    },
+    [getCellValue, getPresenceLockForCell, handleTaskMove, resolveSlotLabel, resolveTaskEntry]
+  );
+
   const handleCustomAdd = async () => {
     if (!customTask.trim() || !selectedCell) return;
-    if (customTask.includes(",")) {
-      setMessage("Task name cannot include commas.");
-      return;
-    }
-    const presenceLock = getPresenceLockForCell(selectedCell.person, selectedCell.slotId);
-    if (presenceLock) {
-      setMessage(`${presenceLock.user} is editing this cell right now.`);
-      return;
-    }
-    const existing = getCellValue(selectedCell)?.content.tasks.length || 0;
-    const taskEntry = await resolveTaskEntry(customTask.trim());
-    if (!taskEntry) {
-      setMessage("Couldn't find or create that task yet.");
-      return;
-    }
-    handleTaskMove(
-      { taskId: taskEntry.id, taskName: taskEntry.name },
-      { ...selectedCell, targetIndex: existing }
-    );
+    await commitCustomTask(selectedCell, customTask);
     setCustomTask("");
   };
 
@@ -3098,11 +3159,27 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const hasRecurringOccurrenceForDate = useCallback(
+    (task: OverviewTaskEntry, targetIso: string) =>
+      recurringTasks.some(
+        (item) =>
+          (item.parentTaskId || item.id) === (task.parentTaskId || task.id) &&
+          (item.occurrenceDate || "") === targetIso
+      ),
+    [recurringTasks]
+  );
+
   const handleCarryOverTask = useCallback(
     async (task: OverviewTaskEntry) => {
       if (!selectedDate) return;
       const targetIso = formatLabelToInput(selectedDate);
       if (!targetIso || !task.id) return;
+      if (task.recurring) {
+        if (hasRecurringOccurrenceForDate(task, targetIso)) {
+          setMessage(`"${task.name}" already exists on ${selectedDate}.`);
+          return;
+        }
+      }
       setCarryOverTaskId(task.id);
       try {
         if (task.recurring) {
@@ -3172,7 +3249,7 @@ export default function AdminScheduleEditorPage() {
         setCarryOverTaskId(null);
       }
     },
-    [formatLabelToInput, refreshSchedule, selectedDate]
+    [formatLabelToInput, hasRecurringOccurrenceForDate, refreshSchedule, selectedDate]
   );
 
   const publishSchedule = async () => {
@@ -3856,7 +3933,7 @@ export default function AdminScheduleEditorPage() {
                     onClick={refreshSchedule}
                     className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
                   >
-                    Refresh
+                    🔄 Refresh
                   </button>
                   <button
                     type="button"
@@ -3864,7 +3941,7 @@ export default function AdminScheduleEditorPage() {
                     disabled={autoGenerating || !scheduleData}
                     className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
                   >
-                    {autoGenerating ? "Auto-generating…" : "Auto-generate"}
+                    {autoGenerating ? "✨ Auto-generating…" : "✨ Auto-generate"}
                   </button>
                   <button
                     type="button"
@@ -3872,7 +3949,7 @@ export default function AdminScheduleEditorPage() {
                     disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
                     className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
                   >
-                    Clear schedule
+                    🧹 Clear schedule
                   </button>
                   <button
                     type="button"
@@ -3880,25 +3957,25 @@ export default function AdminScheduleEditorPage() {
                     disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
                     className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
                   >
-                    Clear completed one-offs
+                    ✅ Clear completed one-offs
                   </button>
                   <Link
                     href="/hub/admin/tasks"
                     className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
                   >
-                    Task editor
+                    🗂️ Task editor
                   </Link>
                   <Link
                     href="/hub/admin/shifts"
                     className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
                   >
-                    Shift editor
+                    🧭 Shift editor
                   </Link>
                   <Link
                     href="/hub/admin"
                     className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
                   >
-                    Back to admin
+                    🏡 Back to admin
                   </Link>
                 </div>
               </details>
@@ -4303,8 +4380,9 @@ export default function AdminScheduleEditorPage() {
                 isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
-              } ${isPresenceLocked ? "cursor-not-allowed opacity-80" : ""} relative`}
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#6b7b4a]/50 bg-[#f2f6e4]" : ""} relative`}
               style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
+              title={presenceLock ? `${presenceLock.user} is editing this cell.` : undefined}
               onClick={(event) => selectCell(person, slot, event)}
               onMouseDown={(event) => {
                 if (event.button !== 0) return;
@@ -4382,16 +4460,6 @@ export default function AdminScheduleEditorPage() {
                   colIdx === selectedRange.startCol && (
                     <span className="absolute right-1 top-1 rounded-full bg-[#8fae4c] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">
                       {selectionInitials}
-                    </span>
-                  )}
-                {presenceLock &&
-                  rowIdx === presenceLock.range.startRow &&
-                  colIdx === presenceLock.range.startCol && (
-                    <span
-                      className="absolute right-1 top-5 z-[200] rounded-full bg-[#6b7b4a] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white shadow-lg"
-                      title={presenceLock.user}
-                    >
-                      {presenceLock.initials}
                     </span>
                   )}
                 {!cellExists && (
@@ -4712,34 +4780,102 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-col gap-2">
+                      <div className="mt-3 flex flex-col gap-3">
                         {yesterdayLoading ? (
                           <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
-                        ) : yesterdayOverviewSummary.tasks.length ? (
-                          yesterdayOverviewSummary.tasks
-                            .filter((task) => task.status.toLowerCase() !== "completed")
-                            .map((task) => (
-                              <div
-                                key={task.name}
-                                className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                                  className="truncate text-left font-semibold hover:underline"
-                                >
-                                  {task.name}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCarryOverTask(task)}
-                                  disabled={!task.id || carryOverTaskId === task.id}
-                                  className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
-                                >
-                                  {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
-                                </button>
+                        ) : yesterdayOpenRecurring.length || yesterdayOpenOneOff.length ? (
+                          <>
+                            <div className="rounded-lg border border-dashed border-[#e2d7b5] bg-white/70 px-2 py-2">
+                              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.1em] text-[#6a6c4d]">
+                                <span>Recurring tasks</span>
+                                <span className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] text-[#4b5133]">
+                                  {yesterdayOpenRecurring.length}
+                                </span>
                               </div>
-                            ))
+                              <div className="mt-2 flex flex-col gap-2">
+                                {yesterdayOpenRecurring.length ? (
+                                  yesterdayOpenRecurring.map((task) => {
+                                    const alreadyScheduled =
+                                      task.recurring &&
+                                      selectedDateIso &&
+                                      hasRecurringOccurrenceForDate(task, selectedDateIso);
+                                    return (
+                                      <div
+                                        key={`${task.name}-recurring`}
+                                        className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                          className="truncate text-left font-semibold hover:underline"
+                                        >
+                                          {task.name}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCarryOverTask(task)}
+                                          disabled={
+                                            !task.id ||
+                                            carryOverTaskId === task.id ||
+                                            alreadyScheduled
+                                          }
+                                          className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
+                                        >
+                                          {carryOverTaskId === task.id
+                                            ? "Moving…"
+                                            : alreadyScheduled
+                                              ? "Already on today"
+                                              : "Move to today"}
+                                        </button>
+                                      </div>
+                                    );
+                                  })
+                                ) : (
+                                  <p className="text-[11px] text-[#7a7f54]">
+                                    No recurring tasks outstanding.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-dashed border-[#e2d7b5] bg-white/70 px-2 py-2">
+                              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.1em] text-[#6a6c4d]">
+                                <span>One-off tasks</span>
+                                <span className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] text-[#4b5133]">
+                                  {yesterdayOpenOneOff.length}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-col gap-2">
+                                {yesterdayOpenOneOff.length ? (
+                                  yesterdayOpenOneOff.map((task) => (
+                                    <div
+                                      key={`${task.name}-oneoff`}
+                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                        className="truncate text-left font-semibold hover:underline"
+                                      >
+                                        {task.name}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCarryOverTask(task)}
+                                        disabled={!task.id || carryOverTaskId === task.id}
+                                        className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
+                                      >
+                                        {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
+                                      </button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-[11px] text-[#7a7f54]">
+                                    No one-off tasks outstanding.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </>
                         ) : (
                           <p className="text-[11px] text-[#7a7f54]">
                             No outstanding tasks from yesterday.
@@ -4769,25 +4905,76 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-col gap-2">
+                      <div className="mt-3 flex flex-col gap-3">
                         {dayOverviewSummary.tasks.length ? (
-                          dayOverviewSummary.tasks.map((task) => (
-                            <button
-                              key={task.name}
-                              type="button"
-                              onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                              className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                            >
-                              <span className="truncate font-semibold">{task.name}</span>
-                              <span
-                                className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                                  task.status
-                                )}`}
-                              >
-                                {task.status || "Not Started"}
-                              </span>
-                            </button>
-                          ))
+                          <>
+                            <div className="rounded-lg border border-dashed border-[#e2d7b5] bg-white/70 px-2 py-2">
+                              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.1em] text-[#6a6c4d]">
+                                <span>Recurring tasks</span>
+                                <span className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] text-[#4b5133]">
+                                  {dayOverviewRecurring.length}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-col gap-2">
+                                {dayOverviewRecurring.length ? (
+                                  dayOverviewRecurring.map((task) => (
+                                    <button
+                                      key={`${task.name}-day-recurring`}
+                                      type="button"
+                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
+                                    >
+                                      <span className="truncate font-semibold">{task.name}</span>
+                                      <span
+                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
+                                          task.status
+                                        )}`}
+                                      >
+                                        {task.status || "Not Started"}
+                                      </span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-[11px] text-[#7a7f54]">
+                                    No recurring tasks listed yet.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-dashed border-[#e2d7b5] bg-white/70 px-2 py-2">
+                              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.1em] text-[#6a6c4d]">
+                                <span>One-off tasks</span>
+                                <span className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] text-[#4b5133]">
+                                  {dayOverviewOneOff.length}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-col gap-2">
+                                {dayOverviewOneOff.length ? (
+                                  dayOverviewOneOff.map((task) => (
+                                    <button
+                                      key={`${task.name}-day-oneoff`}
+                                      type="button"
+                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
+                                    >
+                                      <span className="truncate font-semibold">{task.name}</span>
+                                      <span
+                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
+                                          task.status
+                                        )}`}
+                                      >
+                                        {task.status || "Not Started"}
+                                      </span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-[11px] text-[#7a7f54]">
+                                    No one-off tasks listed yet.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </>
                         ) : (
                           <p className="text-[11px] text-[#7a7f54]">
                             No tasks listed for this day yet.
