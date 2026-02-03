@@ -4370,7 +4370,9 @@ export default function AdminScheduleEditorPage() {
               colIdx <= selectedRange.endCol
             : false;
           const presenceLock = getPresenceLockForCoord(rowIdx, colIdx);
-          const isPresenceLocked = Boolean(presenceLock);
+          const isPresenceLocked = Boolean(
+            presenceLock && presenceLock.user && presenceLock.user !== currentUserName
+          );
           const saving = pendingCells.has(`${person}-${slot.id}`);
           const cellExists = scheduleData.cellExists?.[rowIdx]?.[colIdx] ?? true;
           const isBlocked = Boolean(content.blocked);
@@ -4406,9 +4408,11 @@ export default function AdminScheduleEditorPage() {
                 isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
               } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
                 isBlocked ? "bg-[#2f3b21]/10" : ""
-              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#6b7b4a]/50 bg-[#f2f6e4]" : ""} relative`}
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-emerald-500/70 bg-emerald-50/60" : ""} relative`}
               style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
-              title={presenceLock ? `${presenceLock.user} is editing this cell.` : undefined}
+              title={
+                isPresenceLocked && presenceLock ? `${presenceLock.user} is editing this cell.` : undefined
+              }
               onClick={(event) => selectCell(person, slot, event)}
               onMouseDown={(event) => {
                 if (event.button !== 0) return;
@@ -4480,6 +4484,11 @@ export default function AdminScheduleEditorPage() {
                   setPendingInsert(null);
                 }}
               >
+                {isPresenceLocked && (
+                  <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center rounded-md border-2 border-emerald-500/70 bg-emerald-50/70 text-emerald-800">
+                    <span className="text-lg">✋</span>
+                  </div>
+                )}
                 {isRangeSelected &&
                   selectionInitials &&
                   selectedRange &&
