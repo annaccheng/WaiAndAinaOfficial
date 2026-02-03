@@ -77,7 +77,13 @@ type OverviewTaskEntry = {
   recurring: boolean;
   parentTaskId: string | null;
 };
-type IndicatorRuleType = "missing_description" | "status" | "priority" | "missing_person_count";
+type IndicatorRuleType =
+  | "missing_description"
+  | "status"
+  | "priority"
+  | "missing_person_count"
+  | "task_type"
+  | "has_comments";
 type IndicatorRule = {
   id: string;
   label: string;
@@ -146,13 +152,14 @@ function parseEstimatedHours(value?: string | null) {
 }
 
 const TASK_SEPARATOR_REGEX = /\s*•\s*/;
-const STATUS_EMOJI_MAP: Record<string, string> = {
+const DEFAULT_STATUS_EMOJI_MAP: Record<string, string> = {
   "not started": "🕒",
   "in progress": "⚙️",
   completed: "✅",
   blocked: "⛔",
 };
 const INDICATOR_RULES_STORAGE_KEY = "admin-schedule-indicator-rules";
+const STATUS_EMOJI_STORAGE_KEY = "admin-schedule-status-emoji-map";
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -227,14 +234,10 @@ export default function AdminScheduleEditorPage() {
   const [showAllRecurring, setShowAllRecurring] = useState(false);
   const [hideCompletedRecurring, setHideCompletedRecurring] = useState(false);
   const [hideFullyScheduledRecurring, setHideFullyScheduledRecurring] = useState(false);
-  const [indicatorRules, setIndicatorRules] = useState<IndicatorRule[]>([
-    {
-      id: "missing-description",
-      label: "Missing description",
-      emoji: "⚠️",
-      type: "missing_description",
-    },
-  ]);
+  const [statusEmojiMap, setStatusEmojiMap] = useState<Record<string, string>>(
+    DEFAULT_STATUS_EMOJI_MAP
+  );
+  const [indicatorRules, setIndicatorRules] = useState<IndicatorRule[]>([]);
   const [sectionVisibility, setSectionVisibility] = useState({
     customTables: true,
     scheduleCanvas: true,
@@ -803,6 +806,25 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(STATUS_EMOJI_STORAGE_KEY);
+    if (!cached) return;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        setStatusEmojiMap((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("Failed to parse status emoji cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STATUS_EMOJI_STORAGE_KEY, JSON.stringify(statusEmojiMap));
+  }, [statusEmojiMap]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const cached = localStorage.getItem(INDICATOR_RULES_STORAGE_KEY);
     if (!cached) return;
     try {
@@ -1131,6 +1153,10 @@ export default function AdminScheduleEditorPage() {
         return Boolean(rule.value) && task.status?.toLowerCase() === rule.value?.toLowerCase();
       case "priority":
         return Boolean(rule.value) && task.priority?.toLowerCase() === rule.value?.toLowerCase();
+      case "task_type":
+        return Boolean(rule.value) && task.type?.toLowerCase() === rule.value?.toLowerCase();
+      case "has_comments":
+        return Boolean(task.commentCount && task.commentCount > 0);
       default:
         return false;
     }
@@ -1140,7 +1166,7 @@ export default function AdminScheduleEditorPage() {
     (task?: TaskCatalogItem) => {
       const indicators: Array<{ emoji: string; label: string }> = [];
       const statusKey = (task?.status || "").toLowerCase();
-      const statusEmoji = STATUS_EMOJI_MAP[statusKey];
+      const statusEmoji = statusEmojiMap[statusKey];
       if (statusEmoji) {
         indicators.push({
           emoji: statusEmoji,
@@ -1155,7 +1181,7 @@ export default function AdminScheduleEditorPage() {
       });
       return indicators;
     },
-    [indicatorRules, ruleMatches]
+    [indicatorRules, ruleMatches, statusEmojiMap]
   );
 
   const addIndicatorRule = useCallback(() => {
@@ -1173,6 +1199,11 @@ export default function AdminScheduleEditorPage() {
         value: "Not Started",
       },
     ]);
+  }, []);
+
+  const updateStatusEmoji = useCallback((status: string, value: string) => {
+    const key = status.toLowerCase();
+    setStatusEmojiMap((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   const updateIndicatorRule = useCallback((id: string, updates: Partial<IndicatorRule>) => {
@@ -4143,6 +4174,9 @@ export default function AdminScheduleEditorPage() {
                           ? statusOptions.map((opt) => opt.name)
                           : ["Not Started", "In Progress", "Completed"];
                         const priorityChoices = ["High", "Medium", "Low"];
+                        const typeChoices = taskTypes.length
+                          ? taskTypes.map((type) => type.name)
+                          : ["Uncategorized"];
                         return (
                           <div
                             key={rule.id}
@@ -4184,7 +4218,9 @@ export default function AdminScheduleEditorPage() {
                                         ? statusChoices[0]
                                         : e.target.value === "priority"
                                           ? priorityChoices[0]
-                                          : "",
+                                          : e.target.value === "task_type"
+                                            ? typeChoices[0]
+                                            : "",
                                   })
                                 }
                                 className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
@@ -4193,6 +4229,8 @@ export default function AdminScheduleEditorPage() {
                                 <option value="missing_person_count">Missing person count</option>
                                 <option value="status">Status equals</option>
                                 <option value="priority">Priority equals</option>
+                                <option value="task_type">Task type equals</option>
+                                <option value="has_comments">Has comments</option>
                               </select>
                               {(rule.type === "status" || rule.type === "priority") && (
                                 <select
@@ -4211,6 +4249,21 @@ export default function AdminScheduleEditorPage() {
                                   )}
                                 </select>
                               )}
+                              {rule.type === "task_type" && (
+                                <select
+                                  value={rule.value || ""}
+                                  onChange={(e) =>
+                                    updateIndicatorRule(rule.id, { value: e.target.value })
+                                  }
+                                  className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+                                >
+                                  {typeChoices.map((choice) => (
+                                    <option key={choice} value={choice}>
+                                      {choice}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           </div>
                         );
@@ -4222,6 +4275,28 @@ export default function AdminScheduleEditorPage() {
                       >
                         ➕ Add indicator
                       </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 border-t border-dashed border-[#d0c9a4] pt-2">
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                      Status emojis
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {(statusOptions.length
+                        ? statusOptions.map((opt) => opt.name)
+                        : ["Not Started", "In Progress", "Completed"]).map((status) => (
+                        <div key={status} className="flex items-center gap-2">
+                          <span className="min-w-[96px] text-[10px] text-[#4b5133]">
+                            {status}
+                          </span>
+                          <input
+                            value={statusEmojiMap[status.toLowerCase()] || ""}
+                            onChange={(e) => updateStatusEmoji(status, e.target.value)}
+                            className="w-12 rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-center text-xs"
+                            aria-label={`${status} emoji`}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
