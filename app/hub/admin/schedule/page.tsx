@@ -237,14 +237,7 @@ export default function AdminScheduleEditorPage() {
   const [statusEmojiMap, setStatusEmojiMap] = useState<Record<string, string>>(
     DEFAULT_STATUS_EMOJI_MAP
   );
-  const [indicatorRules, setIndicatorRules] = useState<IndicatorRule[]>([
-    {
-      id: "missing-description",
-      label: "Missing description",
-      emoji: "⚠️",
-      type: "missing_description",
-    },
-  ]);
+  const [indicatorRules, setIndicatorRules] = useState<IndicatorRule[]>([]);
   const [sectionVisibility, setSectionVisibility] = useState({
     customTables: true,
     scheduleCanvas: true,
