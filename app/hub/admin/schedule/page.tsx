@@ -4795,10 +4795,11 @@ export default function AdminScheduleEditorPage() {
                               <div className="mt-2 flex flex-col gap-2">
                                 {yesterdayOpenRecurring.length ? (
                                   yesterdayOpenRecurring.map((task) => {
-                                    const alreadyScheduled =
+                                    const alreadyScheduled = Boolean(
                                       task.recurring &&
-                                      selectedDateIso &&
-                                      hasRecurringOccurrenceForDate(task, selectedDateIso);
+                                        selectedDateIso &&
+                                        hasRecurringOccurrenceForDate(task, selectedDateIso)
+                                    );
                                     return (
                                       <div
                                         key={`${task.name}-recurring`}
