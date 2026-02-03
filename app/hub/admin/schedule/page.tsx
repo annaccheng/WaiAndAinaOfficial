@@ -86,6 +86,7 @@ const SCHEDULE_HIDDEN_SLOTS_CACHE_KEY = "admin-schedule-hidden-slots";
 const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
 const SCHEDULE_COLUMN_WIDTH_CACHE_KEY = "admin-schedule-column-width";
 const SCHEDULE_DOCK_SIZE_CACHE_KEY = "admin-schedule-dock-size";
+const SCHEDULE_SECTION_VISIBILITY_KEY = "admin-schedule-section-visibility";
 const AFK_TIMEOUT_MS = 20_000;
 
 function typeColorClasses(color?: string) {
@@ -202,6 +203,11 @@ export default function AdminScheduleEditorPage() {
   const [showAllRecurring, setShowAllRecurring] = useState(false);
   const [hideCompletedRecurring, setHideCompletedRecurring] = useState(false);
   const [hideFullyScheduledRecurring, setHideFullyScheduledRecurring] = useState(false);
+  const [sectionVisibility, setSectionVisibility] = useState({
+    customTables: true,
+    scheduleCanvas: true,
+    dayOverviews: true,
+  });
   const [selectedCell, setSelectedCell] = useState<{
     person: string;
     slotId: string;
@@ -528,6 +534,29 @@ export default function AdminScheduleEditorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    try {
+      const cached = localStorage.getItem(SCHEDULE_SECTION_VISIBILITY_KEY);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as Partial<typeof sectionVisibility>;
+      if (parsed && typeof parsed === "object") {
+        setSectionVisibility((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("Failed to parse section visibility cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(SCHEDULE_SECTION_VISIBILITY_KEY, JSON.stringify(sectionVisibility));
+    } catch (err) {
+      console.warn("Failed to save section visibility cache", err);
+    }
+  }, [sectionVisibility]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     if (columnResizing || columnWidth === null) return;
     localStorage.setItem(SCHEDULE_COLUMN_WIDTH_CACHE_KEY, String(columnWidth));
   }, [columnResizing, columnWidth]);
@@ -553,6 +582,13 @@ export default function AdminScheduleEditorPage() {
       setSelectedDate(todayLabel);
     }
   }, [selectedDate, todayLabel]);
+
+  const toggleSectionVisibility = useCallback(
+    (key: keyof typeof sectionVisibility) => {
+      setSectionVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+    },
+    []
+  );
 
   const selectedEntry = useMemo(
     () => availableSchedules.find((entry) => entry.dateLabel === selectedDate),
@@ -2503,8 +2539,13 @@ export default function AdminScheduleEditorPage() {
         /Mac|iPod|iPhone|iPad/.test(navigator.platform);
       const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (modifierPressed && key === "d" && selectedCell) {
+      if (modifierPressed && event.shiftKey && key === "c" && selectedCell) {
         handleCopyCell();
+        event.preventDefault();
+        return;
+      }
+      if (modifierPressed && event.shiftKey && key === "v" && selectedCell) {
+        handlePasteCell();
         event.preventDefault();
         return;
       }
@@ -4040,18 +4081,41 @@ export default function AdminScheduleEditorPage() {
         }`}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          <CustomTablesEditor
-            dateLabel={customTablesDateLabel}
-            canEdit={authorized}
-            userOptions={scheduleData?.people || []}
-            taskNameOptions={taskNameOptions}
-            currentUserName={currentUserName}
-          />
-          <div
-            className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
-              canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
-            }`}
-          >
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+            <span>Custom Tables</span>
+            <button
+              type="button"
+              onClick={() => toggleSectionVisibility("customTables")}
+              className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+            >
+              {sectionVisibility.customTables ? "Hide" : "Show"}
+            </button>
+          </div>
+          {sectionVisibility.customTables && (
+            <CustomTablesEditor
+              dateLabel={customTablesDateLabel}
+              canEdit={authorized}
+              userOptions={scheduleData?.people || []}
+              taskNameOptions={taskNameOptions}
+              currentUserName={currentUserName}
+            />
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+            <span>Schedule Canvas</span>
+            <button
+              type="button"
+              onClick={() => toggleSectionVisibility("scheduleCanvas")}
+              className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+            >
+              {sectionVisibility.scheduleCanvas ? "Hide" : "Show"}
+            </button>
+          </div>
+          {sectionVisibility.scheduleCanvas && (
+            <div
+              className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
+                canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
+              }`}
+            >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#314123]">Schedule canvas</h2>
@@ -4614,123 +4678,140 @@ export default function AdminScheduleEditorPage() {
             ))}
           </datalist>
           {taskDetailEditor && <div className="mt-3">{taskDetailEditor}</div>}
+          </div>
+          )}
           {(dayOverviewSummary || yesterdayOverviewSummary) && (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {yesterdayOverviewSummary && (
-                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
-                      <p className="text-[11px] text-[#6a6c4d]">
-                        Outstanding tasks from {yesterdayLabel || "yesterday"}.
-                      </p>
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+                <span>Day Overviews</span>
+                <button
+                  type="button"
+                  onClick={() => toggleSectionVisibility("dayOverviews")}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                >
+                  {sectionVisibility.dayOverviews ? "Hide" : "Show"}
+                </button>
+              </div>
+              {sectionVisibility.dayOverviews && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {yesterdayOverviewSummary && (
+                    <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                          <p className="text-[11px] text-[#6a6c4d]">
+                            Outstanding tasks from {yesterdayLabel || "yesterday"}.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
+                          <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
+                            {yesterdayOverviewSummary.total} tasks
+                          </span>
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+                            {yesterdayOverviewSummary.open} open
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2">
+                        {yesterdayLoading ? (
+                          <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
+                        ) : yesterdayOverviewSummary.tasks.length ? (
+                          yesterdayOverviewSummary.tasks
+                            .filter((task) => task.status.toLowerCase() !== "completed")
+                            .map((task) => (
+                              <div
+                                key={task.name}
+                                className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                  className="truncate text-left font-semibold hover:underline"
+                                >
+                                  {task.name}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCarryOverTask(task)}
+                                  disabled={!task.id || carryOverTaskId === task.id}
+                                  className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
+                                >
+                                  {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
+                                </button>
+                              </div>
+                            ))
+                        ) : (
+                          <p className="text-[11px] text-[#7a7f54]">
+                            No outstanding tasks from yesterday.
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
-                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
-                        {yesterdayOverviewSummary.total} tasks
-                      </span>
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
-                        {yesterdayOverviewSummary.open} open
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    {yesterdayLoading ? (
-                      <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
-                    ) : yesterdayOverviewSummary.tasks.length ? (
-                      yesterdayOverviewSummary.tasks
-                        .filter((task) => task.status.toLowerCase() !== "completed")
-                        .map((task) => (
-                          <div
-                            key={task.name}
-                            className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-[12px] text-[#314123]"
-                          >
+                  )}
+                  {dayOverviewSummary && (
+                    <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold text-[#314123]">Day overview</h3>
+                          <p className="text-[11px] text-[#6a6c4d]">
+                            Tasks issued for {scheduleData?.scheduleDate || "this day"}.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
+                          <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
+                            {dayOverviewSummary.total} tasks
+                          </span>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">
+                            {dayOverviewSummary.completed} done
+                          </span>
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+                            {dayOverviewSummary.open} open
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2">
+                        {dayOverviewSummary.tasks.length ? (
+                          dayOverviewSummary.tasks.map((task) => (
                             <button
+                              key={task.name}
                               type="button"
                               onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                              className="truncate text-left font-semibold hover:underline"
+                              className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
                             >
-                              {task.name}
+                              <span className="truncate font-semibold">{task.name}</span>
+                              <span
+                                className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
+                                  task.status
+                                )}`}
+                              >
+                                {task.status || "Not Started"}
+                              </span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleCarryOverTask(task)}
-                              disabled={!task.id || carryOverTaskId === task.id}
-                              className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#4b5133] disabled:opacity-60"
-                            >
-                              {carryOverTaskId === task.id ? "Moving…" : "Move to today"}
-                            </button>
-                          </div>
-                        ))
-                    ) : (
-                      <p className="text-[11px] text-[#7a7f54]">
-                        No outstanding tasks from yesterday.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-              {dayOverviewSummary && (
-                <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-[#314123]">Day overview</h3>
-                      <p className="text-[11px] text-[#6a6c4d]">
-                        Tasks issued for {scheduleData?.scheduleDate || "this day"}.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-[10px] text-[#4b5133]">
-                      <span className="rounded-full border border-[#d0c9a4] bg-[#f6f1dd] px-2 py-1 font-semibold">
-                        {dayOverviewSummary.total} tasks
-                      </span>
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">
-                        {dayOverviewSummary.completed} done
-                      </span>
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
-                        {dayOverviewSummary.open} open
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    {dayOverviewSummary.tasks.length ? (
-                      dayOverviewSummary.tasks.map((task) => (
-                        <button
-                          key={task.name}
-                          type="button"
-                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                          className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                        >
-                          <span className="truncate font-semibold">{task.name}</span>
-                          <span
-                            className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                              task.status
-                            )}`}
-                          >
-                            {task.status || "Not Started"}
-                          </span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-[11px] text-[#7a7f54]">No tasks listed for this day yet.</p>
-                    )}
-                  </div>
-                  {dayOverviewSummary.standaloneNotes.length > 0 && (
-                    <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px] text-[#4b5133]">
-                      <p className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
-                        Notes without tasks
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-4">
-                        {dayOverviewSummary.standaloneNotes.map((note) => (
-                          <li key={note}>{note}</li>
-                        ))}
-                      </ul>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-[#7a7f54]">
+                            No tasks listed for this day yet.
+                          </p>
+                        )}
+                      </div>
+                      {dayOverviewSummary.standaloneNotes.length > 0 && (
+                        <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-[#f9f6e7] px-3 py-2 text-[11px] text-[#4b5133]">
+                          <p className="font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                            Notes without tasks
+                          </p>
+                          <ul className="mt-2 list-disc space-y-1 pl-4">
+                            {dayOverviewSummary.standaloneNotes.map((note) => (
+                              <li key={note}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
-            </div>
+            </>
           )}
-        </div>
         </div>
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:h-0 lg:w-0 lg:flex-none lg:shrink-0">
