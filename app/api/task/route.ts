@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
+import { sendPushNotifications } from "@/lib/push";
 
 const PHOTO_BUCKET = "Photos";
 
@@ -150,6 +151,30 @@ function normalizeComment(raw: StoredComment): NormalizedComment {
     authorId,
     authorName,
   };
+}
+
+async function fetchAssignedPeople(taskId: string) {
+  const rows = await supabaseRequest<any[]>("schedule_cells", {
+    query: {
+      select: "person:person_id(name)",
+      tasks: `cs.{${taskId}}`,
+    },
+  });
+  const names = (rows || [])
+    .map((row) => row?.person?.name)
+    .filter(Boolean) as string[];
+  return Array.from(new Set(names));
+}
+
+async function fetchTaskSummary(taskId: string) {
+  const tasks = await supabaseRequest<any[]>("tasks", {
+    query: {
+      select: "id,name,status,occurrence_date",
+      id: `eq.${taskId}`,
+      limit: 1,
+    },
+  });
+  return tasks?.[0] ?? null;
 }
 
 async function resolveCommentAuthors(comments: NormalizedComment[]) {
@@ -354,6 +379,32 @@ export async function PATCH(req: Request) {
       query: { id: `eq.${targetId}` },
       body: { status },
     });
+    const taskSummary = await fetchTaskSummary(targetId);
+    const taskName = taskSummary?.name || name || "Task";
+    const assignedPeople = await fetchAssignedPeople(targetId);
+    const statusMessage = `Status updated: ${taskName} is now "${status}".`;
+
+    if (assignedPeople.length) {
+      await sendPushNotifications({
+        userNames: assignedPeople,
+        payload: {
+          title: "Task status updated",
+          body: statusMessage,
+          url: "/hub",
+          tag: "task-status",
+        },
+      });
+    }
+
+    await sendPushNotifications({
+      userRoles: ["Admin"],
+      payload: {
+        title: "Task status updated",
+        body: statusMessage,
+        url: "/hub/admin/schedule",
+        tag: "admin-task-status",
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to update task status:", err);
@@ -433,6 +484,19 @@ export async function POST(req: Request) {
       normalizeComment(entry)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalized);
+    const assignedPeople = await fetchAssignedPeople(target.id);
+    const commentPreview = parsed.text || resolvedText;
+    if (assignedPeople.length) {
+      await sendPushNotifications({
+        userNames: assignedPeople,
+        payload: {
+          title: `New comment on ${name}`,
+          body: commentPreview,
+          url: "/hub",
+          tag: "task-comment",
+        },
+      });
+    }
     return NextResponse.json({
       ok: true,
       comments: commentsWithAuthors.map((comment) => ({

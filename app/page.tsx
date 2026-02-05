@@ -10,6 +10,7 @@ import {
   saveSession,
   UserSession,
 } from "@/lib/session";
+import { getStoredDeviceId } from "@/lib/pushClient";
 
 const allowedWorkTypes = ["admin", "volunteer", "external volunteer"];
 function formatSession(session: UserSession | null): UserSession | null {
@@ -61,6 +62,16 @@ export default function HomePage() {
 
   function handleLogout() {
     clearSession();
+    const deviceId = getStoredDeviceId();
+    if (deviceId) {
+      fetch("/api/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+      }).catch((err) => {
+        console.error("Failed to remove push subscription", err);
+      });
+    }
     setSession(null);
   }
 

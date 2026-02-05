@@ -23,6 +23,22 @@ create table if not exists users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_name text,
+  user_role text,
+  device_id text,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_user_name_idx on push_subscriptions(user_name);
+create index if not exists push_subscriptions_user_role_idx on push_subscriptions(user_role);
+create index if not exists push_subscriptions_device_id_idx on push_subscriptions(device_id);
+
 create table if not exists capabilities (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,

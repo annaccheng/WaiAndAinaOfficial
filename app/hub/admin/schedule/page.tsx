@@ -3346,6 +3346,21 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const sendVolunteerReminder = async () => {
+    try {
+      setMessage("Sending reminder notifications...");
+      const res = await fetch("/api/push/remind", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to send reminders.");
+      }
+      setMessage("Reminder sent to volunteers.");
+    } catch (err) {
+      console.error("Reminder failed", err);
+      setMessage("Unable to send reminder notifications.");
+    }
+  };
+
   const hasRecurringOccurrenceForDate = useCallback(
     (task: OverviewTaskEntry, targetIso: string) =>
       recurringTasks.some(
@@ -4145,6 +4160,13 @@ export default function AdminScheduleEditorPage() {
                     className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
                   >
                     ✅ Clear completed one-offs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendVolunteerReminder}
+                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                  >
+                    🔔 Remind volunteers
                   </button>
                   <Link
                     href="/hub/admin/tasks"
