@@ -183,30 +183,24 @@ export default function AdminPage() {
 
             <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
               <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Milk</p>
-              <h2 className="text-lg font-semibold text-[#314123]">Milk yields</h2>
+              <h2 className="text-lg font-semibold text-[#314123]">Milk reporting</h2>
               <p className="mt-2 text-sm text-[#5f5a3b]">
-                Submit daily yield reports and review production logs.
+                Log milk yields and track distribution plans in one place.
               </p>
-              <Link
-                href="/hub/admin/milk-yields"
-                className="mt-4 inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
-              >
-                Open milk yields
-              </Link>
-            </div>
-
-            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Milk</p>
-              <h2 className="text-lg font-semibold text-[#314123]">Milk allocations</h2>
-              <p className="mt-2 text-sm text-[#5f5a3b]">
-                Track distribution plans and allocation summaries.
-              </p>
-              <Link
-                href="/hub/admin/milk-allocations"
-                className="mt-4 inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-              >
-                Open allocations
-              </Link>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href="/hub/admin/milk-yields"
+                  className="inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
+                >
+                  Open milk yields
+                </Link>
+                <Link
+                  href="/hub/admin/milk-allocations"
+                  className="inline-flex items-center justify-center rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+                >
+                  Open allocations
+                </Link>
+              </div>
             </div>
           </div>
 

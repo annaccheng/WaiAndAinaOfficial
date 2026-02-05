@@ -16,9 +16,10 @@ export default function MilkAllocationsPage() {
       router.replace("/");
       return;
     }
-    const isAdmin = (session.userType || "").toLowerCase() === "admin";
-    if (!isAdmin) {
-      setMessage("Admin access required.");
+    const userType = (session.userType || "").toLowerCase();
+    const canAccess = userType === "admin" || userType === "volunteer";
+    if (!canAccess) {
+      setMessage("Admin or volunteer access required.");
       return;
     }
     setAuthorized(true);
@@ -59,7 +60,7 @@ export default function MilkAllocationsPage() {
 
       {!authorized ? (
         <div className="rounded-2xl border border-[#e2d7b5] bg-[#f9f6e7] p-5 text-sm text-[#7a7f54]">
-          You must be an admin to access milk allocation reporting.
+          You must be an admin or volunteer to access milk allocation reporting.
         </div>
       ) : (
         <div className="rounded-3xl border border-[#d0c9a4] bg-white/80 p-6 shadow-sm">

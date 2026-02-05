@@ -95,10 +95,11 @@ export default function HubLayout({ children }: { children: ReactNode }) {
     if (isAdmin) {
       links.push({ href: "/hub/admin/schedule", label: "Admin Schedule", icon: "🗂️" });
       links.push({ href: "/hub/admin/analytics", label: "Analytics", icon: "📊" });
-      links.push({ href: "/hub/admin/milk-yields", label: "Milk Yields", icon: "🥛" });
-      links.push({ href: "/hub/admin/milk-allocations", label: "Milk Allocations", icon: "🧺" });
       links.push({ href: "/hub/admin", label: "Admin", icon: "🛠️" });
     }
+
+    links.push({ href: "/hub/admin/milk-yields", label: "Milk Yields", icon: "🥛" });
+    links.push({ href: "/hub/admin/milk-allocations", label: "Milk Allocations", icon: "🧺" });
 
     if (isExternalVolunteer) {
       return links.filter((link) => link.href === "/hub");
