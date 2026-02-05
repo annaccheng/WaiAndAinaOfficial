@@ -182,7 +182,9 @@ export default function AdminPage() {
             </div>
 
             <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Milk</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">
+                Milk production
+              </p>
               <h2 className="text-lg font-semibold text-[#314123]">Milk reporting</h2>
               <p className="mt-2 text-sm text-[#5f5a3b]">
                 Log milk yields and track distribution plans in one place.
