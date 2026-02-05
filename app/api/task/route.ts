@@ -397,10 +397,14 @@ export async function PATCH(req: Request) {
     const taskDate = toIsoDate(taskSummary?.occurrence_date);
 
     const hawaiiDate = getHawaiiDateLabel();
-    if (resolvedDate && taskDate && resolvedDate === taskDate && taskDate === hawaiiDate) {
-      const assignedPeople = await fetchAssignedPeople(targetId);
-      const statusMessage = `Status updated: ${taskName} is now "${status}".`;
+    const statusMessage = `Status updated: ${taskName} is now "${status}".`;
+    const shouldNotifyAssigned =
+      taskDate &&
+      taskDate === hawaiiDate &&
+      (!resolvedDate || resolvedDate === taskDate);
 
+    if (shouldNotifyAssigned) {
+      const assignedPeople = await fetchAssignedPeople(targetId);
       if (assignedPeople.length) {
         await sendPushNotifications({
           userNames: assignedPeople,
@@ -412,17 +416,17 @@ export async function PATCH(req: Request) {
           },
         });
       }
-
-      await sendPushNotifications({
-        userRoles: ["Admin"],
-        payload: {
-          title: "Task status updated",
-          body: statusMessage,
-          url: "/hub/admin/schedule",
-          tag: "admin-task-status",
-        },
-      });
     }
+
+    await sendPushNotifications({
+      userRoles: ["Admin"],
+      payload: {
+        title: "Task status updated",
+        body: statusMessage,
+        url: "/hub/admin/schedule",
+        tag: "admin-task-status",
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to update task status:", err);
@@ -503,26 +507,39 @@ export async function POST(req: Request) {
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalized);
     const resolvedOccurrence = toIsoDate(occurrenceDate);
-    if (resolvedOccurrence) {
-      const taskSummary = await fetchTaskSummary(target.id);
-      const taskDate = toIsoDate(taskSummary?.occurrence_date);
-      const hawaiiDate = getHawaiiDateLabel();
-      if (taskDate && taskDate === resolvedOccurrence && taskDate === hawaiiDate) {
-        const assignedPeople = await fetchAssignedPeople(target.id);
-        const commentPreview = parsed.text || resolvedText;
-        if (assignedPeople.length) {
-          await sendPushNotifications({
-            userNames: assignedPeople,
-            payload: {
-              title: `New comment on ${name}`,
-              body: commentPreview,
-              url: "/hub",
-              tag: "task-comment",
-            },
-          });
-        }
+    const taskSummary = await fetchTaskSummary(target.id);
+    const taskDate = toIsoDate(taskSummary?.occurrence_date);
+    const hawaiiDate = getHawaiiDateLabel();
+    const commentPreview = parsed.text || resolvedText;
+    const shouldNotifyAssigned =
+      taskDate &&
+      taskDate === hawaiiDate &&
+      (!resolvedOccurrence || taskDate === resolvedOccurrence);
+
+    if (shouldNotifyAssigned) {
+      const assignedPeople = await fetchAssignedPeople(target.id);
+      if (assignedPeople.length) {
+        await sendPushNotifications({
+          userNames: assignedPeople,
+          payload: {
+            title: `New comment on ${name}`,
+            body: commentPreview,
+            url: "/hub",
+            tag: "task-comment",
+          },
+        });
       }
     }
+
+    await sendPushNotifications({
+      userRoles: ["Admin"],
+      payload: {
+        title: `New comment on ${name}`,
+        body: commentPreview,
+        url: "/hub/admin/schedule",
+        tag: "admin-task-comment",
+      },
+    });
     return NextResponse.json({
       ok: true,
       comments: commentsWithAuthors.map((comment) => ({
