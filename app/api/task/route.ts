@@ -264,7 +264,7 @@ export async function GET(req: Request) {
   try {
     const buildQuery = (withOccurrence: boolean) => ({
       select:
-        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,photos,task_type:task_types(name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
+        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,photos,updated_at,task_type:task_types(name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
       ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
       ...(withOccurrence && occurrenceDate
         ? { occurrence_date: `eq.${occurrenceDate}` }
@@ -291,6 +291,17 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
+    const extraNotes = Array.isArray(task.extra_notes)
+      ? task.extra_notes.map((note: string) => String(note).trim()).filter(Boolean)
+      : String(task.extra_notes || "").trim()
+        ? [String(task.extra_notes || "").trim()]
+        : [];
+    const extraNotesComments = extraNotes.map((note: string, idx: number) => ({
+      id: `extra-note-${idx}`,
+      text: note,
+      createdTime: String(task.updated_at || new Date().toISOString()),
+      author: "Extra notes",
+    }));
     const photos = normalizePhotoEntries(task.photos);
     const photoPaths = photos.map((entry) => extractPhotoPath(entry)).filter(Boolean);
     const signedUrls = photoPaths.length ? await signPhotoPaths(photoPaths) : [];
@@ -325,7 +336,7 @@ export async function GET(req: Request) {
         text: comment.text,
         createdTime: comment.createdTime,
         author: comment.author,
-      })),
+      })).concat(extraNotesComments),
       media,
       photos,
       links: task.links || [],

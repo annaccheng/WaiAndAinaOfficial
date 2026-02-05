@@ -334,11 +334,6 @@ export default function HubSchedulePage() {
   const [reportComments, setReportComments] = useState<Record<string, string>>({});
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
-  const [requestName, setRequestName] = useState("");
-  const [requestDescription, setRequestDescription] = useState("");
-  const [requestTypeOptions, setRequestTypeOptions] = useState<string[]>([]);
-  const [requestType, setRequestType] = useState("");
-  const [requestSubmitting, setRequestSubmitting] = useState(false);
   const reportEnabled = true;
 
   useEffect(() => {
@@ -862,6 +857,10 @@ export default function HubSchedulePage() {
       if (cancelled) return;
       const { dateLabel, hour, minute } = getHawaiiTimeParts();
       if (hour < 14 || (hour === 14 && minute < 30)) return;
+      if (hour > 22 || (hour === 22 && minute > 0)) {
+        if (reportOpen) setReportOpen(false);
+        return;
+      }
       const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
       if (localStorage.getItem(key)) return;
       localStorage.setItem(key, "1");
@@ -873,24 +872,7 @@ export default function HubSchedulePage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [currentUserName, reportEnabled]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/request/options");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        const options = Array.isArray(json.requestTypes)
-          ? json.requestTypes.map((opt: any) => opt.name || opt)
-          : [];
-        setRequestTypeOptions(options);
-        setRequestType((prev) => prev || options[0] || "");
-      } catch (err) {
-        console.error("Failed to load request options", err);
-      }
-    })();
-  }, []);
+  }, [currentUserName, reportEnabled, reportOpen]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
@@ -959,23 +941,6 @@ export default function HubSchedulePage() {
         });
       }
 
-      if (requestName.trim() && requestDescription.trim()) {
-        setRequestSubmitting(true);
-        await fetch("/api/request", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: requestName.trim(),
-            description: requestDescription.trim(),
-            user: currentUserName,
-            requestType,
-            anonymous: false,
-          }),
-        });
-        setRequestName("");
-        setRequestDescription("");
-      }
-
       const rowIndex = data.people.findIndex(
         (p) => p.toLowerCase() === currentUserName.toLowerCase()
       );
@@ -997,7 +962,6 @@ export default function HubSchedulePage() {
       setReportError("Unable to submit the report. Please try again.");
     } finally {
       setReportSubmitting(false);
-      setRequestSubmitting(false);
     }
   };
 
@@ -3554,7 +3518,7 @@ export default function HubSchedulePage() {
                           Comments
                         </p>
                         <p className="text-[11px] text-[#6a6748]">
-                          This is for comments, feedback, concerns, and request.
+                          This is for comments, feedback, and concerns.
                         </p>
                       </div>
                     </div>
@@ -3900,38 +3864,6 @@ export default function HubSchedulePage() {
               })}
             </div>
 
-            <div className="mt-6 rounded-xl border border-[#e2d7b5] bg-white/80 p-4 shadow-sm">
-              <h4 className="text-sm font-semibold text-[#3e4c24]">New request</h4>
-              <p className="mt-1 text-xs text-[#6b6d4b]">
-                Need something? Add a request right from your report.
-              </p>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <input
-                  value={requestName}
-                  onChange={(e) => setRequestName(e.target.value)}
-                  placeholder="Request name"
-                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                />
-                <select
-                  value={requestType}
-                  onChange={(e) => setRequestType(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                >
-                  {requestTypeOptions.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <textarea
-                value={requestDescription}
-                onChange={(e) => setRequestDescription(e.target.value)}
-                placeholder="Describe what you need"
-                className="mt-3 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-              />
-            </div>
-
             {reportError && (
               <p className="mt-4 rounded-lg border border-[#e2d7b5] bg-[#f9f6e7] px-4 py-3 text-sm text-[#4b5133]">
                 {reportError}
@@ -3945,7 +3877,7 @@ export default function HubSchedulePage() {
               <button
                 type="button"
                 onClick={handleReportSubmit}
-                disabled={reportSubmitting || requestSubmitting}
+                disabled={reportSubmitting}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
                 {reportSubmitting ? "Submitting…" : "Submit report"}
