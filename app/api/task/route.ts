@@ -506,36 +506,28 @@ export async function POST(req: Request) {
       normalizeComment(entry)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalized);
-    const resolvedOccurrence = toIsoDate(occurrenceDate);
-    const taskSummary = await fetchTaskSummary(target.id);
-    const taskDate = toIsoDate(taskSummary?.occurrence_date);
-    const hawaiiDate = getHawaiiDateLabel();
     const commentPreview = parsed.text || resolvedText;
-    const shouldNotifyAssigned =
-      taskDate &&
-      taskDate === hawaiiDate &&
-      (!resolvedOccurrence || taskDate === resolvedOccurrence);
+    const notificationAuthor = resolvedAuthorName || parsed.authorName || "Someone";
+    const notificationBody = `${notificationAuthor} on ${name}: ${commentPreview}`;
 
-    if (shouldNotifyAssigned) {
-      const assignedPeople = await fetchAssignedPeople(target.id);
-      if (assignedPeople.length) {
-        await sendPushNotifications({
-          userNames: assignedPeople,
-          payload: {
-            title: `New comment on ${name}`,
-            body: commentPreview,
-            url: "/hub",
-            tag: "task-comment",
-          },
-        });
-      }
+    const assignedPeople = await fetchAssignedPeople(target.id);
+    if (assignedPeople.length) {
+      await sendPushNotifications({
+        userNames: assignedPeople,
+        payload: {
+          title: `New comment on ${name}`,
+          body: notificationBody,
+          url: "/hub",
+          tag: "task-comment",
+        },
+      });
     }
 
     await sendPushNotifications({
       userRoles: ["Admin"],
       payload: {
         title: `New comment on ${name}`,
-        body: commentPreview,
+        body: notificationBody,
         url: "/hub/admin/schedule",
         tag: "admin-task-comment",
       },

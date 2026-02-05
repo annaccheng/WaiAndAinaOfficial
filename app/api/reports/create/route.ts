@@ -12,6 +12,8 @@ type CustomTable = {
   id: string;
   title: string;
   scheduleDate: string;
+  visibleStart?: string | null;
+  visibleEnd?: string | null;
   rowHeaders: string[];
   columnHeaders: string[];
   cells: string[][];
@@ -63,6 +65,13 @@ function normalizeCellNote(cell: any) {
     return rest.join("\n").trim();
   }
   return cell.note?.trim() || "";
+}
+
+function isDateInRange(date: string, start?: string | null, end?: string | null) {
+  if (!date) return false;
+  if (start && date < start) return false;
+  if (end && date > end) return false;
+  return true;
 }
 
 export async function POST(req: Request) {
@@ -127,7 +136,9 @@ export async function POST(req: Request) {
       );
       if (customRes.ok) {
         const customJson = await customRes.json();
-        customTables = customJson.tables || [];
+        customTables = (customJson.tables || []).filter((table: CustomTable) =>
+          isDateInRange(reportDate, table.visibleStart, table.visibleEnd)
+        );
       }
     } catch (err) {
       console.warn("Failed to load custom tables for report:", err);
