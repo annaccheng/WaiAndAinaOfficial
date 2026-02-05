@@ -32,6 +32,22 @@ function supportsPush() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+async function requestNotificationPermission() {
+  if (typeof Notification === "undefined") return "denied" as NotificationPermission;
+  if (typeof Notification.requestPermission === "function") {
+    return Notification.requestPermission();
+  }
+  return new Promise<NotificationPermission>((resolve) => {
+    try {
+      (Notification as any).requestPermission((permission: NotificationPermission) =>
+        resolve(permission)
+      );
+    } catch {
+      resolve("denied");
+    }
+  });
+}
+
 function decodeBase64Url(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -92,16 +108,24 @@ export function PushNotificationManager({
       setStatusMessage("Push notifications are not configured yet.");
       return;
     }
+    if (!installed) {
+      setStatusMessage("Add the app to your Home Screen to enable notifications.");
+      return;
+    }
     if (!userName) {
       setStatusMessage("Log in to enable notifications.");
       return;
     }
 
     try {
-      const permission = await Notification.requestPermission();
+      const permission = await requestNotificationPermission();
       setPermissionState(permission);
       if (permission !== "granted") {
-        setStatusMessage("Notifications were not enabled.");
+        setStatusMessage(
+          permission === "denied"
+            ? "Notifications were blocked. Update them in your browser settings."
+            : "Notifications were not enabled."
+        );
         return;
       }
       const registration = await navigator.serviceWorker.ready;
@@ -129,7 +153,7 @@ export function PushNotificationManager({
       console.error("Failed to enable push notifications", err);
       setStatusMessage("Unable to enable notifications. Please try again.");
     }
-  }, [userName, userRole]);
+  }, [installed, userName, userRole]);
 
   useEffect(() => {
     if (!supportsPush()) return;
