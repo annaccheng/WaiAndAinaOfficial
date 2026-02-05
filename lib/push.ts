@@ -24,6 +24,7 @@ type SendPushParams = {
   userRoles?: string[];
   roleContains?: string;
   excludeDeviceId?: string;
+  excludeUserNames?: string[];
   payload: PushPayload;
 };
 
@@ -116,13 +117,21 @@ async function removeSubscription(id: string) {
 }
 
 export async function sendPushNotifications(params: SendPushParams) {
-  const { excludeDeviceId, payload } = params;
+  const { excludeDeviceId, excludeUserNames, payload } = params;
   const subscriptions = await fetchSubscriptions(params);
   if (!subscriptions.length) return;
 
-  const filtered = excludeDeviceId
+  let filtered = excludeDeviceId
     ? subscriptions.filter((sub) => sub.device_id !== excludeDeviceId)
     : subscriptions;
+  if (excludeUserNames?.length) {
+    const excludeSet = new Set(
+      excludeUserNames.map((name) => name.trim().toLowerCase())
+    );
+    filtered = filtered.filter(
+      (sub) => !excludeSet.has((sub.user_name || "").trim().toLowerCase())
+    );
+  }
 
   await Promise.all(
     filtered.map(async (subscription) => {

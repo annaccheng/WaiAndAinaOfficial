@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabaseRequest } from "@/lib/supabase";
-import { sendPushNotifications } from "@/lib/push";
 
 type ScheduleRow = { id: string };
 type SchedulePersonRow = { id: string; name: string };
@@ -414,16 +413,6 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-
-    await sendPushNotifications({
-      userNames: [normalizedPerson],
-      payload: {
-        title: "Schedule updated",
-        body: "Changes have been made to your schedule, login to view.",
-        url: "/hub",
-        tag: "schedule-update",
-      },
-    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

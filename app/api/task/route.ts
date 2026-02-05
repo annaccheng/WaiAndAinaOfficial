@@ -116,6 +116,18 @@ function toIsoDate(label?: string | null) {
   return null;
 }
 
+function getHawaiiDateLabel() {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function parseCommentAuthor(text: string) {
   const marker = " : ";
   const idx = text.indexOf(marker);
@@ -379,32 +391,38 @@ export async function PATCH(req: Request) {
       query: { id: `eq.${targetId}` },
       body: { status },
     });
+    const resolvedDate = toIsoDate(occurrenceDate);
     const taskSummary = await fetchTaskSummary(targetId);
     const taskName = taskSummary?.name || name || "Task";
-    const assignedPeople = await fetchAssignedPeople(targetId);
-    const statusMessage = `Status updated: ${taskName} is now "${status}".`;
+    const taskDate = toIsoDate(taskSummary?.occurrence_date);
 
-    if (assignedPeople.length) {
+    const hawaiiDate = getHawaiiDateLabel();
+    if (resolvedDate && taskDate && resolvedDate === taskDate && taskDate === hawaiiDate) {
+      const assignedPeople = await fetchAssignedPeople(targetId);
+      const statusMessage = `Status updated: ${taskName} is now "${status}".`;
+
+      if (assignedPeople.length) {
+        await sendPushNotifications({
+          userNames: assignedPeople,
+          payload: {
+            title: "Task status updated",
+            body: statusMessage,
+            url: "/hub",
+            tag: "task-status",
+          },
+        });
+      }
+
       await sendPushNotifications({
-        userNames: assignedPeople,
+        userRoles: ["Admin"],
         payload: {
           title: "Task status updated",
           body: statusMessage,
-          url: "/hub",
-          tag: "task-status",
+          url: "/hub/admin/schedule",
+          tag: "admin-task-status",
         },
       });
     }
-
-    await sendPushNotifications({
-      userRoles: ["Admin"],
-      payload: {
-        title: "Task status updated",
-        body: statusMessage,
-        url: "/hub/admin/schedule",
-        tag: "admin-task-status",
-      },
-    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to update task status:", err);
@@ -484,18 +502,26 @@ export async function POST(req: Request) {
       normalizeComment(entry)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalized);
-    const assignedPeople = await fetchAssignedPeople(target.id);
-    const commentPreview = parsed.text || resolvedText;
-    if (assignedPeople.length) {
-      await sendPushNotifications({
-        userNames: assignedPeople,
-        payload: {
-          title: `New comment on ${name}`,
-          body: commentPreview,
-          url: "/hub",
-          tag: "task-comment",
-        },
-      });
+    const resolvedOccurrence = toIsoDate(occurrenceDate);
+    if (resolvedOccurrence) {
+      const taskSummary = await fetchTaskSummary(target.id);
+      const taskDate = toIsoDate(taskSummary?.occurrence_date);
+      const hawaiiDate = getHawaiiDateLabel();
+      if (taskDate && taskDate === resolvedOccurrence && taskDate === hawaiiDate) {
+        const assignedPeople = await fetchAssignedPeople(target.id);
+        const commentPreview = parsed.text || resolvedText;
+        if (assignedPeople.length) {
+          await sendPushNotifications({
+            userNames: assignedPeople,
+            payload: {
+              title: `New comment on ${name}`,
+              body: commentPreview,
+              url: "/hub",
+              tag: "task-comment",
+            },
+          });
+        }
+      }
     }
     return NextResponse.json({
       ok: true,

@@ -245,6 +245,23 @@ function computeGroupNamesForSlotTask(
   return Array.from(new Set(names));
 }
 
+function getHawaiiTimeParts() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const dateLabel = `${map.year}-${map.month}-${map.day}`;
+  const hour = Number(map.hour || 0);
+  const minute = Number(map.minute || 0);
+  return { dateLabel, hour, minute };
+}
+
 export default function HubSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -322,7 +339,7 @@ export default function HubSchedulePage() {
   const [requestTypeOptions, setRequestTypeOptions] = useState<string[]>([]);
   const [requestType, setRequestType] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
-  const reportEnabled = false;
+  const reportEnabled = true;
 
   useEffect(() => {
     if (!animalOverlay) return undefined;
@@ -838,6 +855,27 @@ export default function HubSchedulePage() {
   }, []);
 
   useEffect(() => {
+    if (!reportEnabled || !currentUserName) return;
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const checkTime = () => {
+      if (cancelled) return;
+      const { dateLabel, hour, minute } = getHawaiiTimeParts();
+      if (hour < 14 || (hour === 14 && minute < 30)) return;
+      const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+      setReportOpen(true);
+    };
+    checkTime();
+    const interval = setInterval(checkTime, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentUserName, reportEnabled]);
+
+  useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/request/options");
@@ -869,7 +907,7 @@ export default function HubSchedulePage() {
           await fetch("/api/task", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: base, status }),
+            body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
           });
         }
 
@@ -880,12 +918,46 @@ export default function HubSchedulePage() {
             body: JSON.stringify({
               name: base,
               comment: `${currentUserName} : ${comment}`,
+              occurrenceDate: scheduleDateLabel,
             }),
           });
         }
       });
 
       await Promise.all(updates);
+
+      const updatesSummary = reportRows
+        .map((row) => {
+          const base = taskBaseName(row.task);
+          const status = reportStatus[base] || "";
+          const comment = reportComments[base]?.trim() || "";
+          if (!status && !comment) return "";
+          const pieces = [base];
+          if (status) pieces.push(status);
+          return pieces.filter(Boolean).join(" - ");
+        })
+        .filter(Boolean);
+      const commentsSummary = reportRows
+        .map((row) => {
+          const base = taskBaseName(row.task);
+          const comment = reportComments[base]?.trim() || "";
+          if (!comment) return "";
+          return `${base}: ${comment}`;
+        })
+        .filter(Boolean)
+        .join(" | ");
+
+      if (updatesSummary.length || commentsSummary) {
+        await fetch("/api/push/end-of-day", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            authorName: currentUserName,
+            tasks: updatesSummary,
+            comments: commentsSummary,
+          }),
+        });
+      }
 
       if (requestName.trim() && requestDescription.trim()) {
         setRequestSubmitting(true);
