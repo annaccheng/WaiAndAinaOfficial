@@ -108,7 +108,15 @@ export function PushNotificationManager({
     }
     const loadConfig = async () => {
       try {
-        const res = await fetch("/api/push/config");
+        let res = await fetch("/api/push/config");
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.publicKey) {
+            setVapidKey(String(json.publicKey));
+            return;
+          }
+        }
+        res = await fetch("/api/push/config", { method: "POST" });
         if (!res.ok) return;
         const json = await res.json();
         if (json?.publicKey) setVapidKey(String(json.publicKey));

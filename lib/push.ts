@@ -31,18 +31,34 @@ let webPushConfigured = false;
 
 function configureWebPush() {
   if (webPushConfigured) return true;
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  let publicKey = process.env.VAPID_PUBLIC_KEY;
+  let privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
 
   if (!publicKey || !privateKey) {
-    console.warn("Missing VAPID keys; push notifications are disabled.");
     return false;
   }
 
   webpush.setVapidDetails(subject, publicKey, privateKey);
   webPushConfigured = true;
   return true;
+}
+
+async function ensureVapidFromDatabase() {
+  if (!isSupabaseConfigured()) return null;
+  const rows = await supabaseRequest<any[]>("push_config", {
+    query: {
+      select: "public_key,private_key",
+      order: "created_at.desc",
+      limit: 1,
+    },
+  });
+  const entry = rows?.[0];
+  if (!entry?.public_key || !entry?.private_key) return null;
+  return {
+    publicKey: String(entry.public_key),
+    privateKey: String(entry.private_key),
+  };
 }
 
 function buildInFilter(values: string[]) {
@@ -55,7 +71,19 @@ function buildInFilter(values: string[]) {
 
 async function fetchSubscriptions(params: SendPushParams) {
   if (!isSupabaseConfigured()) return [];
-  if (!configureWebPush()) return [];
+  if (!configureWebPush()) {
+    const stored = await ensureVapidFromDatabase();
+    if (!stored) {
+      console.warn("Missing VAPID keys; push notifications are disabled.");
+      return [];
+    }
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || "mailto:admin@example.com",
+      stored.publicKey,
+      stored.privateKey
+    );
+    webPushConfigured = true;
+  }
 
   const { userNames, userRoles, roleContains } = params;
   const query: Record<string, string> = {

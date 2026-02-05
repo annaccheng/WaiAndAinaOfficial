@@ -20,9 +20,12 @@ declare module "web-push" {
     payload?: string
   ): Promise<void>;
 
+  function generateVAPIDKeys(): { publicKey: string; privateKey: string };
+
   const webpush: {
     setVapidDetails: typeof setVapidDetails;
     sendNotification: typeof sendNotification;
+    generateVAPIDKeys: typeof generateVAPIDKeys;
   };
 
   export { setVapidDetails, sendNotification, WebPushError };
