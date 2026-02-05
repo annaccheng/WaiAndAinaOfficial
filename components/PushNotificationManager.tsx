@@ -67,6 +67,7 @@ export function PushNotificationManager({
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [permissionState, setPermissionState] = useState<NotificationPermission | "">("");
+  const [vapidKey, setVapidKey] = useState<string | null>(null);
   const installed = useMemo(() => isStandaloneDisplay(), []);
   const ios = useMemo(() => isIosDevice(), []);
   const android = useMemo(() => isAndroidDevice(), []);
@@ -98,14 +99,35 @@ export function PushNotificationManager({
     });
   }, []);
 
+  useEffect(() => {
+    if (!supportsPush()) return;
+    const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (key) {
+      setVapidKey(key);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        const res = await fetch("/api/push/config");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json?.publicKey) setVapidKey(String(json.publicKey));
+      } catch (err) {
+        console.error("Failed to load push config", err);
+      }
+    };
+    loadConfig();
+  }, []);
+
   const subscribeForPush = useCallback(async () => {
     if (!supportsPush()) {
       setStatusMessage("Push notifications are not supported on this device.");
       return;
     }
-    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!publicKey) {
-      setStatusMessage("Push notifications are not configured yet.");
+    if (!vapidKey) {
+      setStatusMessage(
+        "Push notifications are not configured yet. Contact an admin to set VAPID keys."
+      );
       return;
     }
     if (!installed) {
@@ -134,7 +156,7 @@ export function PushNotificationManager({
         existing ||
         (await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: decodeBase64Url(publicKey),
+          applicationServerKey: decodeBase64Url(vapidKey),
         }));
       const deviceId = getOrCreateDeviceId();
       await fetch("/api/push/subscribe", {
@@ -153,7 +175,7 @@ export function PushNotificationManager({
       console.error("Failed to enable push notifications", err);
       setStatusMessage("Unable to enable notifications. Please try again.");
     }
-  }, [installed, userName, userRole]);
+  }, [installed, userName, userRole, vapidKey]);
 
   useEffect(() => {
     if (!supportsPush()) return;
