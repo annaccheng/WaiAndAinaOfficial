@@ -291,17 +291,6 @@ export async function GET(req: Request) {
       normalizeComment(comment)
     );
     const commentsWithAuthors = await resolveCommentAuthors(normalizedComments);
-    const extraNotes = Array.isArray(task.extra_notes)
-      ? task.extra_notes.map((note: string) => String(note).trim()).filter(Boolean)
-      : String(task.extra_notes || "").trim()
-        ? [String(task.extra_notes || "").trim()]
-        : [];
-    const extraNotesComments = extraNotes.map((note: string, idx: number) => ({
-      id: `extra-note-${idx}`,
-      text: note,
-      createdTime: String(task.updated_at || new Date().toISOString()),
-      author: "Extra notes",
-    }));
     const photos = normalizePhotoEntries(task.photos);
     const photoPaths = photos.map((entry) => extractPhotoPath(entry)).filter(Boolean);
     const signedUrls = photoPaths.length ? await signPhotoPaths(photoPaths) : [];
@@ -336,7 +325,7 @@ export async function GET(req: Request) {
         text: comment.text,
         createdTime: comment.createdTime,
         author: comment.author,
-      })).concat(extraNotesComments),
+      })),
       media,
       photos,
       links: task.links || [],

@@ -3845,7 +3845,7 @@ export default function HubSchedulePage() {
                         </select>
                       </label>
                       <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
-                        Comment / extra notes
+                        Comment
                         <textarea
                           value={currentComment}
                           onChange={(e) =>
@@ -3854,7 +3854,7 @@ export default function HubSchedulePage() {
                               [base]: e.target.value,
                             }))
                           }
-                          placeholder="Add a quick note for this task"
+                          placeholder="Add a comment for this task"
                           className="mt-1 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
                         />
                       </label>
