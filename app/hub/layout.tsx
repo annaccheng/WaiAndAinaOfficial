@@ -98,9 +98,6 @@ export default function HubLayout({ children }: { children: ReactNode }) {
       links.push({ href: "/hub/admin", label: "Admin", icon: "🛠️" });
     }
 
-    links.push({ href: "/hub/admin/milk-yields", label: "Milk Yields", icon: "🥛" });
-    links.push({ href: "/hub/admin/milk-allocations", label: "Milk Allocations", icon: "🧺" });
-
     if (isExternalVolunteer) {
       return links.filter((link) => link.href === "/hub");
     }

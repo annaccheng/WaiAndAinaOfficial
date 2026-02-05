@@ -93,15 +93,26 @@ export async function POST(req: Request) {
 
   try {
     const origin = new URL(req.url).origin;
-    const res = await fetch(
-      `${origin}/api/schedule?date=${encodeURIComponent(label)}&staging=1`,
-      { cache: "no-store" }
-    );
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      throw new Error(json.error || "Unable to load schedule data.");
+    let schedule: ScheduleResponse = {
+      people: [],
+      slots: [],
+      cells: [],
+      scheduleDate: label,
+    };
+    try {
+      const res = await fetch(
+        `${origin}/api/schedule?date=${encodeURIComponent(label)}&staging=1`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        console.warn("Unable to load schedule data for report:", json.error || res.status);
+      } else {
+        schedule = (await res.json()) as ScheduleResponse;
+      }
+    } catch (err) {
+      console.warn("Schedule fetch failed for report:", err);
     }
-    const schedule = (await res.json()) as ScheduleResponse;
 
     const peopleSummary = schedule.people.map((person, rowIdx) => {
       const row = schedule.cells[rowIdx] || [];
