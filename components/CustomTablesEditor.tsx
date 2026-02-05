@@ -49,6 +49,7 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
     null
   );
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const selectedValues = useMemo(() => new Set(parseMultiValue(value)), [value]);
   const filteredOptions = useMemo(() => {
     const lower = filter.trim().toLowerCase();
@@ -84,6 +85,7 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
     const handleClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (buttonRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
       setOpen(false);
     };
     window.addEventListener("mousedown", handleClick);
@@ -123,6 +125,7 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
         menuStyle &&
         createPortal(
           <div
+            ref={menuRef}
             className="absolute z-[99999] rounded-md border border-[#d0c9a4] bg-white p-2 shadow-2xl"
             style={{ top: menuStyle.top, left: menuStyle.left, width: menuStyle.width }}
           >

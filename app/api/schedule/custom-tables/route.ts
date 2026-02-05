@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
+import { sendPushNotifications } from "@/lib/push";
 
 const TABLE_NAME = "schedule_custom_tables";
 const DEFAULT_ROWS = 3;
@@ -194,11 +195,39 @@ export async function PATCH(req: Request) {
     updates.cell_type = body.cellType;
   }
 
+  if (!Object.keys(updates).length) {
+    return NextResponse.json({ ok: true });
+  }
+
+  const tableTitle =
+    typeof body?.title === "string" && body.title.trim()
+      ? body.title.trim()
+      : null;
+
   try {
     await supabaseRequest(TABLE_NAME, {
       method: "PATCH",
       query: { id: `eq.${id}` },
       body: updates,
+    });
+    let resolvedTitle = tableTitle;
+    if (!resolvedTitle) {
+      const [existing] = await supabaseRequest<Pick<CustomTableRow, "title">[]>(
+        TABLE_NAME,
+        {
+          query: { select: "title", id: `eq.${id}`, limit: 1 },
+        }
+      );
+      resolvedTitle = existing?.title || "Custom table";
+    }
+    await sendPushNotifications({
+      roleContains: "volunteer",
+      payload: {
+        title: "Custom table updated",
+        body: `${resolvedTitle} has been updated.`,
+        url: "/hub",
+        tag: "custom-table",
+      },
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

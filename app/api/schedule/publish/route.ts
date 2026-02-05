@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseRequest } from "@/lib/supabase";
+import { sendPushNotifications } from "@/lib/push";
 
 type ScheduleRow = { id: string };
 type SchedulePersonRow = { id: string; name: string; order_index: number };
@@ -16,6 +17,40 @@ function toIsoDate(label?: string | null) {
   const [month, day, year] = label.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function buildScheduleSignature(
+  people: SchedulePersonRow[],
+  cells: ScheduleCellRow[]
+) {
+  const personIdToName = new Map(people.map((person) => [person.id, person.name]));
+  const personEntries = new Map<string, string[]>();
+
+  cells.forEach((cell) => {
+    const name = personIdToName.get(cell.person_id);
+    if (!name) return;
+    const tasks = Array.isArray(cell.tasks)
+      ? cell.tasks.map((task) => String(task).trim()).filter(Boolean)
+      : [];
+    const signature = [
+      cell.shift_id,
+      tasks.join(","),
+      String(cell.note || "").trim(),
+    ].join("|");
+    if (!personEntries.has(name)) {
+      personEntries.set(name, []);
+    }
+    personEntries.get(name)?.push(signature);
+  });
+
+  const signatures = new Map<string, string>();
+  people.forEach((person) => {
+    const entries = personEntries.get(person.name) || [];
+    entries.sort();
+    signatures.set(person.name, entries.join("||"));
+  });
+
+  return signatures;
 }
 
 export async function POST(req: Request) {
@@ -47,6 +82,34 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const liveRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+      query: {
+        select: "id",
+        schedule_date: `eq.${isoDate}`,
+        state: "eq.live",
+        limit: 1,
+      },
+    });
+    const existingLiveId = liveRows?.[0]?.id;
+
+    const [livePeople, liveCells] = existingLiveId
+      ? await Promise.all([
+          supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+            query: {
+              select: "id,name,order_index",
+              schedule_id: `eq.${existingLiveId}`,
+              order: "order_index.asc",
+            },
+          }),
+          supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
+            query: {
+              select: "person_id,shift_id,tasks,note",
+              schedule_id: `eq.${existingLiveId}`,
+            },
+          }),
+        ])
+      : [[], []];
 
     await supabaseRequest("schedules", {
       method: "DELETE",
@@ -81,8 +144,8 @@ export async function POST(req: Request) {
       },
     });
 
-    const liveId = created?.[0]?.id;
-    if (!liveId) {
+    const createdLiveId = created?.[0]?.id;
+    if (!createdLiveId) {
       return NextResponse.json(
         { error: "Unable to publish schedule." },
         { status: 500 }
@@ -97,7 +160,7 @@ export async function POST(req: Request) {
           method: "POST",
           prefer: "return=representation",
           body: people.map((person) => ({
-            schedule_id: liveId,
+            schedule_id: createdLiveId,
             name: person.name,
             order_index: person.order_index,
           })),
@@ -117,7 +180,7 @@ export async function POST(req: Request) {
           const livePersonId = personIdMap.get(personName);
           if (!livePersonId) return null;
           return {
-            schedule_id: liveId,
+            schedule_id: createdLiveId,
             person_id: livePersonId,
             shift_id: cell.shift_id,
             tasks: cell.tasks,
@@ -132,6 +195,30 @@ export async function POST(req: Request) {
           body: rows,
         });
       }
+    }
+
+    const liveSignatures = existingLiveId
+      ? buildScheduleSignature(livePeople, liveCells)
+      : new Map<string, string>();
+    const stagingSignatures = buildScheduleSignature(people, cells);
+    const notifyNames = Array.from(stagingSignatures.entries())
+      .filter(([name, signature]) => {
+        if (!name) return false;
+        if (!existingLiveId) return true;
+        return liveSignatures.get(name) !== signature;
+      })
+      .map(([name]) => name);
+
+    if (notifyNames.length) {
+      await sendPushNotifications({
+        userNames: notifyNames,
+        payload: {
+          title: "Schedule updated",
+          body: "Changes have been made to your schedule, login to view.",
+          url: "/hub",
+          tag: "schedule-update",
+        },
+      });
     }
 
     return NextResponse.json({ ok: true });

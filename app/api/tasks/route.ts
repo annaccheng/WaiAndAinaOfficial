@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
+import { sendPushNotifications } from "@/lib/push";
 
 function buildRangeFilter(start?: string, end?: string) {
   if (!start && !end) return {};
@@ -34,6 +35,41 @@ function normalizeLinksInput(input: unknown) {
       return "";
     })
     .filter(Boolean);
+}
+
+async function fetchAssignedPeople(taskId: string) {
+  const rows = await supabaseRequest<any[]>("schedule_cells", {
+    query: {
+      select: "person:person_id(name)",
+      tasks: `cs.{${taskId}}`,
+    },
+  });
+  const names = (rows || [])
+    .map((row) => row?.person?.name)
+    .filter(Boolean) as string[];
+  return Array.from(new Set(names));
+}
+
+function resolveIsoDate(raw?: string | null) {
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (raw.includes("/")) {
+    const [month, day, year] = raw.split("/");
+    if (!month || !day || !year) return "";
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function getHawaiiDateLabel() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
@@ -427,6 +463,23 @@ export async function PATCH(req: Request) {
 
   try {
     if (applyTo === "single") {
+      const shouldNotifyDescription =
+        Object.prototype.hasOwnProperty.call(updates, "description");
+      const resolvedOccurrence = resolveIsoDate(
+        String(occurrenceDate || updates.occurrence_date || "")
+      );
+      let existingTask: { name?: string; description?: string; occurrence_date?: string | null } | null =
+        null;
+      if (shouldNotifyDescription) {
+        const [task] = await supabaseRequest<any[]>("tasks", {
+          query: {
+            select: "id,name,description,occurrence_date",
+            id: `eq.${id}`,
+            limit: 1,
+          },
+        });
+        existingTask = task || null;
+      }
       if (hasDateUpdates) {
         const [current] = await supabaseRequest<any[]>("tasks", {
           query: { select: "recurring,parent_task_id", id: `eq.${id}`, limit: 1 },
@@ -447,6 +500,34 @@ export async function PATCH(req: Request) {
 
       if (normalizedCapabilities) {
         await syncTaskCapabilities([id], normalizedCapabilities);
+      }
+
+      if (shouldNotifyDescription && existingTask) {
+        const existingDate = resolveIsoDate(existingTask.occurrence_date || "");
+        const hawaiiDate = getHawaiiDateLabel();
+        if (
+          resolvedOccurrence &&
+          existingDate &&
+          resolvedOccurrence === existingDate &&
+          existingDate === hawaiiDate
+        ) {
+          const beforeDescription = String(existingTask.description || "");
+          const afterDescription = String(updates.description ?? "");
+          if (beforeDescription.trim() !== afterDescription.trim()) {
+            const assignedPeople = await fetchAssignedPeople(id);
+            if (assignedPeople.length) {
+              await sendPushNotifications({
+                userNames: assignedPeople,
+                payload: {
+                  title: `Task updated: ${existingTask.name || "Task"}`,
+                  body: "A task description was updated. Login to view details.",
+                  url: "/hub",
+                  tag: "task-description",
+                },
+              });
+            }
+          }
+        }
       }
 
       return NextResponse.json({ ok: true });

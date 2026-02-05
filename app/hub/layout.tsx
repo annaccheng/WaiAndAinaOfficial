@@ -4,6 +4,8 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearSession, loadSession } from "@/lib/session";
+import { PushNotificationManager } from "@/components/PushNotificationManager";
+import { getStoredDeviceId } from "@/lib/pushClient";
 import { HubAssistantChat } from "@/components/HubAssistantChat";
 
 function labelColorToClasses(color?: string | null) {
@@ -114,6 +116,16 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
   function handleLogout() {
     clearSession();
+    const deviceId = getStoredDeviceId();
+    if (deviceId) {
+      fetch("/api/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+      }).catch((err) => {
+        console.error("Failed to remove push subscription", err);
+      });
+    }
     router.replace("/");
   }
 
@@ -260,6 +272,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
   return (
     <>
+      <PushNotificationManager userName={name} userRole={userType} />
       <main className="min-h-screen flex flex-col bg-[#f8f4e3] text-[#3b4224]">
         {/* Header bar */}
         <header className="w-full bg-[#a0b764] text-[#f9f9ec] shadow-md relative">

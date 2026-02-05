@@ -245,6 +245,23 @@ function computeGroupNamesForSlotTask(
   return Array.from(new Set(names));
 }
 
+function getHawaiiTimeParts() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const dateLabel = `${map.year}-${map.month}-${map.day}`;
+  const hour = Number(map.hour || 0);
+  const minute = Number(map.minute || 0);
+  return { dateLabel, hour, minute };
+}
+
 export default function HubSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -317,12 +334,7 @@ export default function HubSchedulePage() {
   const [reportComments, setReportComments] = useState<Record<string, string>>({});
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
-  const [requestName, setRequestName] = useState("");
-  const [requestDescription, setRequestDescription] = useState("");
-  const [requestTypeOptions, setRequestTypeOptions] = useState<string[]>([]);
-  const [requestType, setRequestType] = useState("");
-  const [requestSubmitting, setRequestSubmitting] = useState(false);
-  const reportEnabled = false;
+  const reportEnabled = true;
 
   useEffect(() => {
     if (!animalOverlay) return undefined;
@@ -838,21 +850,29 @@ export default function HubSchedulePage() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/request/options");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        const options = Array.isArray(json.requestTypes)
-          ? json.requestTypes.map((opt: any) => opt.name || opt)
-          : [];
-        setRequestTypeOptions(options);
-        setRequestType((prev) => prev || options[0] || "");
-      } catch (err) {
-        console.error("Failed to load request options", err);
+    if (!reportEnabled || !currentUserName) return;
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const checkTime = () => {
+      if (cancelled) return;
+      const { dateLabel, hour, minute } = getHawaiiTimeParts();
+      if (hour < 14 || (hour === 14 && minute < 30)) return;
+      if (hour > 22 || (hour === 22 && minute > 0)) {
+        if (reportOpen) setReportOpen(false);
+        return;
       }
-    })();
-  }, []);
+      const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+      setReportOpen(true);
+    };
+    checkTime();
+    const interval = setInterval(checkTime, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentUserName, reportEnabled, reportOpen]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
@@ -869,7 +889,7 @@ export default function HubSchedulePage() {
           await fetch("/api/task", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: base, status }),
+            body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
           });
         }
 
@@ -880,6 +900,7 @@ export default function HubSchedulePage() {
             body: JSON.stringify({
               name: base,
               comment: `${currentUserName} : ${comment}`,
+              occurrenceDate: scheduleDateLabel,
             }),
           });
         }
@@ -887,21 +908,37 @@ export default function HubSchedulePage() {
 
       await Promise.all(updates);
 
-      if (requestName.trim() && requestDescription.trim()) {
-        setRequestSubmitting(true);
-        await fetch("/api/request", {
+      const updatesSummary = reportRows
+        .map((row) => {
+          const base = taskBaseName(row.task);
+          const status = reportStatus[base] || "";
+          const comment = reportComments[base]?.trim() || "";
+          if (!status && !comment) return "";
+          const pieces = [base];
+          if (status) pieces.push(status);
+          return pieces.filter(Boolean).join(" - ");
+        })
+        .filter(Boolean);
+      const commentsSummary = reportRows
+        .map((row) => {
+          const base = taskBaseName(row.task);
+          const comment = reportComments[base]?.trim() || "";
+          if (!comment) return "";
+          return `${base}: ${comment}`;
+        })
+        .filter(Boolean)
+        .join(" | ");
+
+      if (updatesSummary.length || commentsSummary) {
+        await fetch("/api/push/end-of-day", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: requestName.trim(),
-            description: requestDescription.trim(),
-            user: currentUserName,
-            requestType,
-            anonymous: false,
+            authorName: currentUserName,
+            tasks: updatesSummary,
+            comments: commentsSummary,
           }),
         });
-        setRequestName("");
-        setRequestDescription("");
       }
 
       const rowIndex = data.people.findIndex(
@@ -925,7 +962,6 @@ export default function HubSchedulePage() {
       setReportError("Unable to submit the report. Please try again.");
     } finally {
       setReportSubmitting(false);
-      setRequestSubmitting(false);
     }
   };
 
@@ -3482,7 +3518,7 @@ export default function HubSchedulePage() {
                           Comments
                         </p>
                         <p className="text-[11px] text-[#6a6748]">
-                          This is for comments, feedback, concerns, and request.
+                          This is for comments, feedback, and concerns.
                         </p>
                       </div>
                     </div>
@@ -3809,7 +3845,7 @@ export default function HubSchedulePage() {
                         </select>
                       </label>
                       <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
-                        Comment / extra notes
+                        Comment
                         <textarea
                           value={currentComment}
                           onChange={(e) =>
@@ -3818,7 +3854,7 @@ export default function HubSchedulePage() {
                               [base]: e.target.value,
                             }))
                           }
-                          placeholder="Add a quick note for this task"
+                          placeholder="Add a comment for this task"
                           className="mt-1 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
                         />
                       </label>
@@ -3826,38 +3862,6 @@ export default function HubSchedulePage() {
                   </div>
                 );
               })}
-            </div>
-
-            <div className="mt-6 rounded-xl border border-[#e2d7b5] bg-white/80 p-4 shadow-sm">
-              <h4 className="text-sm font-semibold text-[#3e4c24]">New request</h4>
-              <p className="mt-1 text-xs text-[#6b6d4b]">
-                Need something? Add a request right from your report.
-              </p>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <input
-                  value={requestName}
-                  onChange={(e) => setRequestName(e.target.value)}
-                  placeholder="Request name"
-                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                />
-                <select
-                  value={requestType}
-                  onChange={(e) => setRequestType(e.target.value)}
-                  className="w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                >
-                  {requestTypeOptions.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <textarea
-                value={requestDescription}
-                onChange={(e) => setRequestDescription(e.target.value)}
-                placeholder="Describe what you need"
-                className="mt-3 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-              />
             </div>
 
             {reportError && (
@@ -3873,7 +3877,7 @@ export default function HubSchedulePage() {
               <button
                 type="button"
                 onClick={handleReportSubmit}
-                disabled={reportSubmitting || requestSubmitting}
+                disabled={reportSubmitting}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
                 {reportSubmitting ? "Submitting…" : "Submit report"}
