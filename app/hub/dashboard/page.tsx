@@ -145,16 +145,10 @@ export default function WorkDashboardPage() {
     return [
       ...baseQuickLinks,
       {
-        href: "/hub/admin/milk-yields",
-        title: "Milk Yields",
-        description: "Submit daily yield reports with the shared production form.",
+        href: "/hub/admin/milk-production",
+        title: "Milk Production",
+        description: "Open milk yields and allocation reporting in one place.",
         icon: "🥛",
-      },
-      {
-        href: "/hub/admin/milk-allocations",
-        title: "Milk Allocations",
-        description: "Track distribution plans and allocation summaries.",
-        icon: "🧺",
       },
     ];
   }, [userType]);
