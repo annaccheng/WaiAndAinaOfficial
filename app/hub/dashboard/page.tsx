@@ -70,7 +70,7 @@ function getHawaiiDateLabel() {
   return `${month}/${day}/${year}`;
 }
 
-const quickLinks = [
+const baseQuickLinks = [
   {
     href: "/hub/request",
     title: "Requests",
@@ -137,6 +137,21 @@ export default function WorkDashboardPage() {
   const [updateFeed, setUpdateFeed] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<"updates" | "tasks">("updates");
   const previousSnapshotRef = useRef<MiniTask[] | null>(null);
+
+  const quickLinks = useMemo(() => {
+    const normalizedType = (userType || "").toLowerCase();
+    const canAccessMilk = normalizedType === "admin" || normalizedType === "volunteer";
+    if (!canAccessMilk) return baseQuickLinks;
+    return [
+      ...baseQuickLinks,
+      {
+        href: "/hub/admin/milk-production",
+        title: "Milk Production",
+        description: "Open milk yields and allocation reporting in one place.",
+        icon: "🥛",
+      },
+    ];
+  }, [userType]);
 
   useEffect(() => {
     const session = loadSession();

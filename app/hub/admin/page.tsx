@@ -75,12 +75,20 @@ export default function AdminPage() {
               Jump into schedules, tasks, and user management from one place.
             </p>
           </div>
-          <Link
-            href="/hub"
-            className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
-          >
-            View live schedule
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/hub"
+              className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]"
+            >
+              View live schedule
+            </Link>
+            <Link
+              href="/hub/admin/milk-production"
+              className="rounded-md bg-[#7f9b5b] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-sm transition hover:bg-[#6f8b4d]"
+            >
+              Milk production
+            </Link>
+          </div>
         </div>
 
         {message ? (
@@ -165,6 +173,24 @@ export default function AdminPage() {
               >
                 Open analytics
               </Link>
+            </div>
+
+            <div className="rounded-2xl border border-[#d0c9a4] bg-white/80 p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">
+                Milk production
+              </p>
+              <h2 className="text-lg font-semibold text-[#314123]">Milk reporting</h2>
+              <p className="mt-2 text-sm text-[#5f5a3b]">
+                Log milk yields and track distribution plans in one place.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href="/hub/admin/milk-production"
+                  className="inline-flex items-center justify-center rounded-md bg-[#7f9b5b] px-2 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#6f8b4d]"
+                >
+                  Open milk production
+                </Link>
+              </div>
             </div>
           </div>
 
