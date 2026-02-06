@@ -25,6 +25,7 @@ type CustomTablesEditorProps = {
   userOptions: string[];
   taskNameOptions: string[];
   currentUserName?: string | null;
+  showPastTables?: boolean;
 };
 
 type MultiSelectChecklistProps = {
@@ -229,6 +230,7 @@ export function CustomTablesEditor({
   userOptions,
   taskNameOptions,
   currentUserName,
+  showPastTables = false,
 }: CustomTablesEditorProps) {
   const [customTables, setCustomTables] = useState<CustomTable[]>([]);
   const [customTablesLoading, setCustomTablesLoading] = useState(false);
@@ -241,6 +243,11 @@ export function CustomTablesEditor({
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [draggingColumn, setDraggingColumn] = useState<DraggingAxis>(null);
   const [draggingRow, setDraggingRow] = useState<DraggingAxis>(null);
+  const [pastTables, setPastTables] = useState<CustomTable[]>([]);
+  const [pastTablesLoading, setPastTablesLoading] = useState(false);
+  const [pastTablesError, setPastTablesError] = useState<string | null>(null);
+  const [pastTablesOpen, setPastTablesOpen] = useState(false);
+  const [pastTablesLoaded, setPastTablesLoaded] = useState(false);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -363,6 +370,28 @@ export function CustomTablesEditor({
     },
     [normalizeCustomTable]
   );
+
+  const loadPastTables = useCallback(async () => {
+    if (!dateLabel) return;
+    const isoDate = toIsoDateLabel(dateLabel) || dateLabel;
+    setPastTablesLoading(true);
+    setPastTablesError(null);
+    try {
+      const res = await fetch(
+        `/api/schedule/custom-tables?date=${encodeURIComponent(isoDate)}&past=1`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const tables = Array.isArray(json.tables) ? json.tables : [];
+      setPastTables(tables.map(normalizeCustomTable));
+      setPastTablesLoaded(true);
+    } catch (err) {
+      console.error("Failed to load past custom tables:", err);
+      setPastTablesError("Unable to load past custom tables.");
+    } finally {
+      setPastTablesLoading(false);
+    }
+  }, [dateLabel, normalizeCustomTable]);
 
   const updateCustomTableState = useCallback(
     (tableId: string, updater: (table: CustomTable) => CustomTable) => {
@@ -489,6 +518,11 @@ export function CustomTablesEditor({
     if (!dateLabel) return;
     void loadCustomTables(dateLabel);
   }, [dateLabel, loadCustomTables]);
+
+  useEffect(() => {
+    if (!showPastTables || !pastTablesOpen || pastTablesLoaded) return;
+    void loadPastTables();
+  }, [loadPastTables, pastTablesLoaded, pastTablesOpen, showPastTables]);
 
   return (
     <section className="mt-10 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
@@ -1033,6 +1067,116 @@ export function CustomTablesEditor({
           );
         })}
       </div>
+
+      {showPastTables && (
+        <div className="mt-6 rounded-lg border border-[#d0c9a4] bg-white/70 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-[#3b4224]">Past Custom Tables</h4>
+              <p className="text-xs text-[#7a7f54]">
+                Hidden by default. Expand to review custom tables from earlier schedules.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPastTablesOpen((prev) => !prev)}
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]"
+              >
+                {pastTablesOpen ? "Hide Past Tables" : "Show Past Tables"}
+              </button>
+              {pastTablesOpen && (
+                <button
+                  type="button"
+                  onClick={loadPastTables}
+                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]"
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+          </div>
+
+          {pastTablesOpen && (
+            <div className="mt-3 space-y-3">
+              {pastTablesLoading && (
+                <p className="text-sm text-[#7a7f54]">Loading past custom tables…</p>
+              )}
+              {pastTablesError && (
+                <p className="text-sm text-red-700">{pastTablesError}</p>
+              )}
+              {!pastTablesLoading && !pastTablesError && pastTables.length === 0 && (
+                <p className="text-sm text-[#7a7f54]">No past custom tables found.</p>
+              )}
+              {pastTables.map((table) => (
+                <div
+                  key={`past-${table.id}`}
+                  className="rounded-lg border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h5 className="text-base font-semibold text-[#3b4224]">
+                        {table.title}
+                      </h5>
+                      <p className="text-[11px] text-[#6b6f4c]">
+                        Schedule date: {table.scheduleDate || "Unknown"} • Visible{" "}
+                        {table.visibleStart || table.scheduleDate || "n/a"} →{" "}
+                        {table.visibleEnd || table.scheduleDate || "n/a"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 overflow-x-auto overflow-y-visible">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead>
+                        <tr>
+                          <th className="min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                            {table.rowHeaderType === "user"
+                              ? "Users"
+                              : table.rowHeaderType === "task"
+                                ? "Tasks"
+                                : "Rows"}
+                          </th>
+                          {table.columnHeaders.map((header, colIdx) => (
+                            <th
+                              key={`past-${table.id}-column-${colIdx}`}
+                              className="border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left"
+                            >
+                              <span className="text-[12px] font-semibold text-[#3b4224]">
+                                {header}
+                              </span>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.rowHeaders.map((rowHeader, rowIdx) => (
+                          <tr key={`past-${table.id}-row-${rowIdx}`}>
+                            <th className="border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
+                              <span className="text-[12px] font-semibold text-[#3b4224]">
+                                {rowHeader}
+                              </span>
+                            </th>
+                            {table.columnHeaders.map((_col, colIdx) => (
+                              <td
+                                key={`past-${table.id}-cell-${rowIdx}-${colIdx}`}
+                                className="border border-[#e2d7b5] px-2 py-2"
+                              >
+                                <span className="text-[12px] text-[#3b4224]">
+                                  {table.cells[rowIdx]?.[colIdx] ?? ""}
+                                </span>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
