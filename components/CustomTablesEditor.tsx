@@ -197,10 +197,29 @@ function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+const HAWAII_TIME_ZONE = "Pacific/Honolulu";
+
+function getHawaiiTodayIso() {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: HAWAII_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return new Date().toISOString().slice(0, 10);
+  return `${year}-${month}-${day}`;
+}
+
 function addDaysIso(dateValue: string, days: number) {
-  const parsed = new Date(dateValue);
-  if (Number.isNaN(parsed.getTime())) return dateValue;
-  parsed.setDate(parsed.getDate() + days);
+  if (!dateValue) return dateValue;
+  const [year, month, day] = dateValue.split("-").map((value) => Number(value));
+  if (!year || !month || !day) return dateValue;
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  parsed.setUTCDate(parsed.getUTCDate() + days);
   return parsed.toISOString().slice(0, 10);
 }
 
@@ -218,6 +237,7 @@ export function CustomTablesEditor({
   const [customTablesAnchorDate, setCustomTablesAnchorDate] = useState<string | null>(null);
   const [customTablesSaving, setCustomTablesSaving] = useState<Record<string, boolean>>({});
   const [customTablesDeleting, setCustomTablesDeleting] = useState<string | null>(null);
+  const [customTablesCreating, setCustomTablesCreating] = useState(false);
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [draggingColumn, setDraggingColumn] = useState<DraggingAxis>(null);
   const [draggingRow, setDraggingRow] = useState<DraggingAxis>(null);
@@ -363,18 +383,21 @@ export function CustomTablesEditor({
   }, []);
 
   const handleAddCustomTable = useCallback(async () => {
-    const anchorDate = customTablesAnchorDate || dateLabel;
+    const hawaiiTodayIso = getHawaiiTodayIso();
+    const anchorDate = customTablesAnchorDate || dateLabel || hawaiiTodayIso;
     if (!anchorDate) return;
     const isoDate = toIsoDateLabel(anchorDate) || anchorDate;
-    const visibleEnd = addDaysIso(isoDate, 7);
+    const visibleStart = addDaysIso(hawaiiTodayIso, -1);
+    const visibleEnd = addDaysIso(hawaiiTodayIso, 7);
     setCustomTablesError(null);
+    setCustomTablesCreating(true);
     try {
       const res = await fetch("/api/schedule/custom-tables", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scheduleDate: isoDate,
-          visibleStart: isoDate,
+          visibleStart,
           visibleEnd,
         }),
       });
@@ -387,6 +410,8 @@ export function CustomTablesEditor({
     } catch (err) {
       console.error("Failed to add custom table:", err);
       setCustomTablesError("Unable to add a custom table.");
+    } finally {
+      setCustomTablesCreating(false);
     }
   }, [customTablesAnchorDate, dateLabel, normalizeCustomTable]);
 
@@ -486,10 +511,10 @@ export function CustomTablesEditor({
             <button
               type="button"
               onClick={handleAddCustomTable}
-              disabled={!dateLabel}
+              disabled={customTablesCreating}
               className="rounded-full border border-[#d0c9a4] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Create Table
+              {customTablesCreating ? "Creating…" : "Create Table"}
             </button>
           )}
         </div>
