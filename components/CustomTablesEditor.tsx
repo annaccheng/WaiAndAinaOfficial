@@ -332,9 +332,7 @@ export function CustomTablesEditor({
         const tables = Array.isArray(json.tables) ? json.tables : [];
         const normalized = tables.map(normalizeCustomTable);
         setCustomTables(normalized);
-        if (normalized.length) {
-          setCustomTablesAnchorDate(normalized[0].scheduleDate || isoDate);
-        }
+        setCustomTablesAnchorDate(isoDate);
         setCustomTablesDirty({});
       } catch (err) {
         console.error("Failed to load custom tables:", err);
