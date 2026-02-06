@@ -60,12 +60,24 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const dateParam = searchParams.get("date");
+  const includePast = searchParams.get("past") === "1";
   const scheduleDate = toIsoDate(dateParam);
   if (!scheduleDate) {
     return NextResponse.json({ error: "Missing schedule date" }, { status: 400 });
   }
 
   try {
+    if (includePast) {
+      const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+        query: {
+          select:
+            "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
+          schedule_date: `lt.${scheduleDate}`,
+          order: "schedule_date.desc,created_at.asc",
+        },
+      });
+      return NextResponse.json({ tables: (data || []).map(mapTable) });
+    }
     let data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       query: {
         select:

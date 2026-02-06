@@ -4519,6 +4519,7 @@ export default function AdminScheduleEditorPage() {
               userOptions={scheduleData?.people || []}
               taskNameOptions={taskNameOptions}
               currentUserName={currentUserName}
+              showPastTables
             />
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
