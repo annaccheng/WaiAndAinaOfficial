@@ -66,6 +66,15 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+const goatScoreFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function formatGoatScore(value: number) {
+  return goatScoreFormatter.format(value);
+}
+
 const pipLayout: Record<number, Array<[number, number]>> = {
   1: [[50, 50]],
   2: [
@@ -1248,7 +1257,7 @@ export default function GoatArcadePage() {
                           <span className="text-[#8db153] font-semibold">#{idx + 1}</span>
                           {entry.name}
                         </span>
-                        <span className="font-semibold">🐐 {entry.goats}</span>
+                        <span className="font-semibold">🐐 {formatGoatScore(entry.goats)}</span>
                       </div>
                     ))}
                 {stats.goatLeaderboard.length === 0 && (
