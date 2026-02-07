@@ -15,7 +15,7 @@ type GoatStatsRow = {
 };
 
 const DEFAULT_LEADERBOARD_LIMIT = 8;
-const MAX_GOATS = 2_147_483_647;
+const MAX_GOATS = Number.MAX_SAFE_INTEGER;
 
 const selectFields = "id,display_name,goats,best_run";
 
