@@ -15,7 +15,6 @@ type GoatStatsRow = {
 };
 
 const DEFAULT_LEADERBOARD_LIMIT = 8;
-const MAX_GOATS = 2_147_483_647;
 
 const selectFields = "id,display_name,goats,best_run";
 
@@ -64,7 +63,7 @@ function buildLeaderboards(rows: GoatStatsRow[]) {
 
 function clampGoats(value: number) {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(Math.max(Math.floor(value), 0), MAX_GOATS);
+  return Math.max(Math.floor(value), 0);
 }
 
 async function loadAllUsers() {
@@ -204,7 +203,7 @@ export async function POST(req: Request) {
     const clampedGoats = clampGoats(nextGoats);
     if (clampedGoats !== nextGoats) {
       payload.capped = true;
-      payload.cap = MAX_GOATS;
+      payload.cap = clampedGoats;
     }
     nextGoats = clampedGoats;
 
