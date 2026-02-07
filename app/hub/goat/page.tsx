@@ -41,6 +41,8 @@ type PlinkoResult = {
   win?: boolean;
   multiplier?: number;
   betAmount?: number;
+  capped?: boolean;
+  cap?: number;
   error?: string;
 };
 
@@ -208,6 +210,13 @@ const PLINKO_BUCKETS: Array<{ label: string; multiplier: number }> = [
   { label: "🐑", multiplier: 2 },
   { label: "🐄", multiplier: 3 },
   { label: "🧀", multiplier: 5 },
+];
+const PLINKO_SPARKLES = [
+  { top: "18%", left: "14%", delay: "0s" },
+  { top: "32%", left: "78%", delay: "1.2s" },
+  { top: "54%", left: "24%", delay: "0.6s" },
+  { top: "68%", left: "70%", delay: "1.8s" },
+  { top: "40%", left: "48%", delay: "2.4s" },
 ];
 
 function buildPlinkoPath(targetIndex: number, columns: number) {
@@ -828,13 +837,15 @@ export default function GoatArcadePage() {
       stepTimeout = setTimeout(scheduleStep, 120);
 
       setTimeout(() => {
-        setPlinkoResult({
-          bucket: data.bucket,
-          payout: data.payout,
-          win: data.win,
-          multiplier: data.multiplier,
-          betAmount: data.betAmount,
-        });
+      setPlinkoResult({
+        bucket: data.bucket,
+        payout: data.payout,
+        win: data.win,
+        multiplier: data.multiplier,
+        betAmount: data.betAmount,
+        capped: data.capped,
+        cap: data.cap,
+      });
         setPlinkoDropping(false);
         if (stepTimeout) clearTimeout(stepTimeout);
         setPlinkoStep(path.length - 1);
@@ -1172,6 +1183,17 @@ export default function GoatArcadePage() {
             <span className="text-[#6b744d]">Tap Drop to send your token</span>
           </div>
           <div className="relative h-64 bg-white/70 rounded-xl overflow-hidden border border-[#d9e5c2] shadow-inner">
+            {PLINKO_SPARKLES.map((sparkle, idx) => (
+              <span
+                key={`sparkle-${idx}`}
+                className="absolute w-3 h-3 rounded-full plinko-sparkle"
+                style={{
+                  top: sparkle.top,
+                  left: sparkle.left,
+                  animationDelay: sparkle.delay,
+                }}
+              />
+            ))}
             {Array.from({ length: PLINKO_BUCKETS.length + 1 }).map((_, rowIdx) => (
               <div
                 key={`row-${rowIdx}`}
@@ -1286,6 +1308,11 @@ export default function GoatArcadePage() {
             </span>
           </div>
         </div>
+        {plinkoResult.capped && (
+          <div className="text-xs text-[#6b744d] bg-[#f4f8ea] border border-[#d9e5c2] rounded-lg px-3 py-2">
+            The barn ledger tops out near 🐐 {formatGoatScore(plinkoResult.cap ?? 0)}. Your win is safely capped so the stats stay stable.
+          </div>
+        )}
 
         <div className="rounded-xl border border-[#d9e5c2] bg-[#f4f8ea] p-4 shadow-inner text-sm text-[#3f4a23]">
           <div className="font-semibold text-[#2f3618] mb-3">How to play Goat Plinko</div>
@@ -1457,6 +1484,13 @@ export default function GoatArcadePage() {
           100% { opacity: 0.2; transform: translateY(10%); }
         }
 
+        @keyframes plinko-sparkle {
+          0% { transform: scale(0.4); opacity: 0; }
+          40% { transform: scale(1); opacity: 0.75; }
+          70% { transform: scale(0.7); opacity: 0.4; }
+          100% { transform: scale(0.2); opacity: 0; }
+        }
+
         .plinko-token {
           animation: plinko-glow 1.4s ease-in-out infinite;
           will-change: transform, left, top;
@@ -1481,6 +1515,14 @@ export default function GoatArcadePage() {
 
         .plinko-peg {
           animation: plinko-peg 2.8s ease-in-out infinite;
+        }
+
+        .plinko-sparkle {
+          background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.1));
+          box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+          animation: plinko-sparkle 3.2s ease-in-out infinite;
+          filter: blur(0.2px);
+          opacity: 0;
         }
       `}</style>
     </div>
