@@ -76,7 +76,7 @@ function formatGoatScore(value: number) {
 }
 
 const betInputFormatter = new Intl.NumberFormat("en-US");
-const betInputHints = "Try 1b, 250m, or 2,500,000.";
+const betInputHints = "Try 1b, 2 bil, or 2,500,000.";
 
 function formatBetInput(value: number) {
   if (!Number.isFinite(value)) return "";
@@ -87,8 +87,8 @@ function parseGoatAmount(rawValue: string) {
   const trimmed = rawValue.trim().toLowerCase();
   if (!trimmed) return null;
 
-  const normalized = trimmed.replace(/[, _]/g, "");
-  const match = normalized.match(/^(\d+(?:\.\d+)?)([kmbt])$/);
+  const normalized = trimmed.replace(/[, _]/g, "").replace(/goats?/g, "");
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([a-z]+)?$/);
   if (match) {
     const base = Number(match[1]);
     if (!Number.isFinite(base)) return null;
@@ -96,9 +96,17 @@ function parseGoatAmount(rawValue: string) {
       k: 1_000,
       m: 1_000_000,
       b: 1_000_000_000,
+      bn: 1_000_000_000,
+      bil: 1_000_000_000,
+      bill: 1_000_000_000,
+      billion: 1_000_000_000,
       t: 1_000_000_000_000,
+      tril: 1_000_000_000_000,
+      trillion: 1_000_000_000_000,
     };
-    const multiplier = multipliers[match[2]];
+    const suffix = match[2];
+    if (!suffix) return Math.floor(base);
+    const multiplier = multipliers[suffix];
     if (!multiplier) return null;
     return Math.floor(base * multiplier);
   }
@@ -114,6 +122,7 @@ const betQuickValues = [
   { label: "1m", value: 1_000_000 },
   { label: "100m", value: 100_000_000 },
   { label: "1b", value: 1_000_000_000 },
+  { label: "2b", value: 2_000_000_000 },
 ];
 
 type BetAmountInputProps = {
@@ -202,7 +211,7 @@ const PLINKO_BUCKETS: Array<{ label: string; multiplier: number }> = [
 ];
 
 function buildPlinkoPath(targetIndex: number, columns: number) {
-  const steps = columns + 3;
+  const steps = columns + 6;
   const startCol = Math.floor(columns / 2);
   const path: number[] = [startCol];
 
@@ -294,6 +303,7 @@ export default function GoatArcadePage() {
   const [plinkoPath, setPlinkoPath] = useState<number[]>([]);
   const [plinkoDropping, setPlinkoDropping] = useState(false);
   const [plinkoStep, setPlinkoStep] = useState(0);
+  const [plinkoOffsets, setPlinkoOffsets] = useState<number[]>([]);
 
   useEffect(() => {
     const session = loadSession();
@@ -759,7 +769,7 @@ export default function GoatArcadePage() {
 
     const parsedBet = parseGoatAmount(plinkoBetAmount);
     if (!parsedBet || parsedBet <= 0) {
-      setPlinkoResult({ error: "Enter a valid bet amount (like 2,500,000 or 1b)." });
+      setPlinkoResult({ error: "Enter a valid bet amount (like 2,500,000 or 2 bil)." });
       return;
     }
 
@@ -773,8 +783,9 @@ export default function GoatArcadePage() {
     setPlinkoDropping(true);
     setPlinkoPath([]);
     setPlinkoStep(0);
+    setPlinkoOffsets([]);
 
-    let pathInterval: ReturnType<typeof setInterval> | null = null;
+    let stepTimeout: ReturnType<typeof setTimeout> | null = null;
 
     try {
       const res = await fetch("/api/goat-stats", {
@@ -796,17 +807,25 @@ export default function GoatArcadePage() {
       );
       const columns = PLINKO_BUCKETS.length;
       const path = buildPlinkoPath(targetIndex, columns);
+      const offsets = path.map((_, idx) => {
+        const variance = idx === 0 || idx === path.length - 1 ? 0.2 : 0.9;
+        return (Math.random() - 0.5) * variance * 2;
+      });
       setPlinkoPath(path);
+      setPlinkoOffsets(offsets);
       const steps = path.length;
 
       let step = 0;
-      pathInterval = setInterval(() => {
+      const scheduleStep = () => {
         step += 1;
         setPlinkoStep(step);
-        if (step >= path.length - 1 && pathInterval) {
-          clearInterval(pathInterval);
+        if (step < path.length - 1) {
+          const travel = step / Math.max(path.length - 1, 1);
+          const delay = 90 + Math.sin(travel * Math.PI) * 90 + Math.random() * 25;
+          stepTimeout = setTimeout(scheduleStep, delay);
         }
-      }, 160);
+      };
+      stepTimeout = setTimeout(scheduleStep, 120);
 
       setTimeout(() => {
         setPlinkoResult({
@@ -817,14 +836,14 @@ export default function GoatArcadePage() {
           betAmount: data.betAmount,
         });
         setPlinkoDropping(false);
-        if (pathInterval) clearInterval(pathInterval);
+        if (stepTimeout) clearTimeout(stepTimeout);
         setPlinkoStep(path.length - 1);
       }, steps * 180);
     } catch (err) {
       console.error(err);
       setPlinkoResult({ error: "Something went wrong." });
       setPlinkoDropping(false);
-      if (pathInterval) clearInterval(pathInterval);
+      if (stepTimeout) clearTimeout(stepTimeout);
     }
   };
 
@@ -1129,6 +1148,12 @@ export default function GoatArcadePage() {
     }
 
     const activeBucket = PLINKO_BUCKETS.find((b) => b.label === plinkoResult.bucket);
+    const plinkoColumn = plinkoPath[plinkoStep] ?? Math.floor(PLINKO_BUCKETS.length / 2);
+    const plinkoOffset = plinkoOffsets[plinkoStep] ?? 0;
+    const plinkoTravel =
+      plinkoPath.length > 1 ? plinkoStep / Math.max(plinkoPath.length - 1, 1) : 0;
+    const plinkoWobble = plinkoDropping ? Math.sin(plinkoStep * 1.4) * 7 : 0;
+    const plinkoScale = plinkoDropping ? 1 + Math.sin(plinkoTravel * Math.PI) * 0.06 : 1;
     return (
       <div className="rounded-2xl bg-white shadow-lg p-4 sm:p-5 flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1141,23 +1166,24 @@ export default function GoatArcadePage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-[#d9e5c2] bg-gradient-to-b from-[#f7fbf1] to-[#e7f1d7] p-4 shadow-inner">
+        <div className="rounded-xl border border-[#d9e5c2] bg-gradient-to-b from-[#f7fbf1] to-[#e7f1d7] p-4 shadow-inner plinko-board">
           <div className="flex items-center justify-between text-sm text-[#3f4a23] font-semibold mb-3">
             <span>Plinko board</span>
             <span className="text-[#6b744d]">Tap Drop to send your token</span>
           </div>
           <div className="relative h-64 bg-white/70 rounded-xl overflow-hidden border border-[#d9e5c2] shadow-inner">
-            {Array.from({ length: 6 }).map((_, rowIdx) => (
+            {Array.from({ length: PLINKO_BUCKETS.length + 1 }).map((_, rowIdx) => (
               <div
                 key={`row-${rowIdx}`}
                 className="absolute left-0 right-0"
-                style={{ top: `${(rowIdx / 6) * 70 + 12}%` }}
+                style={{ top: `${(rowIdx / (PLINKO_BUCKETS.length + 1)) * 70 + 10}%` }}
               >
                 <div className="flex justify-center gap-4">
                   {PLINKO_BUCKETS.map((bucket, colIdx) => (
                     <span
                       key={`${bucket.label}-${colIdx}-${rowIdx}`}
-                      className="w-3 h-3 rounded-full bg-[#c1d8a6] shadow"
+                      className="w-3 h-3 rounded-full bg-[#c1d8a6] shadow plinko-peg"
+                      style={{ animationDelay: `${(rowIdx + colIdx) * 0.08}s` }}
                     />
                   ))}
                 </div>
@@ -1169,8 +1195,9 @@ export default function GoatArcadePage() {
                 plinkoDropping ? "bg-white" : "bg-[#f9fbf2]"
               }`}
               style={{
-                left: `${(((plinkoPath[plinkoStep] ?? Math.floor(PLINKO_BUCKETS.length / 2)) + 0.5) / PLINKO_BUCKETS.length) * 100}%`,
-                top: `${(plinkoStep / Math.max(plinkoPath.length - 1, 1)) * 74 + 6}%`,
+                left: `${(((plinkoColumn + 0.5) / PLINKO_BUCKETS.length) * 100 + plinkoOffset).toFixed(2)}%`,
+                top: `${(plinkoTravel * 74 + 6).toFixed(2)}%`,
+                transform: `translate(-50%, -50%) rotate(${plinkoWobble}deg) scale(${plinkoScale})`,
               }}
             >
               🐐
@@ -1188,8 +1215,8 @@ export default function GoatArcadePage() {
                       return (
                         <span
                           key={`${rowIdx}-${colIdx}`}
-                          className="absolute w-2 h-2 rounded-full bg-[#cdd8b2] shadow-sm"
-                          style={{ left: `${left}%`, top: `${top}%` }}
+                          className="absolute w-2 h-2 rounded-full bg-[#cdd8b2] shadow-sm plinko-peg"
+                          style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${rowIdx * 0.06}s` }}
                         />
                       );
                     });
@@ -1418,8 +1445,42 @@ export default function GoatArcadePage() {
           100% { box-shadow: 0 0 0 rgba(146, 188, 90, 0.25); }
         }
 
+        @keyframes plinko-peg {
+          0% { transform: scale(1); opacity: 0.75; }
+          50% { transform: scale(1.18); opacity: 1; }
+          100% { transform: scale(1); opacity: 0.8; }
+        }
+
+        @keyframes plinko-shimmer {
+          0% { opacity: 0.2; transform: translateY(-10%); }
+          50% { opacity: 0.45; transform: translateY(0%); }
+          100% { opacity: 0.2; transform: translateY(10%); }
+        }
+
         .plinko-token {
           animation: plinko-glow 1.4s ease-in-out infinite;
+          will-change: transform, left, top;
+        }
+
+        .plinko-board {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .plinko-board::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.7), transparent 45%),
+            radial-gradient(circle at 80% 0%, rgba(173, 214, 120, 0.35), transparent 40%),
+            radial-gradient(circle at 50% 90%, rgba(255, 255, 255, 0.45), transparent 50%);
+          pointer-events: none;
+          animation: plinko-shimmer 6s ease-in-out infinite;
+          mix-blend-mode: screen;
+        }
+
+        .plinko-peg {
+          animation: plinko-peg 2.8s ease-in-out infinite;
         }
       `}</style>
     </div>
