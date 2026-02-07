@@ -75,6 +75,88 @@ function formatGoatScore(value: number) {
   return goatScoreFormatter.format(value);
 }
 
+const betInputFormatter = new Intl.NumberFormat("en-US");
+const betInputHints = "Try 1b, 250m, or 2,500,000.";
+
+function formatBetInput(value: number) {
+  if (!Number.isFinite(value)) return "";
+  return betInputFormatter.format(Math.max(0, Math.floor(value)));
+}
+
+function parseGoatAmount(rawValue: string) {
+  const trimmed = rawValue.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  const normalized = trimmed.replace(/[, _]/g, "");
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([kmbt])$/);
+  if (match) {
+    const base = Number(match[1]);
+    if (!Number.isFinite(base)) return null;
+    const multipliers: Record<string, number> = {
+      k: 1_000,
+      m: 1_000_000,
+      b: 1_000_000_000,
+      t: 1_000_000_000_000,
+    };
+    const multiplier = multipliers[match[2]];
+    if (!multiplier) return null;
+    return Math.floor(base * multiplier);
+  }
+
+  const numericValue = Number(normalized);
+  if (!Number.isFinite(numericValue)) return null;
+  return Math.floor(numericValue);
+}
+
+const betQuickValues = [
+  { label: "1k", value: 1_000 },
+  { label: "10k", value: 10_000 },
+  { label: "1m", value: 1_000_000 },
+  { label: "100m", value: 100_000_000 },
+  { label: "1b", value: 1_000_000_000 },
+];
+
+type BetAmountInputProps = {
+  value: string;
+  onChange: (nextValue: string) => void;
+  balance: number;
+};
+
+function BetAmountInput({ value, onChange, balance }: BetAmountInputProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <input
+        type="text"
+        inputMode="decimal"
+        placeholder={betInputHints}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-[#d9e5c2] px-3 py-2 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#a2c867]"
+      />
+      <div className="flex flex-wrap gap-2 text-xs">
+        {betQuickValues.map((option) => (
+          <button
+            key={option.label}
+            type="button"
+            onClick={() => onChange(formatBetInput(option.value))}
+            className="rounded-full border border-[#d9e5c2] bg-[#f5f9ea] px-3 py-1 font-semibold text-[#4f5d2a] shadow-sm transition hover:bg-[#eaf2d4]"
+          >
+            {option.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange(formatBetInput(balance))}
+          className="rounded-full border border-[#d9e5c2] bg-white px-3 py-1 font-semibold text-[#3f4a23] shadow-sm transition hover:bg-[#eef3df]"
+        >
+          Max
+        </button>
+      </div>
+      <div className="text-[11px] text-[#6b744d]">{betInputHints}</div>
+    </div>
+  );
+}
+
 const pipLayout: Record<number, Array<[number, number]>> = {
   1: [[50, 50]],
   2: [
@@ -198,16 +280,16 @@ export default function GoatArcadePage() {
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
   const [showLeaders, setShowLeaders] = useState(false);
   const [diceBetType, setDiceBetType] = useState<BetType>("LOW");
-  const [diceBetAmount, setDiceBetAmount] = useState<number>(5);
+  const [diceBetAmount, setDiceBetAmount] = useState<string>("5");
   const [diceResult, setDiceResult] = useState<DiceResult>({});
   const [diceLoading, setDiceLoading] = useState(false);
   const [diceAnimating, setDiceAnimating] = useState(false);
   const [rollingFaces, setRollingFaces] = useState<[number, number]>([1, 1]);
-  const [slotsBetAmount, setSlotsBetAmount] = useState<number>(5);
+  const [slotsBetAmount, setSlotsBetAmount] = useState<string>("5");
   const [slotsResult, setSlotsResult] = useState<SlotResult>({});
   const [slotsReels, setSlotsReels] = useState<string[]>(["🐐", "🐓", "🐄"]);
   const [slotsSpinning, setSlotsSpinning] = useState(false);
-  const [plinkoBetAmount, setPlinkoBetAmount] = useState<number>(5);
+  const [plinkoBetAmount, setPlinkoBetAmount] = useState<string>("5");
   const [plinkoResult, setPlinkoResult] = useState<PlinkoResult>({});
   const [plinkoPath, setPlinkoPath] = useState<number[]>([]);
   const [plinkoDropping, setPlinkoDropping] = useState(false);
@@ -558,7 +640,13 @@ export default function GoatArcadePage() {
       return;
     }
 
-    const bet = Math.max(1, Math.floor(diceBetAmount));
+    const parsedBet = parseGoatAmount(diceBetAmount);
+    if (!parsedBet || parsedBet <= 0) {
+      setDiceResult({ error: "Enter a valid bet amount (like 2,500,000 or 1b)." });
+      return;
+    }
+
+    const bet = Math.max(1, Math.floor(parsedBet));
     if (bet > stats.goats) {
       setDiceResult({ error: "Not enough 🐐 for that bet." });
       return;
@@ -611,7 +699,13 @@ export default function GoatArcadePage() {
       return;
     }
 
-    const bet = Math.max(1, Math.floor(slotsBetAmount));
+    const parsedBet = parseGoatAmount(slotsBetAmount);
+    if (!parsedBet || parsedBet <= 0) {
+      setSlotsResult({ error: "Enter a valid bet amount (like 2,500,000 or 1b)." });
+      return;
+    }
+
+    const bet = Math.max(1, Math.floor(parsedBet));
     if (bet > stats.goats) {
       setSlotsResult({ error: "Not enough 🐐 for that bet." });
       return;
@@ -663,7 +757,13 @@ export default function GoatArcadePage() {
       return;
     }
 
-    const bet = Math.max(1, Math.floor(plinkoBetAmount));
+    const parsedBet = parseGoatAmount(plinkoBetAmount);
+    if (!parsedBet || parsedBet <= 0) {
+      setPlinkoResult({ error: "Enter a valid bet amount (like 2,500,000 or 1b)." });
+      return;
+    }
+
+    const bet = Math.max(1, Math.floor(parsedBet));
     if (bet > stats.goats) {
       setPlinkoResult({ error: "Not enough 🐐 for that bet." });
       return;
@@ -738,6 +838,13 @@ export default function GoatArcadePage() {
     (diceResult.roll && diceResult.roll.length === 2
       ? diceResult.roll[0] + diceResult.roll[1]
       : undefined);
+
+  const diceBetPreview = parseGoatAmount(diceBetAmount);
+  const slotsBetPreview = parseGoatAmount(slotsBetAmount);
+  const plinkoBetPreview = parseGoatAmount(plinkoBetAmount);
+  const diceBetFallback = diceBetPreview ? formatBetInput(diceBetPreview) : "--";
+  const slotsBetFallback = slotsBetPreview ? formatBetInput(slotsBetPreview) : "--";
+  const plinkoBetFallback = plinkoBetPreview ? formatBetInput(plinkoBetPreview) : "--";
 
   const betOptions: { key: BetType; label: string }[] = [
     { key: "LOW", label: "LOW (2-6)" },
@@ -835,13 +942,7 @@ export default function GoatArcadePage() {
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-3">
               <label className="text-sm font-semibold text-[#3f4a23]">Bet amount</label>
-              <input
-                type="number"
-                min={1}
-                value={diceBetAmount}
-                onChange={(e) => setDiceBetAmount(Number(e.target.value))}
-                className="rounded-lg border border-[#d9e5c2] px-3 py-2 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#a2c867]"
-              />
+              <BetAmountInput value={diceBetAmount} onChange={setDiceBetAmount} balance={stats.goats} />
               <div className="text-xs text-[#6b744d]">Bet is deducted on roll. Winnings are added immediately to your 🐐 pile.</div>
             </div>
             <div className="flex flex-col gap-3">
@@ -965,13 +1066,7 @@ export default function GoatArcadePage() {
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-3">
               <label className="text-sm font-semibold text-[#3f4a23]">Bet amount</label>
-              <input
-                type="number"
-                min={1}
-                value={slotsBetAmount}
-                onChange={(e) => setSlotsBetAmount(Number(e.target.value))}
-                className="rounded-lg border border-[#d9e5c2] px-3 py-2 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#a2c867]"
-              />
+              <BetAmountInput value={slotsBetAmount} onChange={setSlotsBetAmount} balance={stats.goats} />
               <div className="text-xs text-[#6b744d]">Bet is placed on spin. Winnings return right away.</div>
             </div>
             <div className="flex flex-col gap-3">
@@ -994,7 +1089,7 @@ export default function GoatArcadePage() {
           <div className="rounded-xl border border-[#d9e5c2] bg-[#f9fbf2] p-4 shadow-inner grid sm:grid-cols-3 gap-3 text-sm text-[#3f4a23]">
             <div className="flex flex-col items-center gap-1 bg-white/90 rounded-lg p-3 shadow">
               <span className="text-xs uppercase tracking-[0.12em] text-[#6b744d]">Bet</span>
-              <span className="text-base font-semibold">🐐 {slotsResult.betAmount ?? (slotsSpinning ? "..." : slotsBetAmount)}</span>
+              <span className="text-base font-semibold">🐐 {slotsResult.betAmount ?? (slotsSpinning ? "..." : slotsBetFallback)}</span>
             </div>
             <div className="flex flex-col items-center gap-1 bg-white/90 rounded-lg p-3 shadow">
               <span className="text-xs uppercase tracking-[0.12em] text-[#6b744d]">Multiplier</span>
@@ -1007,7 +1102,7 @@ export default function GoatArcadePage() {
                   ? "--"
                   : slotsResult.win
                   ? `+🐐${slotsResult.payout}`
-                  : `-🐐${slotsResult.betAmount ?? slotsBetAmount}`}
+                  : `-🐐${slotsResult.betAmount ?? slotsBetFallback}`}
               </span>
             </div>
           </div>
@@ -1124,13 +1219,7 @@ export default function GoatArcadePage() {
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="flex flex-col gap-3">
             <label className="text-sm font-semibold text-[#3f4a23]">Bet amount</label>
-            <input
-              type="number"
-              min={1}
-              value={plinkoBetAmount}
-              onChange={(e) => setPlinkoBetAmount(Number(e.target.value))}
-              className="rounded-lg border border-[#d9e5c2] px-3 py-2 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#a2c867]"
-            />
+            <BetAmountInput value={plinkoBetAmount} onChange={setPlinkoBetAmount} balance={stats.goats} />
             <div className="text-xs text-[#6b744d]">Bet is deducted on drop. Winnings add back instantly.</div>
           </div>
           <div className="flex flex-col gap-3">
@@ -1153,7 +1242,7 @@ export default function GoatArcadePage() {
         <div className="rounded-xl border border-[#d9e5c2] bg-[#f9fbf2] p-4 shadow-inner grid sm:grid-cols-3 gap-3 text-sm text-[#3f4a23]">
           <div className="flex flex-col items-center gap-1 bg-white/90 rounded-lg p-3 shadow">
             <span className="text-xs uppercase tracking-[0.12em] text-[#6b744d]">Bet</span>
-            <span className="text-base font-semibold">🐐 {plinkoResult.betAmount ?? (plinkoDropping ? "..." : plinkoBetAmount)}</span>
+            <span className="text-base font-semibold">🐐 {plinkoResult.betAmount ?? (plinkoDropping ? "..." : plinkoBetFallback)}</span>
           </div>
           <div className="flex flex-col items-center gap-1 bg-white/90 rounded-lg p-3 shadow">
             <span className="text-xs uppercase tracking-[0.12em] text-[#6b744d]">Bucket</span>
@@ -1163,10 +1252,10 @@ export default function GoatArcadePage() {
             <span className="text-xs uppercase tracking-[0.12em] text-[#6b744d]">Payout</span>
             <span className={`text-2xl font-bold ${plinkoResult.win ? "text-[#3f7d2e]" : "text-[#a12f2f]"}`}>
               {plinkoResult.win === undefined
-                ? "--"
-                : plinkoResult.win
-                ? `+🐐${plinkoResult.payout}`
-                : `-🐐${plinkoResult.betAmount ?? plinkoBetAmount}`}
+              ? "--"
+              : plinkoResult.win
+              ? `+🐐${plinkoResult.payout}`
+              : `-🐐${plinkoResult.betAmount ?? plinkoBetFallback}`}
             </span>
           </div>
         </div>
