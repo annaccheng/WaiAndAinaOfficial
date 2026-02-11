@@ -13,6 +13,21 @@ import {
 import { getStoredDeviceId } from "@/lib/pushClient";
 
 const allowedWorkTypes = ["admin", "volunteer", "external volunteer"];
+
+type HomePageContent = {
+  heroTitle: string;
+  heroSubtitle: string;
+  aboutText: string;
+};
+
+const defaultHomePageContent: HomePageContent = {
+  heroTitle: "Sustainable Living, Ag Education, Conservation",
+  heroSubtitle:
+    "Step into Wai & Aina’s world of regenerative farming, joyful animals, and hands-on learning. 🌿 Explore the land, peek at our guides, and hop into the work dashboard when you’re signed in.",
+  aboutText:
+    "We grow papaya, dragonfruit, mango, ulu, coffee, cacao, lilikoi, starfruit, rollinia, lychee, and oranges. With a focus on regenerative agriculture and wildlife friendly practices, the farm will continue to expand with sustainable projects, agroforestry, and organic orchard spaces.",
+};
+
 function formatSession(session: UserSession | null): UserSession | null {
   if (!session) return null;
   const type = session.userType?.toLowerCase();
@@ -38,10 +53,35 @@ export default function HomePage() {
   const [password, setPassword] = useState<string>("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [homeContent, setHomeContent] = useState<HomePageContent>(defaultHomePageContent);
+  const [homeContentStatus, setHomeContentStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
     const existing = formatSession(loadSession());
     if (existing) setSession(existing);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/homepage-content');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && json?.content) {
+          setHomeContent({
+            heroTitle: String(json.content.heroTitle || defaultHomePageContent.heroTitle),
+            heroSubtitle: String(json.content.heroSubtitle || defaultHomePageContent.heroSubtitle),
+            aboutText: String(json.content.aboutText || defaultHomePageContent.aboutText),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load homepage content', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const canAccessWork = useMemo(() => {
@@ -168,6 +208,23 @@ export default function HomePage() {
     }
   }
 
+  async function saveHomeContent(nextContent: HomePageContent) {
+    if (session?.userType?.toLowerCase() !== 'admin') return;
+    setHomeContentStatus('saving');
+    try {
+      const res = await fetch('/api/homepage-content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: nextContent, userType: session.userType }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      setHomeContentStatus('saved');
+    } catch (err) {
+      console.error('Failed to save homepage content', err);
+      setHomeContentStatus('error');
+    }
+  }
+
   function heroButton(label: string, href: string, primary = false) {
     return (
       <Link
@@ -268,6 +325,57 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {session?.userType?.toLowerCase() === "admin" && (
+        <section className="mx-auto mt-4 w-full max-w-7xl px-2 sm:px-4">
+          <div className="rounded-xl border border-[#d0c9a4] bg-white/85 p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#4b5133]">Homepage editor</h2>
+              <span className="text-xs text-[#6b6f4c]">
+                {homeContentStatus === "saving"
+                  ? "Auto-saving..."
+                  : homeContentStatus === "saved"
+                    ? "Saved"
+                    : homeContentStatus === "error"
+                      ? "Save failed"
+                      : "Ready"}
+              </span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <input
+                value={homeContent.heroTitle}
+                onChange={(event) => {
+                  const next = { ...homeContent, heroTitle: event.target.value };
+                  setHomeContent(next);
+                  void saveHomeContent(next);
+                }}
+                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm"
+                placeholder="Hero title"
+              />
+              <input
+                value={homeContent.heroSubtitle}
+                onChange={(event) => {
+                  const next = { ...homeContent, heroSubtitle: event.target.value };
+                  setHomeContent(next);
+                  void saveHomeContent(next);
+                }}
+                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm"
+                placeholder="Hero subtitle"
+              />
+              <input
+                value={homeContent.aboutText}
+                onChange={(event) => {
+                  const next = { ...homeContent, aboutText: event.target.value };
+                  setHomeContent(next);
+                  void saveHomeContent(next);
+                }}
+                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm"
+                placeholder="About text"
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Mobile menu */}
       {showMobileMenu && (
@@ -389,10 +497,10 @@ export default function HomePage() {
                 🐐 Since 2023
               </div>
               <h1 className="text-3xl sm:text-4xl font-semibold text-[#2f331d] leading-tight drop-shadow-sm">
-                Sustainable Living, Ag Education, Conservation
+                {homeContent.heroTitle}
               </h1>
               <p className="text-[#4b5133] text-sm leading-relaxed">
-                Step into Wai &amp; Aina’s world of regenerative farming, joyful animals, and hands-on learning. 🌿 Explore the land, peek at our guides, and hop into the work dashboard when you’re signed in.
+                {homeContent.heroSubtitle}
               </p>
               <div className="flex flex-wrap gap-3 pt-2">
                 {heroButton("Explore the Farm", "#about", true)}
@@ -432,7 +540,7 @@ export default function HomePage() {
             <p className="text-xs uppercase tracking-[0.22em] text-[#7a7f54]">Just starting out…</p>
             <h2 className="text-3xl font-semibold text-[#3b4224]">Farm fresh produce</h2>
             <p className="text-sm text-[#4b5133] leading-relaxed">
-              We grow papaya, dragonfruit, mango, ulu, coffee, cacao, lilikoi, starfruit, rollinia, lychee, and oranges. With a focus on regenerative agriculture and wildlife friendly practices, the farm will continue to expand with sustainable projects, agroforestry, and organic orchard spaces.
+              {homeContent.aboutText}
             </p>
             <p className="text-sm text-[#4b5133] leading-relaxed">
               Future projects include developing programs for sustainable meat, eggs, and vegetable sources for both internal and external demand.

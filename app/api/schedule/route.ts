@@ -359,6 +359,7 @@ export async function GET(req: Request) {
       people: activeSchedulePeople.map((person) => person.name),
       slots,
       cells: isStaging ? detailedMatrix : stringMatrix,
+      taskCells: detailedMatrix,
       cellExists: isStaging ? existsMatrix : undefined,
       scheduleDate: toLabel(isoDate),
     });

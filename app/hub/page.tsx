@@ -11,10 +11,14 @@ type Slot = {
   isMeal: boolean;
 };
 
+type ScheduleTaskRef = { id: string; name: string };
+type ScheduleCellDetails = { tasks: ScheduleTaskRef[]; note?: string; blocked?: boolean };
+
 type ScheduleResponse = {
   people: string[];
   slots: Slot[];
   cells: string[][];
+  taskCells?: ScheduleCellDetails[][];
   reportFlags?: boolean[];
   scheduleDate?: string;
   reportTime?: string;
@@ -34,6 +38,7 @@ type TaskClickPayload = {
   person: string;
   slot: Slot;
   task: string;          // full cell text
+  taskId?: string;
   groupNames: string[];  // all people sharing that merged box
   isMeal?: boolean;
 };
@@ -1218,46 +1223,83 @@ export default function HubSchedulePage() {
   useEffect(() => {
     if (!data) return;
 
-    const uniqueTasks = new Set<string>();
-    data.cells.forEach((row) => {
+    const uniqueTaskIds = new Set<string>();
+    const uniqueTaskNames = new Set<string>();
+
+    data.taskCells?.forEach((row) => {
       row.forEach((cell) => {
-        splitCellTasks(cell).forEach((task) => {
-          const primary = taskBaseName(task);
-          if (primary) uniqueTasks.add(primary);
+        (cell.tasks || []).forEach((task) => {
+          if (task?.id) uniqueTaskIds.add(task.id);
+          const baseName = taskBaseName(task?.name || "");
+          if (baseName) uniqueTaskNames.add(baseName);
         });
       });
     });
 
-    const names = Array.from(uniqueTasks);
-    if (names.length === 0) return;
+    if (!data.taskCells?.length) {
+      data.cells.forEach((row) => {
+        row.forEach((cell) => {
+          splitCellTasks(cell).forEach((task) => {
+            const primary = taskBaseName(task);
+            if (primary) uniqueTaskNames.add(primary);
+          });
+        });
+      });
+    }
+
+    const taskIds = Array.from(uniqueTaskIds);
+    const names = Array.from(uniqueTaskNames);
+    if (taskIds.length === 0 && names.length === 0) return;
     let cancelled = false;
     const occurrenceParam = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
 
     (async () => {
-      const results = await Promise.all(
-        names.map(async (name) => {
-          try {
-            const search = new URLSearchParams({ name });
-            if (occurrenceParam) {
-              search.set("occurrenceDate", occurrenceParam);
-            }
-            const res = await fetch(`/api/task?${search.toString()}`);
-            if (!res.ok) return null;
-            const json = await res.json();
-            return {
-              key: json.name || name,
-              original: name,
-              status: json.status || "",
-              description: json.description || "",
-              typeName: json.taskType?.name || "",
-              typeColor: json.taskType?.color || "default",
-            } as const;
-          } catch (err) {
-            console.error("Failed to preload task meta", err);
-            return null;
+      const idRequests = taskIds.map(async (id) => {
+        try {
+          const search = new URLSearchParams({ id });
+          if (occurrenceParam) search.set("occurrenceDate", occurrenceParam);
+          const res = await fetch(`/api/task?${search.toString()}`);
+          if (!res.ok) return null;
+          const json = await res.json();
+          return {
+            key: json.name || "",
+            original: json.name || "",
+            id,
+            status: json.status || "",
+            description: json.description || "",
+            typeName: json.taskType?.name || "",
+            typeColor: json.taskType?.color || "default",
+          } as const;
+        } catch (err) {
+          console.error("Failed to preload task meta by id", err);
+          return null;
+        }
+      });
+
+      const nameRequests = names.map(async (name) => {
+        try {
+          const search = new URLSearchParams({ name });
+          if (occurrenceParam) {
+            search.set("occurrenceDate", occurrenceParam);
           }
-        })
-      );
+          const res = await fetch(`/api/task?${search.toString()}`);
+          if (!res.ok) return null;
+          const json = await res.json();
+          return {
+            key: json.name || name,
+            original: name,
+            status: json.status || "",
+            description: json.description || "",
+            typeName: json.taskType?.name || "",
+            typeColor: json.taskType?.color || "default",
+          } as const;
+        } catch (err) {
+          console.error("Failed to preload task meta", err);
+          return null;
+        }
+      });
+
+      const results = await Promise.all([...idRequests, ...nameRequests]);
 
       if (cancelled) return;
 
@@ -1386,7 +1428,7 @@ export default function HubSchedulePage() {
 
   type ShiftTaskCell = {
     slot: Slot;
-    tasks: { task: string; people: string[] }[];
+    tasks: { task: string; taskId?: string; people: string[] }[];
   };
 
   type EveningDayRow = {
@@ -1427,7 +1469,7 @@ export default function HubSchedulePage() {
           return { slot, tasks: [] };
         }
 
-        const taskMap: Record<string, Set<string>> = {};
+        const taskMap = new Map<string, { task: string; taskId?: string; people: Set<string> }>();
 
         data.people.forEach((person, rowIdx) => {
           const cell = (data.cells[rowIdx]?.[slotIdx] ?? "").trim();
@@ -1437,29 +1479,38 @@ export default function HubSchedulePage() {
           const isKnownUser = knownUserSet.has(normalizedPerson);
 
           if (isKnownUser) {
-            const tasks = splitCellTasks(cell);
-            tasks.forEach((task) => {
-              const key = taskBaseName(task);
-              if (!key) return;
-              if (!taskMap[key]) taskMap[key] = new Set();
-              taskMap[key].add(person);
+            const taskRefs = data.taskCells?.[rowIdx]?.[slotIdx]?.tasks || [];
+            const tasks = taskRefs.length
+              ? taskRefs.map((ref) => ({ id: ref.id, name: taskBaseName(ref.name || "") })).filter((ref) => ref.name)
+              : splitCellTasks(cell).map((task) => ({ id: "", name: taskBaseName(task) })).filter((ref) => ref.name);
+
+            tasks.forEach((taskRef) => {
+              const key = taskRef.id || taskRef.name.toLowerCase();
+              if (!taskMap.has(key)) {
+                taskMap.set(key, { task: taskRef.name, taskId: taskRef.id || undefined, people: new Set() });
+              }
+              taskMap.get(key)?.people.add(person);
             });
           } else {
             const taskName = person.trim();
             if (!taskName) return;
+            const key = taskName.toLowerCase();
+            if (!taskMap.has(key)) {
+              taskMap.set(key, { task: taskName, people: new Set() });
+            }
             const assignedPeople = splitCellTasks(cell).map(taskBaseName).filter(Boolean);
-            if (!taskMap[taskName]) taskMap[taskName] = new Set();
             assignedPeople.forEach((assigned) => {
-              taskMap[taskName].add(assigned);
+              taskMap.get(key)?.people.add(assigned);
             });
           }
         });
 
         return {
           slot,
-          tasks: Object.entries(taskMap).map(([task, people]) => ({
-            task,
-            people: Array.from(people),
+          tasks: Array.from(taskMap.values()).map((entry) => ({
+            task: entry.task,
+            taskId: entry.taskId,
+            people: Array.from(entry.people),
           })),
         };
       });
@@ -1982,9 +2033,9 @@ export default function HubSchedulePage() {
 
   async function loadTaskDetails(
     taskName: string,
-    opts: { quiet?: boolean; occurrenceDate?: string | null } = {}
+    opts: { quiet?: boolean; occurrenceDate?: string | null; taskId?: string | null } = {}
   ) {
-    const { quiet = false, occurrenceDate } = opts;
+    const { quiet = false, occurrenceDate, taskId } = opts;
     const requestId = ++taskDetailsRequestRef.current;
     if (!quiet) setModalLoading(true);
     setPendingPhotoFile(null);
@@ -2019,7 +2070,7 @@ export default function HubSchedulePage() {
 
     try {
       const occurrenceParam = toIsoDateLabel(occurrenceDate) || occurrenceDate;
-      const search = new URLSearchParams({ name: taskName });
+      const search = new URLSearchParams(taskId ? { id: taskId } : { name: taskName });
       if (occurrenceParam) {
         search.set("occurrenceDate", occurrenceParam);
       }
@@ -2216,7 +2267,7 @@ export default function HubSchedulePage() {
     return;
   }
 
-  await loadTaskDetails(baseTitle, { occurrenceDate: scheduleDateLabel });
+  await loadTaskDetails(baseTitle, { occurrenceDate: scheduleDateLabel, taskId: mergedPayload.taskId });
 }
 
 
@@ -2239,7 +2290,7 @@ export default function HubSchedulePage() {
     if (!taskName) return undefined;
 
     const interval = setInterval(
-      () => loadTaskDetails(taskName, { quiet: true, occurrenceDate: scheduleDateLabel }),
+      () => loadTaskDetails(taskName, { quiet: true, occurrenceDate: scheduleDateLabel, taskId: modalTask.taskId }),
       15_000
     );
     return () => clearInterval(interval);
@@ -4117,7 +4168,7 @@ function ShiftBoard({
 }: {
   title: string;
   description: string;
-  combined: { slot: Slot; names: string[]; tasks: { task: string; people: string[] }[] }[];
+  combined: { slot: Slot; names: string[]; tasks: { task: string; taskId?: string; people: string[] }[] }[];
   layout?: "slot" | "person";
   onTaskClick?: (payload: TaskClickPayload) => void;
   taskMetaMap: Record<string, TaskMeta>;
@@ -4128,7 +4179,7 @@ function ShiftBoard({
   const hasTasks = combined.some((cell) => cell.tasks.length > 0);
   const personMap = new Map<
     string,
-    { name: string; tasks: { task: string; people: string[]; slot: Slot }[] }
+    { name: string; tasks: { task: string; taskId?: string; people: string[]; slot: Slot }[] }
   >();
   const ensurePersonEntry = (person: string) => {
     const trimmed = person.trim();
@@ -4151,6 +4202,7 @@ function ShiftBoard({
         if (!entry) return;
         entry.tasks.push({
           task: task.task,
+          taskId: task.taskId,
           people: task.people,
           slot: cell.slot,
         });
@@ -4296,6 +4348,7 @@ function ShiftBoard({
                               person: primaryPerson,
                               slot: cell.slot,
                               task: task.task,
+                              taskId: task.taskId,
                               groupNames: participants,
                             })
                           }
@@ -4403,7 +4456,7 @@ function ShiftTaskTable({
 }: {
   title: string;
   description: string;
-  slots: { slot: Slot; tasks: { task: string; people: string[] }[] }[];
+  slots: { slot: Slot; tasks: { task: string; taskId?: string; people: string[] }[] }[];
   onTaskClick?: (payload: TaskClickPayload) => void;
   taskMetaMap: Record<string, TaskMeta>;
   statusColors: Record<string, string>;
@@ -4470,6 +4523,7 @@ function ShiftTaskTable({
                           person: primaryPerson,
                           slot: entry.slot,
                           task: task.task,
+                          taskId: task.taskId,
                           groupNames: participants,
                         })
                       }

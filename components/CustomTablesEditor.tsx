@@ -779,6 +779,12 @@ export function CustomTablesEditor({
                 </div>
               )}
 
+              {(rowHeaderType === "user" || columnHeaderType === "user" || cellType === "user") && (
+                <p className="mt-3 text-[11px] text-[#6b6f4c]">
+                  User selections also support custom names. Type a name in the selector and press Enter.
+                </p>
+              )}
+
               <div className="mt-4 overflow-x-auto overflow-y-visible">
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
