@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { loadSession } from "@/lib/session";
 
 type GuideDetail = {
@@ -35,7 +35,7 @@ function renderInlineMarkdown(text: string) {
 
 function renderMarkdown(content: string) {
   const lines = content.split("\n");
-  const output: JSX.Element[] = [];
+  const output: ReactElement[] = [];
 
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
