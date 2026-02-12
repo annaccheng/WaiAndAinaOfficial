@@ -52,11 +52,16 @@ function MultiSelectChecklist({ value, options, placeholder, onChange }: MultiSe
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const selectedValues = useMemo(() => new Set(parseMultiValue(value)), [value]);
+  const mergedOptions = useMemo(() => {
+    const selected = parseMultiValue(value);
+    return Array.from(new Set([...options, ...selected]));
+  }, [options, value]);
+
   const filteredOptions = useMemo(() => {
     const lower = filter.trim().toLowerCase();
-    if (!lower) return options;
-    return options.filter((opt) => opt.toLowerCase().includes(lower));
-  }, [filter, options]);
+    if (!lower) return mergedOptions;
+    return mergedOptions.filter((opt) => opt.toLowerCase().includes(lower));
+  }, [filter, mergedOptions]);
 
   const updateMenuPosition = useCallback(() => {
     const button = buttonRef.current;
