@@ -324,6 +324,8 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const taskEditLastSavedSignatureRef = useRef<string>("");
+  const taskEditAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState("");
@@ -3062,7 +3064,7 @@ export default function AdminScheduleEditorPage() {
         parentTaskId: json.parentTaskId || null,
       };
       setTaskDetail(detail);
-      setTaskEditDraft({
+      const nextDraft = {
         name: detail.name || "",
         description: detail.description || "",
         extraNotes: buildNotesText(detail.extraNotes || []),
@@ -3074,7 +3076,10 @@ export default function AdminScheduleEditorPage() {
         priority: detail.priority || "",
         taskType: detail.taskType?.name || "",
         links: normalizedLinks,
-      });
+      };
+      setTaskEditDraft(nextDraft);
+      taskEditLastSavedSignatureRef.current = getTaskEditSignature(nextDraft, detail.id);
+      setTaskEditMessage("Saved");
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
@@ -3106,10 +3111,31 @@ export default function AdminScheduleEditorPage() {
     []
   );
 
-  const saveTaskEdits = async () => {
-    if (!taskDetail?.id) return;
+  const getTaskEditSignature = useCallback(
+    (draft: typeof taskEditDraft, detailId?: string | null) =>
+      JSON.stringify({
+        id: detailId || taskDetail?.id || "",
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        extraNotes: draft.extraNotes.trim(),
+        personCount: draft.personCount.trim(),
+        status: draft.status,
+        priority: draft.priority,
+        taskType: draft.taskType,
+        links: draft.links.map((link) => ({
+          label: String(link.label || "").trim(),
+          url: String(link.url || "").trim(),
+        })),
+      }),
+    [taskDetail?.id]
+  );
+
+  const saveTaskEdits = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!taskDetail?.id) return false;
     setTaskEditSaving(true);
-    setTaskEditMessage(null);
+    if (!silent) {
+      setTaskEditMessage("Auto-saving…");
+    }
     try {
       const trimmedName = taskEditDraft.name.trim();
       const notesList = taskEditDraft.extraNotes
@@ -3194,15 +3220,37 @@ export default function AdminScheduleEditorPage() {
           return { ...prev, cells: nextCells };
         });
       }
-      setTaskEditMessage("Task updated.");
+      taskEditLastSavedSignatureRef.current = getTaskEditSignature(taskEditDraft, taskDetail.id);
+      setTaskEditMessage("Saved");
+      return true;
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Failed to update task";
       setTaskEditMessage(friendly);
+      return false;
     } finally {
       setTaskEditSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!taskDetail?.id) return;
+    const signature = getTaskEditSignature(taskEditDraft, taskDetail.id);
+    if (signature === taskEditLastSavedSignatureRef.current) return;
+    setTaskEditMessage("Auto-saving…");
+    if (taskEditAutoSaveTimerRef.current) {
+      clearTimeout(taskEditAutoSaveTimerRef.current);
+    }
+    taskEditAutoSaveTimerRef.current = setTimeout(() => {
+      void saveTaskEdits({ silent: true });
+    }, 900);
+
+    return () => {
+      if (taskEditAutoSaveTimerRef.current) {
+        clearTimeout(taskEditAutoSaveTimerRef.current);
+      }
+    };
+  }, [getTaskEditSignature, saveTaskEdits, taskDetail?.id, taskEditDraft]);
 
   const updateTaskNameInState = useCallback((taskId: string, name: string) => {
     setScheduleData((prev) => {
@@ -3985,17 +4033,9 @@ export default function AdminScheduleEditorPage() {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={saveTaskEdits}
-          disabled={taskEditSaving}
-          className="rounded-md bg-[#8fae4c] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
-        >
-          {taskEditSaving ? "Saving…" : "Save basic updates"}
-        </button>
-        {taskEditMessage && (
-          <span className="text-[12px] text-[#4b5133]">{taskEditMessage}</span>
-        )}
+        <span className="text-[12px] font-semibold text-[#4b5133]">
+          {taskEditSaving ? "Auto-saving…" : taskEditMessage || "Saved"}
+        </span>
         <Link
           href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
           className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold text-[#4b5133]"

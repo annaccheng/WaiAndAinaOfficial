@@ -8,6 +8,7 @@ type GuideSummary = {
   id: string;
   title: string;
   lastEdited: string;
+  restricted?: boolean;
 };
 
 export default function HowToGuidesPage() {
@@ -16,11 +17,14 @@ export default function HowToGuidesPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sessionUserType, setSessionUserType] = useState<string>("");
+  const [creatingGuide, setCreatingGuide] = useState(false);
 
   useEffect(() => {
     const session = loadSession();
     const userType = (session?.userType || "").toLowerCase();
     setIsAdmin(userType === "admin");
+    setSessionUserType(userType);
   }, []);
 
   useEffect(() => {
@@ -43,9 +47,37 @@ export default function HowToGuidesPage() {
     loadGuides();
   }, []);
 
+
+  async function createGuide() {
+    if (!isAdmin || creatingGuide) return;
+    setCreatingGuide(true);
+    try {
+      const res = await fetch("/api/guides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userType: sessionUserType,
+          title: "Untitled Guide",
+          content: "# Untitled Guide\n\nStart writing here...",
+          restricted: false,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create guide");
+      if (data?.guide?.id) {
+        window.location.href = `/hub/guides/how-to/${data.guide.id}`;
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unable to create a new guide right now.");
+    } finally {
+      setCreatingGuide(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const visibleGuides = guides.filter((g) => isAdmin || g.title !== "AI Guide");
+    const visibleGuides = guides.filter((g) => isAdmin || !g.restricted);
     if (!term) return visibleGuides;
     return visibleGuides.filter((g) => g.title.toLowerCase().includes(term));
   }, [guides, isAdmin, search]);
@@ -64,6 +96,16 @@ export default function HowToGuidesPage() {
 
       <div className="rounded-xl border border-[#d0c9a4] bg-[#f8f4e3] p-4 shadow-sm space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={createGuide}
+              disabled={creatingGuide}
+              className="rounded-full border border-[#cdd7ab] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#4b522d] shadow-sm hover:bg-[#f1edd8] disabled:opacity-60"
+            >
+              {creatingGuide ? "Creating..." : "+ New Guide Page"}
+            </button>
+          )}
           <p className="text-sm text-[#4b522d] max-w-2xl">
             Browse every published guide below. Use the search box to quickly
             filter by keyword, then tap a guide to open its dedicated page and
