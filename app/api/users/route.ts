@@ -59,6 +59,7 @@ export async function POST(req: Request) {
         user_role_id: roleId,
         phone_number: number?.trim() || null,
         passcode: DEFAULT_PASSCODE,
+        goats: 0,
         active: true,
       },
     });
