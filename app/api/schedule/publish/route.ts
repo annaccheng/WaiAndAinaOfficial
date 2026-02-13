@@ -230,3 +230,29 @@ export async function POST(req: Request) {
     );
   }
 }
+
+
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => null);
+  const { dateLabel } = body || {};
+  const isoDate = toIsoDate(dateLabel);
+
+  if (!isoDate) {
+    return NextResponse.json({ error: "Missing schedule date." }, { status: 400 });
+  }
+
+  try {
+    await supabaseRequest("schedules", {
+      method: "DELETE",
+      query: {
+        schedule_date: `eq.${isoDate}`,
+        state: "eq.live",
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to remove published schedule", err);
+    return NextResponse.json({ error: "Unable to remove published schedule." }, { status: 500 });
+  }
+}

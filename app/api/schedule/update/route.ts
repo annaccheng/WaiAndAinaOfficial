@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseRequest } from "@/lib/supabase";
 
 type ScheduleRow = { id: string };
-type SchedulePersonRow = { id: string; name: string };
+type SchedulePersonRow = { id: string; name: string; order_index?: number };
 type ScheduleCellRow = { id: string };
 type TaskRow = { id: string; name: string; occurrence_date?: string | null };
 type UserRow = {
@@ -298,30 +298,17 @@ export async function POST(req: Request) {
 
     const volunteers = await fetchVolunteers();
     const people = await ensureSchedulePeople(scheduleId, volunteers);
-    const activeVolunteerSet = new Set(
-      volunteers.map((name) => name.trim().toLowerCase())
-    );
-    const activePeople = people.filter((entry) =>
-      activeVolunteerSet.has(entry.name.trim().toLowerCase())
-    );
     const normalizedPerson = String(person).trim();
-    const personEntry = activePeople.find(
-      (entry) => entry.name.trim() === normalizedPerson
-    );
+    const personEntry = people.find((entry) => entry.name.trim() === normalizedPerson);
     console.log("schedule.update people lookup", {
       normalizedPerson,
-      peopleCount: activePeople.length,
+      peopleCount: people.length,
       personFound: Boolean(personEntry),
     });
 
     let resolvedPerson = personEntry;
     if (!resolvedPerson) {
-      if (!activeVolunteerSet.has(normalizedPerson.toLowerCase())) {
-        return NextResponse.json(
-          { error: "Inactive users cannot be scheduled." },
-          { status: 400 }
-        );
-      }
+      const nextOrder = people.reduce((max, entry) => Math.max(max, Number(entry.order_index || 0)), 0) + 1;
       const created = await supabaseRequest<SchedulePersonRow[]>(
         "schedule_people",
         {
@@ -330,7 +317,7 @@ export async function POST(req: Request) {
           body: {
             schedule_id: scheduleId,
             name: normalizedPerson,
-            order_index: activePeople.length + 1,
+            order_index: nextOrder,
           },
         }
       );

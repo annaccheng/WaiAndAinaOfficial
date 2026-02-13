@@ -253,6 +253,7 @@ export function CustomTablesEditor({
   const [pastTablesError, setPastTablesError] = useState<string | null>(null);
   const [pastTablesOpen, setPastTablesOpen] = useState(false);
   const [pastTablesLoaded, setPastTablesLoaded] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<{ tableId: string; rowIdx: number; colIdx: number } | null>(null);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -529,13 +530,52 @@ export function CustomTablesEditor({
     void loadPastTables();
   }, [loadPastTables, pastTablesLoaded, pastTablesOpen, showPastTables]);
 
+
+  const setSelectedCellValue = useCallback((value: string) => {
+    if (!selectedCell) return;
+    updateCustomTableState(selectedCell.tableId, (prev) => {
+      const nextCells = prev.cells.map((row) => [...row]);
+      if (!nextCells[selectedCell.rowIdx]) return prev;
+      nextCells[selectedCell.rowIdx][selectedCell.colIdx] = value;
+      return { ...prev, cells: nextCells };
+    });
+  }, [selectedCell, updateCustomTableState]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!selectedCell) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
+        return;
+      }
+      const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      if (!modifierPressed) return;
+      const key = event.key.toLowerCase();
+      if (key === "c") {
+        const table = customTables.find((entry) => entry.id === selectedCell.tableId);
+        const value = table?.cells?.[selectedCell.rowIdx]?.[selectedCell.colIdx] ?? "";
+        void navigator.clipboard?.writeText(value);
+        event.preventDefault();
+        return;
+      }
+      if (key === "v") {
+        void navigator.clipboard?.readText().then((value) => setSelectedCellValue(value || ""));
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [customTables, selectedCell, setSelectedCellValue]);
+
   return (
     <section className="mt-10 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
           <p className="text-xs text-[#7a7f54]">
-            Review custom sections with editable headers and volunteer selections.
+            Review custom sections with editable headers and volunteer selections. Use Ctrl/Cmd+C and Ctrl/Cmd+V on selected cells.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1019,9 +1059,10 @@ export function CustomTablesEditor({
                           return (
                             <td
                               key={`${table.id}-cell-${rowIdx}-${colIdx}`}
+                              onClick={() => setSelectedCell({ tableId: table.id, rowIdx, colIdx })}
                               className={`border border-[#e2d7b5] px-2 py-2 ${
                                 cellMatchesUser ? "bg-[#eaf1da]" : ""
-                              }`}
+                              } ${selectedCell?.tableId === table.id && selectedCell.rowIdx === rowIdx && selectedCell.colIdx === colIdx ? "ring-2 ring-[#8fae4c] ring-inset" : ""}`}
                             >
                               {canEditCustomTables ? (
                                 cellType === "user" ? (
@@ -1053,6 +1094,7 @@ export function CustomTablesEditor({
                                 ) : (
                                   <input
                                     value={cellValue}
+                                    onFocus={() => setSelectedCell({ tableId: table.id, rowIdx, colIdx })}
                                     onChange={(event) =>
                                       updateCustomTableState(table.id, (prev) => {
                                         const nextCells = prev.cells.map((row) => [...row]);
