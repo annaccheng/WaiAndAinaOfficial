@@ -298,6 +298,9 @@ export default function AdminScheduleEditorPage() {
   const [copySourceDate, setCopySourceDate] = useState<string>("");
   const [copyTargetDate, setCopyTargetDate] = useState<string>("");
   const [copyingSchedule, setCopyingSchedule] = useState(false);
+  const [unpublishingSchedule, setUnpublishingSchedule] = useState(false);
+  const [newCustomVolunteer, setNewCustomVolunteer] = useState("");
+  const [addingCustomVolunteer, setAddingCustomVolunteer] = useState(false);
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
   const [taskEditDraft, setTaskEditDraft] = useState({
     name: "",
@@ -426,6 +429,14 @@ export default function AdminScheduleEditorPage() {
 
   const todayLabel = formatDateInput(new Date().toISOString().slice(0, 10));
 
+  const refreshScheduleList = useCallback(async () => {
+    const scheduleListRes = await fetch("/api/schedule/list", { cache: "no-store" });
+    if (!scheduleListRes.ok) return;
+    const json = await scheduleListRes.json();
+    setAvailableSchedules(json.schedules || []);
+    setScheduleMode(json.mode === "database" ? "database" : "page");
+  }, []);
+
   useEffect(() => {
     const session = loadSession();
     if (!session || !session.name) {
@@ -446,22 +457,15 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const [typeRes, scheduleListRes] = await Promise.all([
-          fetch("/api/task-types", { cache: "no-store" }),
-          fetch("/api/schedule/list", { cache: "no-store" }),
-        ]);
+        const typeRes = await fetch("/api/task-types", { cache: "no-store" });
 
         if (typeRes.ok) {
           const json = await typeRes.json();
           setTaskTypes(json.types || []);
           setStatusOptions(json.statuses || []);
         }
-        if (scheduleListRes.ok) {
-          const json = await scheduleListRes.json();
-          setAvailableSchedules(json.schedules || []);
-          setScheduleMode(json.mode === "database" ? "database" : "page");
-          setSelectedDate(todayLabel);
-        }
+        await refreshScheduleList();
+        setSelectedDate(todayLabel);
       } catch (err) {
         console.error("Failed to load schedule editor data", err);
         setMessage("Could not load schedule tools. Please refresh.");
@@ -469,7 +473,7 @@ export default function AdminScheduleEditorPage() {
     };
 
     loadStatic();
-  }, [authorized]);
+  }, [authorized, refreshScheduleList, todayLabel]);
 
   useEffect(() => {
     if (editingTaskKey && editingTaskInputRef.current) {
@@ -3524,6 +3528,70 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const unpublishSchedule = async () => {
+    if (scheduleMode !== "page" || !selectedDate) return;
+    const confirmed = window.confirm(`Remove the published schedule for ${selectedDate}? This keeps staging data.`);
+    if (!confirmed) return;
+    setUnpublishingSchedule(true);
+    setScheduleNote(null);
+    try {
+      const res = await fetch("/api/schedule/publish", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateLabel: selectedDate }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to remove published schedule");
+      setScheduleNote(`Removed published schedule for ${selectedDate}.`);
+      await refreshScheduleList();
+    } catch (err) {
+      console.error("Failed to unpublish schedule", err);
+      setScheduleNote("Unable to remove the published schedule right now.");
+    } finally {
+      setUnpublishingSchedule(false);
+    }
+  };
+
+  const addCustomVolunteerRow = async () => {
+    const name = newCustomVolunteer.trim();
+    if (!name || !selectedDate || scheduleMode !== "page" || !scheduleData) return;
+    setAddingCustomVolunteer(true);
+    setScheduleNote(null);
+    try {
+      const res = await fetch("/api/schedule/people", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateLabel: selectedDate, name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to add volunteer row");
+
+      const rowExists = scheduleData.people.some(
+        (person) => person.trim().toLowerCase() === name.toLowerCase()
+      );
+      if (!rowExists) {
+        const newRow = scheduleData.slots.map(() => ({ tasks: [], note: "", blocked: false }));
+        setScheduleData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            people: [...prev.people, name],
+            cells: [...prev.cells, newRow],
+          };
+        });
+      }
+
+      setNewCustomVolunteer("");
+      setHasUnpublishedChanges(true);
+      setScheduleNote(`Added ${name} to the staging schedule.`);
+    } catch (err) {
+      console.error("Failed to add custom volunteer", err);
+      setScheduleNote("Unable to add that volunteer row.");
+    } finally {
+      setAddingCustomVolunteer(false);
+    }
+  };
+
   const copySchedule = async () => {
     if (scheduleMode !== "page") return;
     if (!copySourceDate || !copyTargetDate) {
@@ -4627,6 +4695,107 @@ export default function AdminScheduleEditorPage() {
               </div>
             )}
           </div>
+          <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs text-[#4b5133]">
+            <button
+              type="button"
+              onClick={publishSchedule}
+              disabled={!selectedDate || scheduleMode !== "page"}
+              className="h-8 rounded-md bg-[#8fae4c] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+            >
+              Publish
+            </button>
+            <button
+              type="button"
+              onClick={unpublishSchedule}
+              disabled={unpublishingSchedule || !selectedDate || scheduleMode !== "page"}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#314123] shadow-sm disabled:opacity-60"
+            >
+              {unpublishingSchedule ? "Removing…" : "Remove published"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBlackoutMode((prev) => !prev)}
+              className={`h-8 rounded-md border px-3 text-[10px] font-semibold uppercase tracking-[0.12em] shadow-sm ${
+                blackoutMode
+                  ? "border-[#22311b] bg-[#2f3b21] text-[#f9f9ec]"
+                  : "border-[#d0c9a4] bg-white text-[#314123]"
+              }`}
+            >
+              {blackoutMode ? "Blackout on" : "Blackout mode"}
+            </button>
+            <input
+              type="date"
+              value={copySourceDate ? formatLabelToInput(copySourceDate) : ""}
+              onChange={(e) => setCopySourceDate(formatDateInput(e.target.value))}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
+              aria-label="Copy source date"
+            />
+            <input
+              type="date"
+              value={copyTargetDate ? formatLabelToInput(copyTargetDate) : ""}
+              onChange={(e) => setCopyTargetDate(formatDateInput(e.target.value))}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
+              aria-label="Copy target date"
+            />
+            <button
+              type="button"
+              onClick={copySchedule}
+              disabled={copyingSchedule || scheduleMode !== "page"}
+              className="h-8 rounded-md bg-[#6f8f3d] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
+            >
+              {copyingSchedule ? "Copying…" : "Copy schedule"}
+            </button>
+            <input
+              type="date"
+              value={blackoutRangeStart}
+              onChange={(e) => setBlackoutRangeStart(e.target.value)}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
+              aria-label="Blackout start date"
+            />
+            <input
+              type="date"
+              value={blackoutRangeEnd}
+              onChange={(e) => setBlackoutRangeEnd(e.target.value)}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
+              aria-label="Blackout end date"
+            />
+            <button
+              type="button"
+              onClick={applyBlackoutRange}
+              disabled={blackoutApplying}
+              className="h-8 rounded-md bg-[#2f3b21] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
+            >
+              {blackoutApplying ? "Applying…" : "Apply blackout"}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs text-[#4b5133]">
+            <input
+              value={newCustomVolunteer}
+              onChange={(event) => setNewCustomVolunteer(event.target.value)}
+              placeholder="Custom volunteer name"
+              className="h-8 min-w-[180px] rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void addCustomVolunteerRow();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={addCustomVolunteerRow}
+              disabled={addingCustomVolunteer || !newCustomVolunteer.trim()}
+              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#314123] shadow-sm disabled:opacity-60"
+            >
+              {addingCustomVolunteer ? "Adding…" : "Add volunteer row"}
+            </button>
+            {blackoutMode && (
+              <span className="rounded-full bg-[#2f3b21] px-3 py-1 text-[10px] font-semibold text-white">
+                Blackout mode active
+              </span>
+            )}
+          </div>
+
           <details className="rounded-lg border border-dashed border-[#d0c9a4] bg-white/70 px-3 py-2 text-[11px] text-[#4b5133]">
             <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
               Keybinds & shortcuts
