@@ -2584,7 +2584,7 @@ export default function HubSchedulePage() {
                 </div>
 
                 <CustomTablesEditor
-                  dateLabel={scheduleDateLabel}
+                  dateLabel={scheduleDateLabel ?? null}
                   canEdit={canEditCustomTables}
                   userOptions={knownUsers}
                   taskNameOptions={taskOptions}
