@@ -37,6 +37,15 @@ function buildEmptyCells(rows: number, columns: number) {
   return Array.from({ length: rows }, () => Array.from({ length: columns }, () => ""));
 }
 
+
+function isDateInTableWindow(row: CustomTableRow, targetDate: string) {
+  const start = row.visible_start_date || row.schedule_date;
+  const end = row.visible_end_date || row.schedule_date;
+  if (start && targetDate < start) return false;
+  if (end && targetDate > end) return false;
+  return true;
+}
+
 function mapTable(row: CustomTableRow) {
   return {
     id: row.id,
@@ -67,48 +76,37 @@ export async function GET(req: Request) {
   }
 
   try {
-    if (includePast) {
-      const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
-        query: {
-          select:
-            "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
-          schedule_date: `lt.${scheduleDate}`,
-          order: "schedule_date.desc,created_at.asc",
-        },
-      });
-      return NextResponse.json({ tables: (data || []).map(mapTable) });
-    }
-    let data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
+    const allRows = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       query: {
         select:
           "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
-        schedule_date: `eq.${scheduleDate}`,
-        order: "created_at.asc",
+        order: "schedule_date.asc,created_at.asc",
       },
     });
-    if (!data.length) {
-      const [latest] = await supabaseRequest<Pick<CustomTableRow, "schedule_date">[]>(
-        TABLE_NAME,
-        {
-          query: {
-            select: "schedule_date",
-            order: "schedule_date.desc",
-            limit: 1,
-          },
-        }
-      );
-      if (latest?.schedule_date) {
-        data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
-          query: {
-            select:
-              "id,title,schedule_date,visible_start_date,visible_end_date,row_headers,column_headers,cells,row_header_type,column_header_type,cell_type",
-            schedule_date: `eq.${latest.schedule_date}`,
-            order: "created_at.asc",
-          },
-        });
-      }
+
+    if (includePast) {
+      const pastRows = (allRows || []).filter((row) => row.schedule_date < scheduleDate);
+      return NextResponse.json({ tables: pastRows.map(mapTable) });
     }
-    return NextResponse.json({ tables: (data || []).map(mapTable) });
+
+    const matchingRows = (allRows || []).filter(
+      (row) => row.schedule_date === scheduleDate || isDateInTableWindow(row, scheduleDate)
+    );
+
+    if (matchingRows.length) {
+      return NextResponse.json({ tables: matchingRows.map(mapTable) });
+    }
+
+    const fallbackDate =
+      (allRows || [])
+        .map((row) => row.schedule_date)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+    const fallbackRows = fallbackDate
+      ? (allRows || []).filter((row) => row.schedule_date === fallbackDate)
+      : [];
+    return NextResponse.json({ tables: fallbackRows.map(mapTable) });
   } catch (err) {
     console.error("Failed to load custom tables:", err);
     return NextResponse.json({ error: "Unable to load custom tables" }, { status: 500 });

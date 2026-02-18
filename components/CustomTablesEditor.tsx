@@ -229,6 +229,17 @@ function addDaysIso(dateValue: string, days: number) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function listDatesInRange(start: string, end: string) {
+  if (!start || !end || start > end) return [];
+  const result: string[] = [];
+  let cursor = start;
+  while (cursor <= end) {
+    result.push(cursor);
+    cursor = addDaysIso(cursor, 1);
+  }
+  return result;
+}
+
 
 const DEFAULT_KEYBINDS = {
   copy: "Ctrl/Cmd+C",
@@ -286,6 +297,10 @@ export function CustomTablesEditor({
   const [copyKeybind, setCopyKeybind] = useState(DEFAULT_KEYBINDS.copy);
   const [pasteKeybind, setPasteKeybind] = useState(DEFAULT_KEYBINDS.paste);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [rangeStartDate, setRangeStartDate] = useState("");
+  const [rangeEndDate, setRangeEndDate] = useState("");
+  const [customDateInput, setCustomDateInput] = useState("");
+  const [customDateSelections, setCustomDateSelections] = useState<string[]>([]);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -371,16 +386,31 @@ export function CustomTablesEditor({
     };
   }, []);
 
+  const activeFilterDates = useMemo(() => {
+    const rangeDates = rangeStartDate && rangeEndDate
+      ? listDatesInRange(rangeStartDate, rangeEndDate)
+      : [];
+    const merged = new Set<string>();
+    if (scheduleDateIso) merged.add(scheduleDateIso);
+    customDateSelections.forEach((date) => merged.add(date));
+    rangeDates.forEach((date) => merged.add(date));
+    return Array.from(merged).sort();
+  }, [customDateSelections, rangeEndDate, rangeStartDate, scheduleDateIso]);
+
   const visibleCustomTables = useMemo(() => {
-    if (!scheduleDateIso) return customTables;
+    if (!activeFilterDates.length) return customTables;
     return customTables.filter((table) => {
-      const start = table.visibleStart || "";
-      const end = table.visibleEnd || "";
-      if (start && scheduleDateIso < start) return false;
-      if (end && scheduleDateIso > end) return false;
-      return true;
+      const tableDate = table.scheduleDate || "";
+      const start = table.visibleStart || tableDate;
+      const end = table.visibleEnd || tableDate;
+      return activeFilterDates.some((date) => {
+        if (date === tableDate) return true;
+        if (start && date < start) return false;
+        if (end && date > end) return false;
+        return true;
+      });
     });
-  }, [customTables, scheduleDateIso]);
+  }, [activeFilterDates, customTables]);
 
   const loadCustomTables = useCallback(
     async (dateValue?: string | null) => {
@@ -582,6 +612,17 @@ export function CustomTablesEditor({
     window.localStorage.setItem(keybindCacheKey, JSON.stringify({ copy: copyKeybind, paste: pasteKeybind }));
   }, [copyKeybind, keybindCacheKey, pasteKeybind]);
 
+  const addCustomDateSelection = useCallback(() => {
+    const iso = toIsoDateLabel(customDateInput) || customDateInput;
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+    setCustomDateSelections((prev) => Array.from(new Set([...prev, iso])).sort());
+    setCustomDateInput("");
+  }, [customDateInput]);
+
+  const removeCustomDateSelection = useCallback((date: string) => {
+    setCustomDateSelections((prev) => prev.filter((entry) => entry !== date));
+  }, []);
+
   const setSelectedCellValue = useCallback((value: string) => {
     if (!selectedCell) return;
     updateCustomTableState(selectedCell.tableId, (prev) => {
@@ -652,6 +693,38 @@ export function CustomTablesEditor({
           )}
         </div>
       </div>
+
+      {moreActionsOpen && (
+        <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-white/85 p-3 text-xs text-[#4b5133]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">Calendar range filters</p>
+          <p className="mt-1 text-[11px] text-[#6b6f4c]">Select a continuous range and/or add specific date picks (with gaps/spaces).</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.12em]">Range start</span>
+              <input type="date" value={rangeStartDate} onChange={(event) => setRangeStartDate(event.target.value)} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.12em]">Range end</span>
+              <input type="date" value={rangeEndDate} onChange={(event) => setRangeEndDate(event.target.value)} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.12em]">Add date</span>
+              <input type="date" value={customDateInput} onChange={(event) => setCustomDateInput(event.target.value)} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]" />
+            </label>
+            <button type="button" onClick={addCustomDateSelection} className="rounded-md border border-[#d0c9a4] bg-[#f7f4e5] px-2 py-1 text-[11px] font-semibold text-[#4b5133]">Add date</button>
+            <button type="button" onClick={() => { setRangeStartDate(""); setRangeEndDate(""); setCustomDateSelections([]); }} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px] font-semibold text-[#4b5133]">Clear filters</button>
+          </div>
+          {activeFilterDates.length > 1 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {customDateSelections.map((date) => (
+                <button key={date} type="button" onClick={() => removeCustomDateSelection(date)} className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[10px] font-semibold text-[#4b5133]">
+                  {date} ✕
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {moreActionsOpen && (
         <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-white/85 p-3 text-xs text-[#4b5133]">
@@ -1265,21 +1338,14 @@ export function CustomTablesEditor({
                           }) });
                           if (res.ok) { reloadTables(); }
                         }} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]">Copy</button>
-                        <button type="button" onClick={async () => {
-                          const res = await fetch('/api/schedule/custom-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                            scheduleDate: scheduleDateIso || table.scheduleDate || getHawaiiTodayIso(),
-                            title: `${table.title} (Editable Copy)`,
-                            visibleStart: scheduleDateIso || table.scheduleDate || null,
-                            visibleEnd: scheduleDateIso || table.scheduleDate || null,
-                            rowHeaders: table.rowHeaders,
-                            columnHeaders: table.columnHeaders,
-                            cells: table.cells,
-                            rowHeaderType: table.rowHeaderType,
-                            columnHeaderType: table.columnHeaderType,
-                            cellType: table.cellType,
-                          }) });
-                          if (res.ok) { reloadTables(); }
-                        }} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]">Edit</button>
+                        <button type="button" onClick={() => {
+                          setCustomTables((prev) => {
+                            if (prev.some((entry) => entry.id === table.id)) return prev;
+                            return [...prev, table];
+                          });
+                          setCustomTablesDirty((prev) => ({ ...prev, [table.id]: false }));
+                          setPastTablesOpen(false);
+                        }} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]">Edit directly</button>
                         <button type="button" onClick={() => handleDeleteCustomTable(table.id)} className="rounded-full border border-red-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700">Delete</button>
                       </div>
                     )}
