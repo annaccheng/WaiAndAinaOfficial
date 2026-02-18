@@ -112,6 +112,7 @@ const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
 const SCHEDULE_COLUMN_WIDTH_CACHE_KEY = "admin-schedule-column-width";
 const SCHEDULE_DOCK_SIZE_CACHE_KEY = "admin-schedule-dock-size";
 const SCHEDULE_SECTION_VISIBILITY_KEY = "admin-schedule-section-visibility";
+const YESTERDAY_OVERVIEW_VISIBILITY_KEY = "admin-schedule-yesterday-overview-visible";
 const AFK_TIMEOUT_MS = 20_000;
 
 function typeColorClasses(color?: string) {
@@ -334,6 +335,7 @@ export default function AdminScheduleEditorPage() {
   const [expandedOverviewTasks, setExpandedOverviewTasks] = useState<Set<string>>(new Set());
   const [dayOverviewCommentsByTask, setDayOverviewCommentsByTask] = useState<Record<string, TaskCommentPreview[]>>({});
   const [dayOverviewCommentsLoading, setDayOverviewCommentsLoading] = useState<Set<string>>(new Set());
+  const [yesterdayOverviewVisible, setYesterdayOverviewVisible] = useState(true);
   const taskEditLastSavedSignatureRef = useRef<string>("");
   const taskEditAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
@@ -615,6 +617,18 @@ export default function AdminScheduleEditorPage() {
       console.warn("Failed to save section visibility cache", err);
     }
   }, [sectionVisibility]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(YESTERDAY_OVERVIEW_VISIBILITY_KEY);
+    if (cached === "true") setYesterdayOverviewVisible(true);
+    if (cached === "false") setYesterdayOverviewVisible(false);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(YESTERDAY_OVERVIEW_VISIBILITY_KEY, String(yesterdayOverviewVisible));
+  }, [yesterdayOverviewVisible]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1447,6 +1461,24 @@ export default function AdminScheduleEditorPage() {
     () => dayOverviewSummary?.oneOffTasks ?? [],
     [dayOverviewSummary]
   );
+  const dayOverviewAnalytics = useMemo(() => {
+    if (!dayOverviewSummary) return null;
+    const completionRate = dayOverviewSummary.total
+      ? Math.round((dayOverviewSummary.completed / dayOverviewSummary.total) * 100)
+      : 0;
+    const recurringShare = dayOverviewSummary.total
+      ? Math.round((dayOverviewSummary.recurringTasks.length / dayOverviewSummary.total) * 100)
+      : 0;
+    const commentTaskCount = dayOverviewSummary.tasks.filter(
+      (task) => task.id && (taskCommentCache[task.id] || 0) > 0
+    ).length;
+    const totalCommentCount = dayOverviewSummary.tasks.reduce(
+      (sum, task) => sum + (task.id ? taskCommentCache[task.id] || 0 : 0),
+      0
+    );
+    return { completionRate, recurringShare, commentTaskCount, totalCommentCount };
+  }, [dayOverviewSummary, taskCommentCache]);
+
   const yesterdayOpenRecurring = useMemo(() => {
     if (!yesterdayOverviewSummary) return [];
     return yesterdayOverviewSummary.recurringTasks.filter(
@@ -5412,7 +5444,16 @@ export default function AdminScheduleEditorPage() {
                     <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                            <button
+                              type="button"
+                              onClick={() => setYesterdayOverviewVisible((prev) => !prev)}
+                              className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                            >
+                              {yesterdayOverviewVisible ? "Collapse" : "Expand"}
+                            </button>
+                          </div>
                           <p className="text-[11px] text-[#6a6c4d]">
                             Outstanding tasks from {yesterdayLabel || "yesterday"}.
                           </p>
@@ -5426,7 +5467,8 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-col gap-3">
+                      {yesterdayOverviewVisible ? (
+                        <div className="mt-3 flex flex-col gap-3">
                         {yesterdayLoading ? (
                           <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
                         ) : yesterdayOpenRecurring.length || yesterdayOpenOneOff.length ? (
@@ -5529,6 +5571,9 @@ export default function AdminScheduleEditorPage() {
                           </p>
                         )}
                       </div>
+                      ) : (
+                        <p className="mt-3 text-[11px] text-[#7a7f54]">Yesterday overview is collapsed. Use Expand to review carry-over tasks.</p>
+                      )}
                     </div>
                   )}
                   {dayOverviewSummary && (
@@ -5552,6 +5597,26 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
+                      {dayOverviewAnalytics && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                          <div className="rounded-lg border border-[#d0c9a4] bg-[#f9f6e7] px-2 py-2 text-[10px] text-[#4b5133]">
+                            <p className="uppercase tracking-[0.12em] text-[#7a7f54]">Completion</p>
+                            <p className="mt-1 text-sm font-semibold text-[#314123]">{dayOverviewAnalytics.completionRate}%</p>
+                          </div>
+                          <div className="rounded-lg border border-[#d0c9a4] bg-[#f9f6e7] px-2 py-2 text-[10px] text-[#4b5133]">
+                            <p className="uppercase tracking-[0.12em] text-[#7a7f54]">Recurring mix</p>
+                            <p className="mt-1 text-sm font-semibold text-[#314123]">{dayOverviewAnalytics.recurringShare}% recurring</p>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] text-amber-900">
+                            <p className="uppercase tracking-[0.12em]">Tasks w/ comments</p>
+                            <p className="mt-1 text-sm font-semibold">{dayOverviewAnalytics.commentTaskCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] text-amber-900">
+                            <p className="uppercase tracking-[0.12em]">Total comments</p>
+                            <p className="mt-1 text-sm font-semibold">{dayOverviewAnalytics.totalCommentCount}</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-3 flex flex-col gap-3">
                         {dayOverviewSummary.tasks.length ? (
                           <>
@@ -5563,8 +5628,8 @@ export default function AdminScheduleEditorPage() {
                                 </span>
                               </div>
                               <div className="mt-2 flex flex-col gap-2">
-                                {dayOverviewOneOff.length ? (
-                                  dayOverviewOneOff.map((task) => {
+                                {dayOverviewRecurring.length ? (
+                                  dayOverviewRecurring.map((task) => {
                                     const commentCount = task.id ? taskCommentCache[task.id] || 0 : 0;
                                     const isExpanded = task.id ? expandedOverviewTasks.has(task.id) : false;
                                     const comments = task.id ? dayOverviewCommentsByTask[task.id] || [] : [];
@@ -5576,7 +5641,12 @@ export default function AdminScheduleEditorPage() {
                                           onClick={() => task.id && loadTaskDetail(task.id, task.name)}
                                           className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
                                         >
-                                          <span className="truncate font-semibold">{task.name}</span>
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate font-semibold">{task.name}</span>
+                                            {commentCount > 0 && (
+                                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-[2px] text-[9px] font-bold uppercase text-amber-900">💬 {commentCount}</span>
+                                            )}
+                                          </div>
                                           <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
                                             {task.status || "Not Started"}
                                           </span>
@@ -5649,7 +5719,12 @@ export default function AdminScheduleEditorPage() {
                                           onClick={() => task.id && loadTaskDetail(task.id, task.name)}
                                           className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
                                         >
-                                          <span className="truncate font-semibold">{task.name}</span>
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate font-semibold">{task.name}</span>
+                                            {commentCount > 0 && (
+                                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-[2px] text-[9px] font-bold uppercase text-amber-900">💬 {commentCount}</span>
+                                            )}
+                                          </div>
                                           <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
                                             {task.status || "Not Started"}
                                           </span>
