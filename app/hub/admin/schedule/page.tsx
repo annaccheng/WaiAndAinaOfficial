@@ -91,6 +91,8 @@ type IndicatorRule = {
   type: IndicatorRuleType;
   value?: string;
 };
+type TaskCommentPreview = { id: string; text: string; createdTime: string; author: string };
+
 type DayOverviewSummary = {
   tasks: OverviewTaskEntry[];
   recurringTasks: OverviewTaskEntry[];
@@ -327,6 +329,11 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [taskEditApplyTo, setTaskEditApplyTo] = useState<"single" | "all" | "future">("single");
+  const [taskEditFutureDate, setTaskEditFutureDate] = useState("");
+  const [expandedOverviewTasks, setExpandedOverviewTasks] = useState<Set<string>>(new Set());
+  const [dayOverviewCommentsByTask, setDayOverviewCommentsByTask] = useState<Record<string, TaskCommentPreview[]>>({});
+  const [dayOverviewCommentsLoading, setDayOverviewCommentsLoading] = useState<Set<string>>(new Set());
   const taskEditLastSavedSignatureRef = useRef<string>("");
   const taskEditAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
@@ -3082,6 +3089,9 @@ export default function AdminScheduleEditorPage() {
         links: normalizedLinks,
       };
       setTaskEditDraft(nextDraft);
+      setTaskEditApplyTo("single");
+      setTaskEditFutureDate(detail.occurrenceDate || selectedDate || "");
+      setExpandedOverviewTasks(new Set());
       taskEditLastSavedSignatureRef.current = getTaskEditSignature(nextDraft, detail.id);
       setTaskEditMessage("Saved");
     } catch (err) {
@@ -3174,8 +3184,12 @@ export default function AdminScheduleEditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: taskDetail.id,
-          applyTo: "single",
-          occurrenceDate: taskDetail.occurrenceDate || null,
+          applyTo:
+            taskDetail.recurring || taskDetail.parentTaskId ? taskEditApplyTo : "single",
+          occurrenceDate:
+            taskEditApplyTo === "future"
+              ? taskEditFutureDate || taskDetail.occurrenceDate || null
+              : taskDetail.occurrenceDate || null,
           name: trimmedName || taskDetail.name,
           description: taskEditDraft.description.trim(),
           extra_notes: notesList,
@@ -3254,7 +3268,7 @@ export default function AdminScheduleEditorPage() {
         clearTimeout(taskEditAutoSaveTimerRef.current);
       }
     };
-  }, [getTaskEditSignature, saveTaskEdits, taskDetail?.id, taskEditDraft]);
+  }, [getTaskEditSignature, saveTaskEdits, taskDetail?.id, taskEditDraft, taskEditApplyTo, taskEditFutureDate]);
 
   const updateTaskNameInState = useCallback((taskId: string, name: string) => {
     setScheduleData((prev) => {
@@ -3821,6 +3835,35 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const loadCommentsForOverviewTask = useCallback(async (taskId: string) => {
+    if (!taskId) return;
+    if (dayOverviewCommentsByTask[taskId]) return;
+    setDayOverviewCommentsLoading((prev) => new Set(prev).add(taskId));
+    try {
+      const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load task comments");
+      const comments = Array.isArray(json.comments)
+        ? json.comments.map((comment: any) => ({
+            id: String(comment.id || `${taskId}-${Math.random()}`),
+            text: String(comment.text || ""),
+            createdTime: String(comment.createdTime || ""),
+            author: String(comment.author || "Unknown"),
+          }))
+        : [];
+      setDayOverviewCommentsByTask((prev) => ({ ...prev, [taskId]: comments }));
+    } catch (err) {
+      console.error("Failed to load overview comments", err);
+      setDayOverviewCommentsByTask((prev) => ({ ...prev, [taskId]: [] }));
+    } finally {
+      setDayOverviewCommentsLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  }, [dayOverviewCommentsByTask]);
+
   const taskDetailEditor = taskDetail ? (
     <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-4 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3874,7 +3917,33 @@ export default function AdminScheduleEditorPage() {
             {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
           </p>
           {taskDetail.recurring && (
-            <p>Tip: update just this occurrence to avoid changing the full series.</p>
+            <>
+              <p>Tip: update just this occurrence to avoid changing the full series.</p>
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <p className="font-semibold">⚠️ Recurring task edit scope</p>
+                <p className="mt-1 text-[10px]">Choose whether this edit should affect one task, all tasks, or all tasks after a date.</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "single"} onChange={() => setTaskEditApplyTo("single")} className="accent-[#8fae4c]" />
+                    <span>Only this task</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "all"} onChange={() => setTaskEditApplyTo("all")} className="accent-[#8fae4c]" />
+                    <span>All tasks</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "future"} onChange={() => setTaskEditApplyTo("future")} className="accent-[#8fae4c]" />
+                    <span>All tasks after date</span>
+                  </label>
+                </div>
+                {taskEditApplyTo === "future" && (
+                  <label className="mt-2 inline-flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em]">From</span>
+                    <input type="date" value={taskEditFutureDate} onChange={(e) => setTaskEditFutureDate(e.target.value)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px]" />
+                  </label>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -4050,7 +4119,7 @@ export default function AdminScheduleEditorPage() {
             <div className="space-y-2">
               {taskEditDraft.links.length ? (
                 taskEditDraft.links.map((link, idx) => (
-                  <div key={`${link.label}-${idx}`} className="flex flex-wrap gap-2">
+                  <div key={`task-link-${idx}`} className="flex flex-wrap gap-2">
                     <input
                       value={link.label}
                       onChange={(e) =>
@@ -5494,24 +5563,64 @@ export default function AdminScheduleEditorPage() {
                                 </span>
                               </div>
                               <div className="mt-2 flex flex-col gap-2">
-                                {dayOverviewRecurring.length ? (
-                                  dayOverviewRecurring.map((task) => (
-                                    <button
-                                      key={`${task.name}-day-recurring`}
-                                      type="button"
-                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                                    >
-                                      <span className="truncate font-semibold">{task.name}</span>
-                                      <span
-                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                                          task.status
-                                        )}`}
-                                      >
-                                        {task.status || "Not Started"}
-                                      </span>
-                                    </button>
-                                  ))
+                                {dayOverviewOneOff.length ? (
+                                  dayOverviewOneOff.map((task) => {
+                                    const commentCount = task.id ? taskCommentCache[task.id] || 0 : 0;
+                                    const isExpanded = task.id ? expandedOverviewTasks.has(task.id) : false;
+                                    const comments = task.id ? dayOverviewCommentsByTask[task.id] || [] : [];
+                                    const commentsLoading = task.id ? dayOverviewCommentsLoading.has(task.id) : false;
+                                    return (
+                                      <div key={`${task.name}-day-recurring`} className="rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                          className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
+                                        >
+                                          <span className="truncate font-semibold">{task.name}</span>
+                                          <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
+                                            {task.status || "Not Started"}
+                                          </span>
+                                        </button>
+                                        {task.id && commentCount > 0 && (
+                                          <div className="mt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setExpandedOverviewTasks((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (next.has(task.id!)) {
+                                                    next.delete(task.id!);
+                                                  } else {
+                                                    next.add(task.id!);
+                                                    void loadCommentsForOverviewTask(task.id!);
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              className="text-[10px] font-semibold text-[#3f5b23] underline"
+                                            >
+                                              {isExpanded ? "Hide" : "Show"} comments ({commentCount})
+                                            </button>
+                                            {isExpanded && (
+                                              <div className="mt-1 space-y-1 rounded border border-[#d8d3b4] bg-white p-2 text-[10px] text-[#4b5133]">
+                                                {commentsLoading ? (
+                                                  <p>Loading comments…</p>
+                                                ) : comments.length ? (
+                                                  comments.map((comment) => (
+                                                    <p key={comment.id}>
+                                                      <span className="font-semibold">{comment.author}:</span> {comment.text}
+                                                    </p>
+                                                  ))
+                                                ) : (
+                                                  <p>No comments found.</p>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })
                                 ) : (
                                   <p className="text-[11px] text-[#7a7f54]">
                                     No recurring tasks listed yet.
@@ -5528,23 +5637,63 @@ export default function AdminScheduleEditorPage() {
                               </div>
                               <div className="mt-2 flex flex-col gap-2">
                                 {dayOverviewOneOff.length ? (
-                                  dayOverviewOneOff.map((task) => (
-                                    <button
-                                      key={`${task.name}-day-oneoff`}
-                                      type="button"
-                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                                    >
-                                      <span className="truncate font-semibold">{task.name}</span>
-                                      <span
-                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                                          task.status
-                                        )}`}
-                                      >
-                                        {task.status || "Not Started"}
-                                      </span>
-                                    </button>
-                                  ))
+                                  dayOverviewOneOff.map((task) => {
+                                    const commentCount = task.id ? taskCommentCache[task.id] || 0 : 0;
+                                    const isExpanded = task.id ? expandedOverviewTasks.has(task.id) : false;
+                                    const comments = task.id ? dayOverviewCommentsByTask[task.id] || [] : [];
+                                    const commentsLoading = task.id ? dayOverviewCommentsLoading.has(task.id) : false;
+                                    return (
+                                      <div key={`${task.name}-day-oneoff`} className="rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                          className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
+                                        >
+                                          <span className="truncate font-semibold">{task.name}</span>
+                                          <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
+                                            {task.status || "Not Started"}
+                                          </span>
+                                        </button>
+                                        {task.id && commentCount > 0 && (
+                                          <div className="mt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setExpandedOverviewTasks((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (next.has(task.id!)) {
+                                                    next.delete(task.id!);
+                                                  } else {
+                                                    next.add(task.id!);
+                                                    void loadCommentsForOverviewTask(task.id!);
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              className="text-[10px] font-semibold text-[#3f5b23] underline"
+                                            >
+                                              {isExpanded ? "Hide" : "Show"} comments ({commentCount})
+                                            </button>
+                                            {isExpanded && (
+                                              <div className="mt-1 space-y-1 rounded border border-[#d8d3b4] bg-white p-2 text-[10px] text-[#4b5133]">
+                                                {commentsLoading ? (
+                                                  <p>Loading comments…</p>
+                                                ) : comments.length ? (
+                                                  comments.map((comment) => (
+                                                    <p key={comment.id}>
+                                                      <span className="font-semibold">{comment.author}:</span> {comment.text}
+                                                    </p>
+                                                  ))
+                                                ) : (
+                                                  <p>No comments found.</p>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })
                                 ) : (
                                   <p className="text-[11px] text-[#7a7f54]">
                                     No one-off tasks listed yet.

@@ -128,16 +128,16 @@ export async function POST(req: Request) {
   const title = String(body?.title || "Custom Table");
   const visibleStart = toIsoDate(body?.visibleStart) || scheduleDate;
   const visibleEnd = toIsoDate(body?.visibleEnd) || scheduleDate;
+  const rowHeaders = Array.isArray(body?.rowHeaders) ? body.rowHeaders : buildDefaultHeaders("Row", DEFAULT_ROWS);
+  const columnHeaders = Array.isArray(body?.columnHeaders) ? body.columnHeaders : buildDefaultHeaders("Column", DEFAULT_COLUMNS);
+  const providedCells = Array.isArray(body?.cells) ? body.cells : null;
+  const cells = providedCells || buildEmptyCells(rowHeaders.length || DEFAULT_ROWS, columnHeaders.length || DEFAULT_COLUMNS);
 
   if (!scheduleDate) {
     return NextResponse.json({ error: "Missing schedule date" }, { status: 400 });
   }
 
   try {
-    const rowHeaders = buildDefaultHeaders("Row", DEFAULT_ROWS);
-    const columnHeaders = buildDefaultHeaders("Column", DEFAULT_COLUMNS);
-    const cells = buildEmptyCells(DEFAULT_ROWS, DEFAULT_COLUMNS);
-
     const data = await supabaseRequest<CustomTableRow[]>(TABLE_NAME, {
       method: "POST",
       prefer: "return=representation",
@@ -149,9 +149,9 @@ export async function POST(req: Request) {
         row_headers: rowHeaders,
         column_headers: columnHeaders,
         cells,
-        row_header_type: "text",
-        column_header_type: "text",
-        cell_type: "user",
+        row_header_type: typeof body?.rowHeaderType === "string" ? body.rowHeaderType : "text",
+        column_header_type: typeof body?.columnHeaderType === "string" ? body.columnHeaderType : "text",
+        cell_type: typeof body?.cellType === "string" ? body.cellType : "user",
       },
     });
 

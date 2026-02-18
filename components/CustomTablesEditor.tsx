@@ -229,6 +229,34 @@ function addDaysIso(dateValue: string, days: number) {
   return parsed.toISOString().slice(0, 10);
 }
 
+
+const DEFAULT_KEYBINDS = {
+  copy: "Ctrl/Cmd+C",
+  paste: "Ctrl/Cmd+V",
+};
+
+function normalizeKeybind(value: string, fallback: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  const compact = trimmed.replace(/\s+/g, "");
+  return compact.toUpperCase();
+}
+
+function matchesKeybind(event: KeyboardEvent, keybind: string) {
+  const normalized = keybind.toUpperCase();
+  const usesCtrl = normalized.includes("CTRL");
+  const usesCmd = normalized.includes("CMD") || normalized.includes("META");
+  const usesShift = normalized.includes("SHIFT");
+  const usesAlt = normalized.includes("ALT") || normalized.includes("OPTION");
+  const matchKey = normalized.split("+").pop()?.toLowerCase() || "";
+  const key = event.key.toLowerCase();
+  const hasPrimary = usesCtrl || usesCmd;
+  const primaryPressed = usesCtrl ? event.ctrlKey : usesCmd ? event.metaKey : (event.ctrlKey || event.metaKey);
+  if (hasPrimary && !primaryPressed) return false;
+  if (usesShift !== event.shiftKey) return false;
+  if (usesAlt !== event.altKey) return false;
+  return Boolean(matchKey) && key === matchKey;
+}
 export function CustomTablesEditor({
   dateLabel,
   canEdit,
@@ -254,6 +282,10 @@ export function CustomTablesEditor({
   const [pastTablesOpen, setPastTablesOpen] = useState(false);
   const [pastTablesLoaded, setPastTablesLoaded] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ tableId: string; rowIdx: number; colIdx: number } | null>(null);
+  const keybindCacheKey = useMemo(() => `custom-table-keybinds-${(currentUserName || "guest").toLowerCase()}`, [currentUserName]);
+  const [copyKeybind, setCopyKeybind] = useState(DEFAULT_KEYBINDS.copy);
+  const [pasteKeybind, setPasteKeybind] = useState(DEFAULT_KEYBINDS.paste);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -531,6 +563,25 @@ export function CustomTablesEditor({
   }, [loadPastTables, pastTablesLoaded, pastTablesOpen, showPastTables]);
 
 
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const cached = window.localStorage.getItem(keybindCacheKey);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as { copy?: string; paste?: string };
+      setCopyKeybind(normalizeKeybind(parsed.copy || DEFAULT_KEYBINDS.copy, DEFAULT_KEYBINDS.copy));
+      setPasteKeybind(normalizeKeybind(parsed.paste || DEFAULT_KEYBINDS.paste, DEFAULT_KEYBINDS.paste));
+    } catch (err) {
+      console.warn("Failed to load custom table keybinds", err);
+    }
+  }, [keybindCacheKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(keybindCacheKey, JSON.stringify({ copy: copyKeybind, paste: pasteKeybind }));
+  }, [copyKeybind, keybindCacheKey, pasteKeybind]);
+
   const setSelectedCellValue = useCallback((value: string) => {
     if (!selectedCell) return;
     updateCustomTableState(selectedCell.tableId, (prev) => {
@@ -548,18 +599,14 @@ export function CustomTablesEditor({
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
         return;
       }
-      const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
-      if (!modifierPressed) return;
-      const key = event.key.toLowerCase();
-      if (key === "c") {
+      if (matchesKeybind(event, copyKeybind)) {
         const table = customTables.find((entry) => entry.id === selectedCell.tableId);
         const value = table?.cells?.[selectedCell.rowIdx]?.[selectedCell.colIdx] ?? "";
         void navigator.clipboard?.writeText(value);
         event.preventDefault();
         return;
       }
-      if (key === "v") {
+      if (matchesKeybind(event, pasteKeybind)) {
         void navigator.clipboard?.readText().then((value) => setSelectedCellValue(value || ""));
         event.preventDefault();
       }
@@ -567,7 +614,7 @@ export function CustomTablesEditor({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [customTables, selectedCell, setSelectedCellValue]);
+  }, [copyKeybind, customTables, pasteKeybind, selectedCell, setSelectedCellValue]);
 
   return (
     <section className="mt-10 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
@@ -586,6 +633,13 @@ export function CustomTablesEditor({
           >
             Refresh
           </button>
+          <button
+            type="button"
+            onClick={() => setMoreActionsOpen((prev) => !prev)}
+            className="rounded-full border border-[#d0c9a4] bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm"
+          >
+            More actions
+          </button>
           {canEditCustomTables && (
             <button
               type="button"
@@ -598,6 +652,23 @@ export function CustomTablesEditor({
           )}
         </div>
       </div>
+
+      {moreActionsOpen && (
+        <div className="mt-3 rounded-lg border border-dashed border-[#d0c9a4] bg-white/85 p-3 text-xs text-[#4b5133]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">Custom keybinds</p>
+          <p className="mt-1 text-[11px] text-[#6b6f4c]">Set table cell copy/paste shortcuts. Saved in your browser cache.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.12em]">Copy</span>
+              <input value={copyKeybind} onChange={(event) => setCopyKeybind(normalizeKeybind(event.target.value, DEFAULT_KEYBINDS.copy))} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]" placeholder="Ctrl/Cmd+C" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.12em]">Paste</span>
+              <input value={pasteKeybind} onChange={(event) => setPasteKeybind(normalizeKeybind(event.target.value, DEFAULT_KEYBINDS.paste))} className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]" placeholder="Ctrl/Cmd+V" />
+            </label>
+          </div>
+        </div>
+      )}
 
       {customTablesLoading && (
         <p className="mt-3 text-sm text-[#7a7f54]">Loading custom tables…</p>
@@ -834,7 +905,7 @@ export function CustomTablesEditor({
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
                     <tr>
-                      <th className="min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                      <th className="sticky left-0 z-20 min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
                         {rowHeaderType === "user"
                           ? "Users"
                           : rowHeaderType === "task"
@@ -974,7 +1045,7 @@ export function CustomTablesEditor({
                           setDraggingRow(null);
                         }}
                       >
-                        <th className="border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
+                        <th className="sticky left-0 z-10 border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
                           {canEditCustomTables ? (
                             <div className="flex items-center gap-2">
                               <button
@@ -1177,12 +1248,47 @@ export function CustomTablesEditor({
                         {table.visibleEnd || table.scheduleDate || "n/a"}
                       </p>
                     </div>
+                    {canEditCustomTables && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={async () => {
+                          const res = await fetch('/api/schedule/custom-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                            scheduleDate: scheduleDateIso || table.scheduleDate || getHawaiiTodayIso(),
+                            title: `${table.title} (Copy)`,
+                            visibleStart: table.visibleStart || scheduleDateIso || table.scheduleDate || null,
+                            visibleEnd: table.visibleEnd || scheduleDateIso || table.scheduleDate || null,
+                            rowHeaders: table.rowHeaders,
+                            columnHeaders: table.columnHeaders,
+                            cells: table.cells,
+                            rowHeaderType: table.rowHeaderType,
+                            columnHeaderType: table.columnHeaderType,
+                            cellType: table.cellType,
+                          }) });
+                          if (res.ok) { reloadTables(); }
+                        }} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]">Copy</button>
+                        <button type="button" onClick={async () => {
+                          const res = await fetch('/api/schedule/custom-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                            scheduleDate: scheduleDateIso || table.scheduleDate || getHawaiiTodayIso(),
+                            title: `${table.title} (Editable Copy)`,
+                            visibleStart: scheduleDateIso || table.scheduleDate || null,
+                            visibleEnd: scheduleDateIso || table.scheduleDate || null,
+                            rowHeaders: table.rowHeaders,
+                            columnHeaders: table.columnHeaders,
+                            cells: table.cells,
+                            rowHeaderType: table.rowHeaderType,
+                            columnHeaderType: table.columnHeaderType,
+                            cellType: table.cellType,
+                          }) });
+                          if (res.ok) { reloadTables(); }
+                        }} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]">Edit</button>
+                        <button type="button" onClick={() => handleDeleteCustomTable(table.id)} className="rounded-full border border-red-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700">Delete</button>
+                      </div>
+                    )}
                   </div>
                   <div className="mt-3 overflow-x-auto overflow-y-visible">
                     <table className="min-w-full border-collapse text-sm">
                       <thead>
                         <tr>
-                          <th className="min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                          <th className="sticky left-0 z-20 min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
                             {table.rowHeaderType === "user"
                               ? "Users"
                               : table.rowHeaderType === "task"
@@ -1204,7 +1310,7 @@ export function CustomTablesEditor({
                       <tbody>
                         {table.rowHeaders.map((rowHeader, rowIdx) => (
                           <tr key={`past-${table.id}-row-${rowIdx}`}>
-                            <th className="border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
+                            <th className="sticky left-0 z-10 border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
                               <span className="text-[12px] font-semibold text-[#3b4224]">
                                 {rowHeader}
                               </span>
