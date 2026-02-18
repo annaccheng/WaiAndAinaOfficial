@@ -167,6 +167,32 @@ function countCommentsForDate(comments: unknown, targetIso: string) {
   }, 0);
 }
 
+
+function normalizeCustomKeybind(value: string, fallback: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.replace(/\s+/g, "").toUpperCase();
+}
+
+function matchesCustomKeybind(event: KeyboardEvent, keybind: string) {
+  const normalized = keybind.toUpperCase();
+  const usesCtrl = normalized.includes("CTRL");
+  const usesCmd = normalized.includes("CMD") || normalized.includes("META");
+  const usesShift = normalized.includes("SHIFT");
+  const usesAlt = normalized.includes("ALT") || normalized.includes("OPTION");
+  const matchKey = normalized.split("+").pop()?.toLowerCase() || "";
+  const hasPrimary = usesCtrl || usesCmd;
+  const primaryPressed = usesCtrl
+    ? event.ctrlKey
+    : usesCmd
+      ? event.metaKey
+      : event.ctrlKey || event.metaKey;
+  if (hasPrimary && !primaryPressed) return false;
+  if (usesShift !== event.shiftKey) return false;
+  if (usesAlt !== event.altKey) return false;
+  return Boolean(matchKey) && event.key.toLowerCase() === matchKey;
+}
+
 function parseEstimatedHours(value?: string | null) {
   if (!value) return DEFAULT_SHIFT_HOURS;
   const match = String(value).match(/[\d.]+/);
@@ -357,6 +383,8 @@ export default function AdminScheduleEditorPage() {
   const [dayOverviewCommentsByTask, setDayOverviewCommentsByTask] = useState<Record<string, TaskCommentPreview[]>>({});
   const [dayOverviewCommentsLoading, setDayOverviewCommentsLoading] = useState<Set<string>>(new Set());
   const [yesterdayOverviewVisible, setYesterdayOverviewVisible] = useState(true);
+  const [canvasCopyKeybind, setCanvasCopyKeybind] = useState("Ctrl/Cmd+C");
+  const [canvasPasteKeybind, setCanvasPasteKeybind] = useState("Ctrl/Cmd+V");
   const taskEditLastSavedSignatureRef = useRef<string>("");
   const taskEditAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
@@ -645,6 +673,24 @@ export default function AdminScheduleEditorPage() {
     if (cached === "true") setYesterdayOverviewVisible(true);
     if (cached === "false") setYesterdayOverviewVisible(false);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const key = `custom-table-keybinds-${(currentUserName || "guest").toLowerCase()}`;
+      const cached = localStorage.getItem(key);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as { copy?: string; paste?: string };
+      setCanvasCopyKeybind(
+        normalizeCustomKeybind(parsed.copy || "Ctrl/Cmd+C", "Ctrl/Cmd+C")
+      );
+      setCanvasPasteKeybind(
+        normalizeCustomKeybind(parsed.paste || "Ctrl/Cmd+V", "Ctrl/Cmd+V")
+      );
+    } catch (err) {
+      console.warn("Failed to parse shared keybind cache", err);
+    }
+  }, [currentUserName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2797,21 +2843,7 @@ export default function AdminScheduleEditorPage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      const isMac =
-        typeof navigator !== "undefined" &&
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (modifierPressed && event.shiftKey && key === "c" && selectedCell) {
-        handleCopyCell();
-        event.preventDefault();
-        return;
-      }
-      if (modifierPressed && event.shiftKey && key === "v" && selectedCell) {
-        handlePasteCell();
-        event.preventDefault();
-        return;
-      }
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
@@ -2824,6 +2856,20 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
+      if (selectedCell && matchesCustomKeybind(event, canvasCopyKeybind)) {
+        handleCopyCell();
+        event.preventDefault();
+        return;
+      }
+      if (selectedCell && matchesCustomKeybind(event, canvasPasteKeybind)) {
+        handlePasteCell();
+        event.preventDefault();
+        return;
+      }
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       if (!modifierPressed) return;
       if (key === "z") {
         if (event.shiftKey) {
@@ -2853,6 +2899,8 @@ export default function AdminScheduleEditorPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    canvasCopyKeybind,
+    canvasPasteKeybind,
     cellClipboard,
     handleCopyCell,
     handlePasteCell,
@@ -4861,6 +4909,7 @@ export default function AdminScheduleEditorPage() {
               <li>Shift + click to select a range of cells.</li>
               <li>Double-click a task to rename it inline.</li>
               <li>Press Esc to cancel inline editing.</li>
+              <li>Copy/Paste keybinds mirror Custom Tables settings (site-wide for canvas + custom tables).</li>
             </ul>
           </details>
 
