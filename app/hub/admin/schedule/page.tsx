@@ -146,6 +146,27 @@ function statusBadgeClasses(status?: string) {
   return "border-[#d0c9a4] bg-[#f6f1dd] text-[#4b5133]";
 }
 
+
+function normalizeCommentDate(value: unknown) {
+  if (!value) return "";
+  const raw = String(value);
+  const isoMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
+  if (isoMatch) return isoMatch[0];
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function countCommentsForDate(comments: unknown, targetIso: string) {
+  if (!targetIso || !Array.isArray(comments)) return 0;
+  return comments.reduce((count, comment) => {
+    if (!comment || typeof comment !== "object") return count;
+    const created = (comment as { createdTime?: unknown; time?: unknown }).createdTime ??
+      (comment as { createdTime?: unknown; time?: unknown }).time;
+    return normalizeCommentDate(created) === targetIso ? count + 1 : count;
+  }, 0);
+}
+
 function parseEstimatedHours(value?: string | null) {
   if (!value) return DEFAULT_SHIFT_HOURS;
   const match = String(value).match(/[\d.]+/);
@@ -984,6 +1005,7 @@ export default function AdminScheduleEditorPage() {
     const loadTaskDocks = async () => {
       try {
         const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+        const activeCommentDate = dateParam || new Date().toISOString().slice(0, 10);
         const recurringPromise = selectedDate
           ? fetch(
               `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
@@ -1008,7 +1030,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, activeCommentDate),
           }));
           setRecurringTasks(items);
         } else if (!cancelled && !selectedDate) {
@@ -1030,7 +1052,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, activeCommentDate),
           }));
           setOneOffTasks(items);
         }
@@ -1091,7 +1113,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, dateParam),
           }));
           setYesterdayRecurringTasks(items);
         } else {
@@ -4569,80 +4591,9 @@ export default function AdminScheduleEditorPage() {
               ))}
             </select>
           </label>
-          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Copy from
-              </span>
-              <input
-                type="date"
-                value={copySourceDate ? formatLabelToInput(copySourceDate) : ""}
-                onChange={(e) => setCopySourceDate(formatDateInput(e.target.value))}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Copy to
-              </span>
-              <input
-                type="date"
-                value={copyTargetDate ? formatLabelToInput(copyTargetDate) : ""}
-                onChange={(e) => setCopyTargetDate(formatDateInput(e.target.value))}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={copySchedule}
-              disabled={copyingSchedule || scheduleMode !== "page"}
-              className="h-8 rounded-md bg-[#6f8f3d] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
-            >
-              {copyingSchedule ? "Copying…" : "Copy schedule"}
-            </button>
-          </div>
-          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Blackout from
-              </span>
-              <input
-                type="date"
-                value={blackoutRangeStart}
-                onChange={(e) => setBlackoutRangeStart(e.target.value)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Blackout to
-              </span>
-              <input
-                type="date"
-                value={blackoutRangeEnd}
-                onChange={(e) => setBlackoutRangeEnd(e.target.value)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={applyBlackoutRange}
-              disabled={blackoutApplying}
-              className="h-8 rounded-md bg-[#2f3b21] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
-            >
-              {blackoutApplying ? "Applying…" : "Apply blackout range"}
-            </button>
-          </div>
           <span className="rounded-full bg-[#f0f4de] px-3 py-2 text-[11px] font-semibold text-[#4b5133]">
             Volunteers auto-sync from the Users database
           </span>
-          {blackoutMode && (
-            <span className="rounded-full bg-[#2f3b21] px-3 py-2 text-[11px] font-semibold text-white">
-              Blackout mode active: click cells to block or unblock.
-            </span>
-          )}
         </div>
       </div>
 
