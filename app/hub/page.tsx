@@ -114,7 +114,7 @@ type CustomTable = {
   cellType: "user" | "task" | "text";
 };
 
-const TASK_SEPARATOR_REGEX = /\s*•\s*/;
+const TASK_SEPARATOR_REGEX = /\s*[•·]\s*/;
 
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
@@ -134,7 +134,11 @@ function splitCellTasks(cell: string): string[] {
 }
 
 function taskBaseName(task: string): string {
-  return task.split("\n")[0].trim();
+  const firstLine = task.split("\n")[0] || "";
+  return firstLine
+    .split(TASK_SEPARATOR_REGEX)[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
 }
 
 function toIsoDateLabel(dateLabel?: string | null) {
@@ -268,6 +272,26 @@ function getHawaiiTimeParts() {
   return { dateLabel, hour, minute };
 }
 
+function parseReportTimeToMinutes(raw?: string | null) {
+  const value = String(raw || "").trim();
+  if (!value) return 14 * 60 + 30;
+
+  const hhmm = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    return Number(hhmm[1]) * 60 + Number(hhmm[2]);
+  }
+
+  const ampm = value.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (ampm) {
+    let hour = Number(ampm[1]) % 12;
+    const minute = Number(ampm[2] || "0");
+    if (ampm[3].toLowerCase() === "pm") hour += 12;
+    return hour * 60 + minute;
+  }
+
+  return 14 * 60 + 30;
+}
+
 export default function HubSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -337,9 +361,12 @@ export default function HubSchedulePage() {
   const animalFetchInFlight = useRef(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<Record<string, string>>({});
-  const [reportComments, setReportComments] = useState<Record<string, string>>({});
+  const [reportExtraNotes, setReportExtraNotes] = useState("");
+  const [reportRequests, setReportRequests] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [userReportTime, setUserReportTime] = useState<string | null>(null);
+  const [reportSubmittedToday, setReportSubmittedToday] = useState(false);
   const reportEnabled = true;
 
   useEffect(() => {
@@ -377,6 +404,15 @@ export default function HubSchedulePage() {
   ] as const;
 
   const scheduleDateLabel = data?.scheduleDate;
+  const scheduleReportFlag = useMemo(() => {
+    if (!data || !currentUserName) return false;
+    const rowIndex = data.people.findIndex(
+      (p) => p.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (rowIndex === -1) return false;
+    return Boolean(data.reportFlags?.[rowIndex]);
+  }, [data, currentUserName]);
+  const effectiveReportDone = scheduleReportFlag || reportSubmittedToday;
   useEffect(() => {
     weekSchedulesRef.current = weekSchedules;
   }, [weekSchedules]);
@@ -856,59 +892,90 @@ export default function HubSchedulePage() {
   }, []);
 
   useEffect(() => {
+    if (!currentUserName || typeof window === "undefined") return;
+    const key = `daily-update-time-${currentUserName.toLowerCase()}`;
+    const saved = window.localStorage.getItem(key);
+    setUserReportTime(saved || null);
+  }, [currentUserName]);
+
+  useEffect(() => {
+    if (!currentUserName || !scheduleDateLabel) {
+      setReportSubmittedToday(false);
+      return;
+    }
+    let cancelled = false;
+    const dateIso = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    void (async () => {
+      try {
+        const search = new URLSearchParams({ date: dateIso, name: currentUserName });
+        const res = await fetch(`/api/daily-updates?${search.toString()}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const hasSubmitted = Array.isArray(json.updates) && json.updates.length > 0;
+        setReportSubmittedToday(hasSubmitted);
+      } catch {
+        if (!cancelled) setReportSubmittedToday(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserName, scheduleDateLabel]);
+
+  useEffect(() => {
     if (!reportEnabled || !currentUserName) return;
     if (typeof window === "undefined") return;
+    if (effectiveReportDone) {
+      setReportOpen(false);
+      return;
+    }
+
     let cancelled = false;
     const checkTime = () => {
       if (cancelled) return;
       const { dateLabel, hour, minute } = getHawaiiTimeParts();
-      if (hour < 14 || (hour === 14 && minute < 30)) return;
-      if (hour > 22 || (hour === 22 && minute > 0)) {
-        if (reportOpen) setReportOpen(false);
-        return;
-      }
-      const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
-      if (localStorage.getItem(key)) return;
-      localStorage.setItem(key, "1");
+      const scheduleIso = toIsoDateLabel(data?.scheduleDate) || data?.scheduleDate;
+      if (scheduleIso && scheduleIso !== dateLabel) return;
+
+      const nowMinutes = hour * 60 + minute;
+      const targetMinutes = parseReportTimeToMinutes(data?.reportTime || userReportTime);
+      if (nowMinutes < targetMinutes) return;
+
       setReportOpen(true);
     };
+
     checkTime();
     const interval = setInterval(checkTime, 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [currentUserName, reportEnabled, reportOpen]);
+  }, [currentUserName, data?.reportTime, data?.scheduleDate, effectiveReportDone, reportEnabled, userReportTime]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
+    if (effectiveReportDone) {
+      setReportError("Daily report already submitted for today.");
+      return;
+    }
     setReportSubmitting(true);
     setReportError(null);
 
     try {
       const updates = reportRows.map(async (row) => {
-        const base = taskBaseName(row.task);
-        const status = reportStatus[base] || "";
-        const comment = reportComments[base]?.trim() || "";
+        const base = row.base;
+        const status = reportStatus[row.key] || "";
 
         if (status) {
-          await fetch("/api/task", {
+          const statusResponse = await fetch("/api/task", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
           });
-        }
-
-        if (comment) {
-          await fetch("/api/task", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: base,
-              comment: `${currentUserName} : ${comment}`,
-              occurrenceDate: scheduleDateLabel,
-            }),
-          });
+          if (!statusResponse.ok) {
+            throw new Error(`Failed to update status for ${base}`);
+          }
         }
       });
 
@@ -916,42 +983,43 @@ export default function HubSchedulePage() {
 
       const updatesSummary = reportRows
         .map((row) => {
-          const base = taskBaseName(row.task);
-          const status = reportStatus[base] || "";
-          const comment = reportComments[base]?.trim() || "";
-          if (!status && !comment) return "";
-          const pieces = [base];
-          if (status) pieces.push(status);
+          const base = row.base;
+          const status = reportStatus[row.key] || "";
+          if (!status) return "";
+          const pieces = [base, status];
           return pieces.filter(Boolean).join(" - ");
         })
         .filter(Boolean);
-      const commentsSummary = reportRows
-        .map((row) => {
-          const base = taskBaseName(row.task);
-          const comment = reportComments[base]?.trim() || "";
-          if (!comment) return "";
-          return `${base}: ${comment}`;
-        })
-        .filter(Boolean)
-        .join(" | ");
-
-      if (updatesSummary.length || commentsSummary) {
-        await fetch("/api/push/end-of-day", {
+      const normalizedExtraNotes = reportExtraNotes.trim();
+      const normalizedRequests = reportRequests.trim();
+      if (updatesSummary.length || normalizedExtraNotes || normalizedRequests) {
+        const dailyUpdateResponse = await fetch("/api/daily-updates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            authorName: currentUserName,
-            tasks: updatesSummary,
-            comments: commentsSummary,
+            userName: currentUserName,
+            updateDate: scheduleDateLabel,
+            taskStatuses: reportRows.map((row) => ({
+              taskId: row.key,
+              taskName: row.base,
+              status: reportStatus[row.key] || "",
+            })),
+            extraNotes: normalizedExtraNotes,
+            requests: normalizedRequests,
           }),
         });
+        if (!dailyUpdateResponse.ok) {
+          const errorPayload = await dailyUpdateResponse.json().catch(() => ({}));
+          throw new Error(errorPayload?.error || "Failed to save daily update");
+        }
+        setReportSubmittedToday(true);
       }
 
       const rowIndex = data.people.findIndex(
         (p) => p.toLowerCase() === currentUserName.toLowerCase()
       );
       if (rowIndex !== -1) {
-        await fetch("/api/schedule/update", {
+        const scheduleReportRes = await fetch("/api/schedule/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -960,9 +1028,14 @@ export default function HubSchedulePage() {
             reportValue: true,
           }),
         });
+        if (!scheduleReportRes.ok) {
+          console.warn("Schedule report flag update failed; relying on daily_updates record.");
+        }
       }
 
       setReportOpen(false);
+      setReportExtraNotes("");
+      setReportRequests("");
     } catch (err) {
       console.error("Failed to submit report", err);
       setReportError("Unable to submit the report. Please try again.");
@@ -1873,26 +1946,34 @@ export default function HubSchedulePage() {
   }, [currentUserName, myTasks, scheduleDateLabel]);
 
   const reportRows = useMemo(() => {
-    if (!myTasks.length) return [];
-    const unique = new Map<string, { task: string; groupNames: string[] }>();
+    if (!myTasks.length) return [] as {
+      key: string;
+      base: string;
+      task: string;
+      slot: Slot;
+      groupNames: string[];
+    }[];
+
+    const seen = new Set<string>();
+    const rows: {
+      key: string;
+      base: string;
+      task: string;
+      slot: Slot;
+      groupNames: string[];
+    }[] = [];
+
     myTasks.forEach((entry) => {
       const base = taskBaseName(entry.task);
       if (!base) return;
-      if (!unique.has(base)) {
-        unique.set(base, { task: entry.task, groupNames: entry.groupNames });
-      }
+      const key = `${entry.slot.id}::${base}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ key, base, task: entry.task, slot: entry.slot, groupNames: entry.groupNames });
     });
-    return Array.from(unique.values());
-  }, [myTasks]);
 
-  const scheduleReportFlag = useMemo(() => {
-    if (!data || !currentUserName) return false;
-    const rowIndex = data.people.findIndex(
-      (p) => p.toLowerCase() === currentUserName.toLowerCase()
-    );
-    if (rowIndex === -1) return false;
-    return Boolean(data.reportFlags?.[rowIndex]);
-  }, [data, currentUserName]);
+    return rows;
+  }, [myTasks]);
 
   useEffect(() => {
     if (!reportEnabled) {
@@ -1903,38 +1984,14 @@ export default function HubSchedulePage() {
     setReportStatus((prev) => {
       const next = { ...prev };
       reportRows.forEach((row) => {
-        const base = taskBaseName(row.task);
-        if (!next[base]) {
-          next[base] = taskMetaMap[base]?.status || "";
+        if (!next[row.key]) {
+          next[row.key] = taskMetaMap[row.base]?.status || "";
         }
       });
       return next;
     });
   }, [reportRows, taskMetaMap]);
 
-  useEffect(() => {
-    if (!reportEnabled) return;
-    if (!data || !currentUserName || scheduleReportFlag) return;
-    if (!data.scheduleDate) return;
-    const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Pacific/Honolulu",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const timeFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Pacific/Honolulu",
-      hour: "2-digit",
-      hour12: false,
-    });
-    const hawaiiDate = dateFormatter.format(now);
-    const hawaiiHour = Number(timeFormatter.format(now));
-    if (hawaiiDate !== data.scheduleDate) return;
-    if (hawaiiHour >= 14) {
-      setReportOpen(true);
-    }
-  }, [currentUserName, data, scheduleReportFlag]);
 
   // Meal assignments
   const mealAssignments: MealAssignment[] = useMemo(() => {
@@ -2473,6 +2530,20 @@ export default function HubSchedulePage() {
                 <div className="mt-2">{scheduleDateControls}</div>
               </div>
               <div className="flex items-center gap-2">
+                {reportEnabled && !effectiveReportDone && (
+                  <button
+                    type="button"
+                    onClick={() => setReportOpen(true)}
+                    className="rounded-full border border-[#8fae4c] bg-[#eef2d9] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm hover:bg-[#e5ecc6]"
+                  >
+                    Open daily report
+                  </button>
+                )}
+                {reportEnabled && effectiveReportDone && (
+                  <span className="rounded-full border border-[#cdd9a2] bg-[#f3f7df] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#647246]">
+                    Daily report done
+                  </span>
+                )}
                 <div className="relative">
                   <button
                     type="button"
@@ -3117,13 +3188,13 @@ export default function HubSchedulePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.16em] text-[#7a7f54]">
-                  Daily report
+                  Daily updates
                 </p>
                 <h3 className="mt-1 text-xl font-semibold text-[#3e4c24]">
-                  Update today&apos;s tasks
+                  Submit your daily report
                 </h3>
                 <p className="mt-1 text-sm text-[#6b6d4b]">
-                  Quick status updates and notes for today&apos;s assignments.
+                  from the dashboard normal screen.
                 </p>
               </div>
               <button
@@ -3140,19 +3211,16 @@ export default function HubSchedulePage() {
                 <p className="text-sm text-[#7a7f54]">No tasks assigned today.</p>
               )}
               {reportRows.map((row) => {
-                const base = taskBaseName(row.task);
-                const currentStatus = reportStatus[base] || "";
-                const currentComment = reportComments[base] || "";
+                const base = row.base;
+                const currentStatus = reportStatus[row.key] || "";
                 const includesUser = row.groupNames.some(
                   (p) => p.toLowerCase() === (currentUserName || "").toLowerCase()
                 );
-                const slotForTask =
-                  myTasks.find((task) => taskBaseName(task.task) === base)?.slot ||
-                  data?.slots?.[0];
+                const slotForTask = row.slot || data?.slots?.[0];
 
                 return (
                   <div
-                    key={base}
+                    key={row.key}
                     className={`rounded-lg border border-[#e2d7b5] bg-white/80 p-4 shadow-sm ${
                       includesUser ? "ring-2 ring-[#d2e4a0]" : ""
                     }`}
@@ -3178,8 +3246,11 @@ export default function HubSchedulePage() {
                         {row.groupNames.length === 1 ? "person" : "people"}
                       </span>
                     </div>
+                    <p className="mt-1 text-xs text-[#7a7f54]">
+                      {row.slot.label}{row.slot.timeRange ? ` • ${row.slot.timeRange}` : ""}
+                    </p>
 
-                    <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                    <div className="mt-3">
                       <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
                         Status
                         <select
@@ -3187,7 +3258,7 @@ export default function HubSchedulePage() {
                           onChange={(e) =>
                             setReportStatus((prev) => ({
                               ...prev,
-                              [base]: e.target.value,
+                              [row.key]: e.target.value,
                             }))
                           }
                           className="mt-1 w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
@@ -3200,24 +3271,35 @@ export default function HubSchedulePage() {
                           ))}
                         </select>
                       </label>
-                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
-                        Comment
-                        <textarea
-                          value={currentComment}
-                          onChange={(e) =>
-                            setReportComments((prev) => ({
-                              ...prev,
-                              [base]: e.target.value,
-                            }))
-                          }
-                          placeholder="Add a comment for this task"
-                          className="mt-1 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                        />
-                      </label>
                     </div>
                   </div>
                 );
               })}
+            </div>
+
+            <div className="mt-5 space-y-4 rounded-lg border border-[#e2d7b5] bg-white/70 p-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">1) Task status check</p>
+                <p className="mt-1 text-xs text-[#6b6d4b]">Update statuses for each task instance in the cards above.</p>
+              </div>
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                2) Extra Notes
+                <textarea
+                  value={reportExtraNotes}
+                  onChange={(e) => setReportExtraNotes(e.target.value)}
+                  placeholder={"Share details from your day.\n• Wins\n• Blockers"}
+                  className="mt-2 min-h-[96px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
+                />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                3) Request
+                <textarea
+                  value={reportRequests}
+                  onChange={(e) => setReportRequests(e.target.value)}
+                  placeholder={"Anything needed for tomorrow?\n• Supplies\n• Team help"}
+                  className="mt-2 min-h-[96px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
+                />
+              </label>
             </div>
 
             {reportError && (
@@ -3228,15 +3310,15 @@ export default function HubSchedulePage() {
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-[#6b6d4b]">
-                Submitting marks your report complete for today.
+                Submitting marks your daily report complete for today.
               </p>
               <button
                 type="button"
                 onClick={handleReportSubmit}
-                disabled={reportSubmitting}
+                disabled={reportSubmitting || effectiveReportDone}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
-                {reportSubmitting ? "Submitting…" : "Submit report"}
+                {effectiveReportDone ? "Done" : reportSubmitting ? "Submitting…" : "Submit report"}
               </button>
             </div>
           </div>

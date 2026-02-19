@@ -34,7 +34,7 @@ function summarizeFallback(userName: string, statuses: string[], notes: string, 
   const inProgress = statuses.filter((status) => status.toLowerCase() === "in progress").length;
   const workNote = completed
     ? `${userName} completed ${completed} task${completed === 1 ? "" : "s"}`
-    : `${userName} shared today's work update`;
+    : `${userName} shared a daily update`;
   const progressNote = inProgress ? ` and has ${inProgress} in progress` : "";
   const noteSnippet = notes ? ` Notes: ${notes.slice(0, 90)}.` : "";
   const requestSnippet = requests ? ` Request: ${requests.slice(0, 90)}.` : "";
@@ -46,7 +46,7 @@ async function generateSummary(userName: string, statuses: string[], notes: stri
   if (!key) return summarizeFallback(userName, statuses, notes, requests);
 
   try {
-    const prompt = `Create a short push-notification summary (<=180 chars). User: ${userName}. Statuses: ${statuses.join(", ") || "none"}. Extra notes: ${notes || "none"}. Requests: ${requests || "none"}. Keep it positive and general.`;
+    const prompt = `Write one short third-person summary sentence (<=180 chars) for a push notification. Start with the user's name (example: "Colten completed..."). Do not write as a response to the user. User: ${userName}. Statuses: ${statuses.join(", ") || "none"}. Extra notes: ${notes || "none"}. Requests: ${requests || "none"}. Keep it neutral, factual, and concise.`;
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -56,7 +56,7 @@ async function generateSummary(userName: string, statuses: string[], notes: stri
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You generate concise daily update summaries for push notifications." },
+          { role: "system", content: "You generate concise third-person summaries for team push notifications." },
           { role: "user", content: prompt },
         ],
         temperature: 0.3,
@@ -185,14 +185,14 @@ export async function POST(req: Request) {
 
     const users = await supabaseRequest<any[]>("users", {
       query: {
-        select: "display_name,active,user_type",
+        select: "display_name,active,user_role:user_roles(name)",
       },
     });
     const recipients = Array.from(
       new Set(
         (users || [])
           .filter((user) => {
-            const type = String(user?.user_type || "").toLowerCase();
+            const type = String(user?.user_role?.name || "").toLowerCase();
             const isAdmin = type === "admin";
             return Boolean(user?.active) || isAdmin;
           })

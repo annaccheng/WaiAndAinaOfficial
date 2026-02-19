@@ -108,13 +108,20 @@ const baseQuickLinks = [
   },
 ];
 
+
+const TASK_SEPARATOR_REGEX = /\s*[•·,]\s*/;
+
 function isOffPlaceholder(task: string) {
   const base = task.split("\n")[0].trim();
   return base === "-";
 }
 
 function taskBaseName(task: string) {
-  return task.split("\n")[0].trim();
+  const firstLine = task.split("\n")[0] || "";
+  return firstLine
+    .split(TASK_SEPARATOR_REGEX)[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
 }
 
 function toIsoDateLabel(dateLabel?: string | null) {
@@ -131,7 +138,7 @@ function splitCellEntries(cell: string) {
   const [firstLine, ...rest] = cell.split("\n");
   const note = rest.join("\n").trim();
   return firstLine
-    .split(",")
+    .split(TASK_SEPARATOR_REGEX)
     .map((t) => t.trim())
     .filter(Boolean)
     .map((t) => (note ? `${t}\n${note}` : t))
@@ -170,14 +177,7 @@ export default function WorkDashboardPage() {
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
   const [updateFeed, setUpdateFeed] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<"updates" | "tasks">("updates");
-  const [dailyUpdateOpen, setDailyUpdateOpen] = useState(false);
-  const [dailyUpdateSubmitting, setDailyUpdateSubmitting] = useState(false);
-  const [dailyUpdateError, setDailyUpdateError] = useState<string | null>(null);
   const [dailyUpdateSuccess, setDailyUpdateSuccess] = useState<string | null>(null);
-  const [dailyUpdateNotes, setDailyUpdateNotes] = useState("");
-  const [dailyUpdateRequests, setDailyUpdateRequests] = useState("");
-  const [dailyUpdateTaskStatuses, setDailyUpdateTaskStatuses] = useState<DailyUpdateTaskStatus[]>([]);
-  const [dailyUpdateTime, setDailyUpdateTime] = useState("14:00");
   const [dailyUpdatesFeed, setDailyUpdatesFeed] = useState<DailyUpdateEntry[]>([]);
   const previousSnapshotRef = useRef<MiniTask[] | null>(null);
 
@@ -238,13 +238,6 @@ export default function WorkDashboardPage() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeTask]);
-
-  useEffect(() => {
-    if (!name || typeof window === "undefined") return;
-    const key = `daily-update-time-${name.toLowerCase()}`;
-    const cached = window.localStorage.getItem(key);
-    if (cached) setDailyUpdateTime(cached);
-  }, [name]);
 
   useEffect(() => {
     if (!name) {
@@ -439,15 +432,41 @@ export default function WorkDashboardPage() {
     loadMiniSchedule();
   }, [isExternalVolunteer, name]);
 
-  useEffect(() => {
-    if (!name) return;
-    const next = myTasks.map((task) => ({
-      taskId: task.id,
-      taskName: task.name,
-      status: task.status || statusOptions[0] || "Not Started",
-    }));
-    setDailyUpdateTaskStatuses(next);
-  }, [myTasks, name, statusOptions]);
+
+  const openTaskOverlay = (task: MyTask) => {
+    setActiveTask(task);
+    setStatusDraft(task.status || statusOptions[0] || "Not Started");
+    setOverlayMessage(null);
+  };
+
+  const saveStatus = async () => {
+    if (!activeTask?.id || !statusDraft) return;
+    setStatusSaving(true);
+    setOverlayMessage(null);
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: activeTask.id, status: statusDraft }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Unable to save status.");
+
+      setMyTasks((prev) =>
+        prev.map((task) =>
+          task.id === activeTask.id ? { ...task, status: statusDraft } : task
+        )
+      );
+      setActiveTask((prev) => (prev ? { ...prev, status: statusDraft } : prev));
+      setOverlayMessage("Status saved.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save status.";
+      setOverlayMessage(message);
+    } finally {
+      setStatusSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!name) return;
@@ -466,116 +485,7 @@ export default function WorkDashboardPage() {
     void loadFeed();
   }, [name, miniLoading]);
 
-  useEffect(() => {
-    if (!name) return;
-    let cancelled = false;
-    const checkTime = () => {
-      if (cancelled) return;
-      const { dateLabel, hour, minute } = getHawaiiTimeParts();
-      const [targetHourStr, targetMinuteStr] = (dailyUpdateTime || "14:00").split(":");
-      const targetHour = Number(targetHourStr || 14);
-      const targetMinute = Number(targetMinuteStr || 0);
-      const nowMinutes = hour * 60 + minute;
-      const targetMinutes = targetHour * 60 + targetMinute;
-      if (nowMinutes < targetMinutes) return;
 
-      const submittedKey = `daily-update-submitted-${dateLabel}-${name.toLowerCase()}`;
-      if (typeof window !== "undefined" && window.localStorage.getItem(submittedKey)) return;
-      setDailyUpdateOpen(true);
-    };
-
-    checkTime();
-    const interval = setInterval(checkTime, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [dailyUpdateTime, name]);
-
-  const submitDailyUpdate = async () => {
-    if (!name) return;
-    setDailyUpdateSubmitting(true);
-    setDailyUpdateError(null);
-    setDailyUpdateSuccess(null);
-    try {
-      for (const row of dailyUpdateTaskStatuses) {
-        if (!row.taskId || !row.status) continue;
-        await fetch("/api/tasks", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: row.taskId, status: row.status }),
-        });
-      }
-
-      const dateLabel = getHawaiiDateLabel();
-      const dateIso = toIsoDateLabel(dateLabel) || dateLabel;
-      const res = await fetch("/api/daily-updates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userName: name,
-          updateDate: dateIso,
-          taskStatuses: dailyUpdateTaskStatuses,
-          extraNotes: dailyUpdateNotes,
-          requests: dailyUpdateRequests,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Unable to submit daily update.");
-
-      const submittedKey = `daily-update-submitted-${dateLabel}-${name.toLowerCase()}`;
-      if (typeof window !== "undefined") window.localStorage.setItem(submittedKey, "1");
-      setDailyUpdateSuccess("Daily update submitted.");
-      setDailyUpdateOpen(false);
-      setDailyUpdateNotes("");
-      setDailyUpdateRequests("");
-      const feedRes = await fetch(`/api/daily-updates?date=${encodeURIComponent(dateIso)}`);
-      if (feedRes.ok) {
-        const feedJson = await feedRes.json();
-        setDailyUpdatesFeed(Array.isArray(feedJson.updates) ? feedJson.updates : []);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to submit daily update.";
-      setDailyUpdateError(message);
-    } finally {
-      setDailyUpdateSubmitting(false);
-    }
-  };
-
-  const openTaskOverlay = (task: MyTask) => {
-    setActiveTask(task);
-    setStatusDraft(task.status || statusOptions[0] || "");
-    setOverlayMessage(null);
-  };
-
-  const saveStatus = async () => {
-    if (!activeTask?.id) return;
-    setStatusSaving(true);
-    setOverlayMessage(null);
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: activeTask.id, status: statusDraft }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || "Unable to update status");
-      }
-      setMyTasks((prev) =>
-        prev.map((task) =>
-          task.id === activeTask.id ? { ...task, status: statusDraft } : task
-        )
-      );
-      setActiveTask((prev) => (prev ? { ...prev, status: statusDraft } : prev));
-      setOverlayMessage("Status updated.");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to update status.";
-      setOverlayMessage(message);
-    } finally {
-      setStatusSaving(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -634,7 +544,7 @@ export default function WorkDashboardPage() {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <p className="text-xs text-[#4f5730]">
-                Daily report appears automatically as a popup at your configured time.
+                Daily report submission is handled from the Schedule screen popup.
               </p>
               {dailyUpdateSuccess && <span className="text-xs text-[#4f5730]">{dailyUpdateSuccess}</span>}
             </div>
@@ -826,81 +736,6 @@ export default function WorkDashboardPage() {
           </div>
         )}
       </div>
-      {dailyUpdateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-[#ede8d3] px-6 py-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Daily updates</p>
-                <h2 className="text-xl font-semibold text-[#3b4224]">Submit your daily report</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDailyUpdateOpen(false)}
-                className="rounded-full border border-[#d7d2b0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
-              >
-                Close
-              </button>
-            </div>
-            <div className="space-y-4 px-6 py-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">1) Task status check</p>
-                <div className="mt-2 space-y-2">
-                  {dailyUpdateTaskStatuses.length ? dailyUpdateTaskStatuses.map((row, idx) => (
-                    <div key={`${row.taskId || row.taskName}-${idx}`} className="flex items-center justify-between gap-2 rounded-md border border-[#e2dbc0] bg-[#f9f6e7] px-2 py-1">
-                      <span className="text-sm text-[#3b4224] truncate">{row.taskName}</span>
-                      <select
-                        value={row.status}
-                        onChange={(event) =>
-                          setDailyUpdateTaskStatuses((prev) =>
-                            prev.map((entry, entryIdx) =>
-                              entryIdx === idx ? { ...entry, status: event.target.value } : entry
-                            )
-                          )
-                        }
-                        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
-                      >
-                        {(statusOptions.length ? statusOptions : ["Not Started", "In Progress", "Completed"]).map((status) => (
-                          <option key={status} value={status}>{status}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )) : <p className="text-xs text-[#6f754f]">No assigned tasks for today.</p>}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">2) Extra Notes</p>
-                <textarea
-                  value={dailyUpdateNotes}
-                  onChange={(event) => setDailyUpdateNotes(event.target.value)}
-                  className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                  placeholder={"Share details from your day.\n• Bullet example\n• Another note"}
-                />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">3) Request</p>
-                <textarea
-                  value={dailyUpdateRequests}
-                  onChange={(event) => setDailyUpdateRequests(event.target.value)}
-                  className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                  placeholder={"Anything needed for tomorrow?\n• Supplies\n• Help request"}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={submitDailyUpdate}
-                  disabled={dailyUpdateSubmitting}
-                  className="rounded-full bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-70"
-                >
-                  {dailyUpdateSubmitting ? "Submitting…" : "Submit update"}
-                </button>
-                {dailyUpdateError && <span className="text-xs text-red-700">{dailyUpdateError}</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {activeTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
