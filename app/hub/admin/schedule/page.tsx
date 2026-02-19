@@ -91,6 +91,8 @@ type IndicatorRule = {
   type: IndicatorRuleType;
   value?: string;
 };
+type TaskCommentPreview = { id: string; text: string; createdTime: string; author: string };
+
 type DayOverviewSummary = {
   tasks: OverviewTaskEntry[];
   recurringTasks: OverviewTaskEntry[];
@@ -110,6 +112,7 @@ const SCHEDULE_DOCK_TAB_CACHE_KEY = "admin-schedule-dock-tab";
 const SCHEDULE_COLUMN_WIDTH_CACHE_KEY = "admin-schedule-column-width";
 const SCHEDULE_DOCK_SIZE_CACHE_KEY = "admin-schedule-dock-size";
 const SCHEDULE_SECTION_VISIBILITY_KEY = "admin-schedule-section-visibility";
+const YESTERDAY_OVERVIEW_VISIBILITY_KEY = "admin-schedule-yesterday-overview-visible";
 const AFK_TIMEOUT_MS = 20_000;
 
 function typeColorClasses(color?: string) {
@@ -141,6 +144,53 @@ function statusBadgeClasses(status?: string) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   }
   return "border-[#d0c9a4] bg-[#f6f1dd] text-[#4b5133]";
+}
+
+
+function normalizeCommentDate(value: unknown) {
+  if (!value) return "";
+  const raw = String(value);
+  const isoMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
+  if (isoMatch) return isoMatch[0];
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function countCommentsForDate(comments: unknown, targetIso: string) {
+  if (!targetIso || !Array.isArray(comments)) return 0;
+  return comments.reduce((count, comment) => {
+    if (!comment || typeof comment !== "object") return count;
+    const created = (comment as { createdTime?: unknown; time?: unknown }).createdTime ??
+      (comment as { createdTime?: unknown; time?: unknown }).time;
+    return normalizeCommentDate(created) === targetIso ? count + 1 : count;
+  }, 0);
+}
+
+
+function normalizeCustomKeybind(value: string, fallback: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.replace(/\s+/g, "").toUpperCase();
+}
+
+function matchesCustomKeybind(event: KeyboardEvent, keybind: string) {
+  const normalized = keybind.toUpperCase();
+  const usesCtrl = normalized.includes("CTRL");
+  const usesCmd = normalized.includes("CMD") || normalized.includes("META");
+  const usesShift = normalized.includes("SHIFT");
+  const usesAlt = normalized.includes("ALT") || normalized.includes("OPTION");
+  const matchKey = normalized.split("+").pop()?.toLowerCase() || "";
+  const hasPrimary = usesCtrl || usesCmd;
+  const primaryPressed = usesCtrl
+    ? event.ctrlKey
+    : usesCmd
+      ? event.metaKey
+      : event.ctrlKey || event.metaKey;
+  if (hasPrimary && !primaryPressed) return false;
+  if (usesShift !== event.shiftKey) return false;
+  if (usesAlt !== event.altKey) return false;
+  return Boolean(matchKey) && event.key.toLowerCase() === matchKey;
 }
 
 function parseEstimatedHours(value?: string | null) {
@@ -327,6 +377,14 @@ export default function AdminScheduleEditorPage() {
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [taskEditSaving, setTaskEditSaving] = useState(false);
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
+  const [taskEditApplyTo, setTaskEditApplyTo] = useState<"single" | "all" | "future">("single");
+  const [taskEditFutureDate, setTaskEditFutureDate] = useState("");
+  const [expandedOverviewTasks, setExpandedOverviewTasks] = useState<Set<string>>(new Set());
+  const [dayOverviewCommentsByTask, setDayOverviewCommentsByTask] = useState<Record<string, TaskCommentPreview[]>>({});
+  const [dayOverviewCommentsLoading, setDayOverviewCommentsLoading] = useState<Set<string>>(new Set());
+  const [yesterdayOverviewVisible, setYesterdayOverviewVisible] = useState(true);
+  const [canvasCopyKeybind, setCanvasCopyKeybind] = useState("Ctrl/Cmd+C");
+  const [canvasPasteKeybind, setCanvasPasteKeybind] = useState("Ctrl/Cmd+V");
   const taskEditLastSavedSignatureRef = useRef<string>("");
   const taskEditAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskKey, setEditingTaskKey] = useState<string | null>(null);
@@ -608,6 +666,36 @@ export default function AdminScheduleEditorPage() {
       console.warn("Failed to save section visibility cache", err);
     }
   }, [sectionVisibility]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cached = localStorage.getItem(YESTERDAY_OVERVIEW_VISIBILITY_KEY);
+    if (cached === "true") setYesterdayOverviewVisible(true);
+    if (cached === "false") setYesterdayOverviewVisible(false);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const key = `custom-table-keybinds-${(currentUserName || "guest").toLowerCase()}`;
+      const cached = localStorage.getItem(key);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as { copy?: string; paste?: string };
+      setCanvasCopyKeybind(
+        normalizeCustomKeybind(parsed.copy || "Ctrl/Cmd+C", "Ctrl/Cmd+C")
+      );
+      setCanvasPasteKeybind(
+        normalizeCustomKeybind(parsed.paste || "Ctrl/Cmd+V", "Ctrl/Cmd+V")
+      );
+    } catch (err) {
+      console.warn("Failed to parse shared keybind cache", err);
+    }
+  }, [currentUserName]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(YESTERDAY_OVERVIEW_VISIBILITY_KEY, String(yesterdayOverviewVisible));
+  }, [yesterdayOverviewVisible]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -963,6 +1051,7 @@ export default function AdminScheduleEditorPage() {
     const loadTaskDocks = async () => {
       try {
         const dateParam = selectedDate ? formatLabelToInput(selectedDate) : "";
+        const activeCommentDate = dateParam || new Date().toISOString().slice(0, 10);
         const recurringPromise = selectedDate
           ? fetch(
               `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
@@ -987,7 +1076,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, activeCommentDate),
           }));
           setRecurringTasks(items);
         } else if (!cancelled && !selectedDate) {
@@ -1009,7 +1098,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, activeCommentDate),
           }));
           setOneOffTasks(items);
         }
@@ -1070,7 +1159,7 @@ export default function AdminScheduleEditorPage() {
             personCount: task.person_count ?? null,
             timeSlots: task.time_slots || [],
             estimatedTime: task.estimated_time || null,
-            commentCount: Array.isArray(task.comments) ? task.comments.length : 0,
+            commentCount: countCommentsForDate(task.comments, dateParam),
           }));
           setYesterdayRecurringTasks(items);
         } else {
@@ -1440,6 +1529,24 @@ export default function AdminScheduleEditorPage() {
     () => dayOverviewSummary?.oneOffTasks ?? [],
     [dayOverviewSummary]
   );
+  const dayOverviewAnalytics = useMemo(() => {
+    if (!dayOverviewSummary) return null;
+    const completionRate = dayOverviewSummary.total
+      ? Math.round((dayOverviewSummary.completed / dayOverviewSummary.total) * 100)
+      : 0;
+    const recurringShare = dayOverviewSummary.total
+      ? Math.round((dayOverviewSummary.recurringTasks.length / dayOverviewSummary.total) * 100)
+      : 0;
+    const commentTaskCount = dayOverviewSummary.tasks.filter(
+      (task) => task.id && (taskCommentCache[task.id] || 0) > 0
+    ).length;
+    const totalCommentCount = dayOverviewSummary.tasks.reduce(
+      (sum, task) => sum + (task.id ? taskCommentCache[task.id] || 0 : 0),
+      0
+    );
+    return { completionRate, recurringShare, commentTaskCount, totalCommentCount };
+  }, [dayOverviewSummary, taskCommentCache]);
+
   const yesterdayOpenRecurring = useMemo(() => {
     if (!yesterdayOverviewSummary) return [];
     return yesterdayOverviewSummary.recurringTasks.filter(
@@ -2736,21 +2843,7 @@ export default function AdminScheduleEditorPage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      const isMac =
-        typeof navigator !== "undefined" &&
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (modifierPressed && event.shiftKey && key === "c" && selectedCell) {
-        handleCopyCell();
-        event.preventDefault();
-        return;
-      }
-      if (modifierPressed && event.shiftKey && key === "v" && selectedCell) {
-        handlePasteCell();
-        event.preventDefault();
-        return;
-      }
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
@@ -2763,6 +2856,20 @@ export default function AdminScheduleEditorPage() {
           return;
         }
       }
+      if (selectedCell && matchesCustomKeybind(event, canvasCopyKeybind)) {
+        handleCopyCell();
+        event.preventDefault();
+        return;
+      }
+      if (selectedCell && matchesCustomKeybind(event, canvasPasteKeybind)) {
+        handlePasteCell();
+        event.preventDefault();
+        return;
+      }
+      const isMac =
+        typeof navigator !== "undefined" &&
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
       if (!modifierPressed) return;
       if (key === "z") {
         if (event.shiftKey) {
@@ -2792,6 +2899,8 @@ export default function AdminScheduleEditorPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    canvasCopyKeybind,
+    canvasPasteKeybind,
     cellClipboard,
     handleCopyCell,
     handlePasteCell,
@@ -3082,6 +3191,9 @@ export default function AdminScheduleEditorPage() {
         links: normalizedLinks,
       };
       setTaskEditDraft(nextDraft);
+      setTaskEditApplyTo("single");
+      setTaskEditFutureDate(detail.occurrenceDate || selectedDate || "");
+      setExpandedOverviewTasks(new Set());
       taskEditLastSavedSignatureRef.current = getTaskEditSignature(nextDraft, detail.id);
       setTaskEditMessage("Saved");
     } catch (err) {
@@ -3174,8 +3286,12 @@ export default function AdminScheduleEditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: taskDetail.id,
-          applyTo: "single",
-          occurrenceDate: taskDetail.occurrenceDate || null,
+          applyTo:
+            taskDetail.recurring || taskDetail.parentTaskId ? taskEditApplyTo : "single",
+          occurrenceDate:
+            taskEditApplyTo === "future"
+              ? taskEditFutureDate || taskDetail.occurrenceDate || null
+              : taskDetail.occurrenceDate || null,
           name: trimmedName || taskDetail.name,
           description: taskEditDraft.description.trim(),
           extra_notes: notesList,
@@ -3254,7 +3370,7 @@ export default function AdminScheduleEditorPage() {
         clearTimeout(taskEditAutoSaveTimerRef.current);
       }
     };
-  }, [getTaskEditSignature, saveTaskEdits, taskDetail?.id, taskEditDraft]);
+  }, [getTaskEditSignature, saveTaskEdits, taskDetail?.id, taskEditDraft, taskEditApplyTo, taskEditFutureDate]);
 
   const updateTaskNameInState = useCallback((taskId: string, name: string) => {
     setScheduleData((prev) => {
@@ -3821,6 +3937,35 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const loadCommentsForOverviewTask = useCallback(async (taskId: string) => {
+    if (!taskId) return;
+    if (dayOverviewCommentsByTask[taskId]) return;
+    setDayOverviewCommentsLoading((prev) => new Set(prev).add(taskId));
+    try {
+      const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load task comments");
+      const comments = Array.isArray(json.comments)
+        ? json.comments.map((comment: any) => ({
+            id: String(comment.id || `${taskId}-${Math.random()}`),
+            text: String(comment.text || ""),
+            createdTime: String(comment.createdTime || ""),
+            author: String(comment.author || "Unknown"),
+          }))
+        : [];
+      setDayOverviewCommentsByTask((prev) => ({ ...prev, [taskId]: comments }));
+    } catch (err) {
+      console.error("Failed to load overview comments", err);
+      setDayOverviewCommentsByTask((prev) => ({ ...prev, [taskId]: [] }));
+    } finally {
+      setDayOverviewCommentsLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  }, [dayOverviewCommentsByTask]);
+
   const taskDetailEditor = taskDetail ? (
     <div className="rounded-2xl border border-[#d0c9a4] bg-white/90 p-4 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3874,7 +4019,33 @@ export default function AdminScheduleEditorPage() {
             {taskDetail.occurrenceDate ? ` • ${taskDetail.occurrenceDate}` : ""}
           </p>
           {taskDetail.recurring && (
-            <p>Tip: update just this occurrence to avoid changing the full series.</p>
+            <>
+              <p>Tip: update just this occurrence to avoid changing the full series.</p>
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <p className="font-semibold">⚠️ Recurring task edit scope</p>
+                <p className="mt-1 text-[10px]">Choose whether this edit should affect one task, all tasks, or all tasks after a date.</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "single"} onChange={() => setTaskEditApplyTo("single")} className="accent-[#8fae4c]" />
+                    <span>Only this task</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "all"} onChange={() => setTaskEditApplyTo("all")} className="accent-[#8fae4c]" />
+                    <span>All tasks</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input type="radio" name="task-edit-scope" checked={taskEditApplyTo === "future"} onChange={() => setTaskEditApplyTo("future")} className="accent-[#8fae4c]" />
+                    <span>All tasks after date</span>
+                  </label>
+                </div>
+                {taskEditApplyTo === "future" && (
+                  <label className="mt-2 inline-flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em]">From</span>
+                    <input type="date" value={taskEditFutureDate} onChange={(e) => setTaskEditFutureDate(e.target.value)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px]" />
+                  </label>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -4050,7 +4221,7 @@ export default function AdminScheduleEditorPage() {
             <div className="space-y-2">
               {taskEditDraft.links.length ? (
                 taskEditDraft.links.map((link, idx) => (
-                  <div key={`${link.label}-${idx}`} className="flex flex-wrap gap-2">
+                  <div key={`task-link-${idx}`} className="flex flex-wrap gap-2">
                     <input
                       value={link.label}
                       onChange={(e) =>
@@ -4468,80 +4639,9 @@ export default function AdminScheduleEditorPage() {
               ))}
             </select>
           </label>
-          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Copy from
-              </span>
-              <input
-                type="date"
-                value={copySourceDate ? formatLabelToInput(copySourceDate) : ""}
-                onChange={(e) => setCopySourceDate(formatDateInput(e.target.value))}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Copy to
-              </span>
-              <input
-                type="date"
-                value={copyTargetDate ? formatLabelToInput(copyTargetDate) : ""}
-                onChange={(e) => setCopyTargetDate(formatDateInput(e.target.value))}
-                disabled={scheduleMode !== "page"}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={copySchedule}
-              disabled={copyingSchedule || scheduleMode !== "page"}
-              className="h-8 rounded-md bg-[#6f8f3d] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
-            >
-              {copyingSchedule ? "Copying…" : "Copy schedule"}
-            </button>
-          </div>
-          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Blackout from
-              </span>
-              <input
-                type="date"
-                value={blackoutRangeStart}
-                onChange={(e) => setBlackoutRangeStart(e.target.value)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                Blackout to
-              </span>
-              <input
-                type="date"
-                value={blackoutRangeEnd}
-                onChange={(e) => setBlackoutRangeEnd(e.target.value)}
-                className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs text-[#314123]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={applyBlackoutRange}
-              disabled={blackoutApplying}
-              className="h-8 rounded-md bg-[#2f3b21] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-60"
-            >
-              {blackoutApplying ? "Applying…" : "Apply blackout range"}
-            </button>
-          </div>
           <span className="rounded-full bg-[#f0f4de] px-3 py-2 text-[11px] font-semibold text-[#4b5133]">
             Volunteers auto-sync from the Users database
           </span>
-          {blackoutMode && (
-            <span className="rounded-full bg-[#2f3b21] px-3 py-2 text-[11px] font-semibold text-white">
-              Blackout mode active: click cells to block or unblock.
-            </span>
-          )}
         </div>
       </div>
 
@@ -4809,6 +4909,7 @@ export default function AdminScheduleEditorPage() {
               <li>Shift + click to select a range of cells.</li>
               <li>Double-click a task to rename it inline.</li>
               <li>Press Esc to cancel inline editing.</li>
+              <li>Copy/Paste keybinds mirror Custom Tables settings (site-wide for canvas + custom tables).</li>
             </ul>
           </details>
 
@@ -5343,7 +5444,16 @@ export default function AdminScheduleEditorPage() {
                     <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-[#314123]">Yesterday overview</h3>
+                            <button
+                              type="button"
+                              onClick={() => setYesterdayOverviewVisible((prev) => !prev)}
+                              className="rounded-full border border-[#d0c9a4] bg-white px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+                            >
+                              {yesterdayOverviewVisible ? "Collapse" : "Expand"}
+                            </button>
+                          </div>
                           <p className="text-[11px] text-[#6a6c4d]">
                             Outstanding tasks from {yesterdayLabel || "yesterday"}.
                           </p>
@@ -5357,7 +5467,8 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-col gap-3">
+                      {yesterdayOverviewVisible ? (
+                        <div className="mt-3 flex flex-col gap-3">
                         {yesterdayLoading ? (
                           <p className="text-[11px] text-[#7a7f54]">Loading yesterday…</p>
                         ) : yesterdayOpenRecurring.length || yesterdayOpenOneOff.length ? (
@@ -5460,6 +5571,9 @@ export default function AdminScheduleEditorPage() {
                           </p>
                         )}
                       </div>
+                      ) : (
+                        <p className="mt-3 text-[11px] text-[#7a7f54]">Yesterday overview is collapsed. Use Expand to review carry-over tasks.</p>
+                      )}
                     </div>
                   )}
                   {dayOverviewSummary && (
@@ -5483,6 +5597,26 @@ export default function AdminScheduleEditorPage() {
                           </span>
                         </div>
                       </div>
+                      {dayOverviewAnalytics && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                          <div className="rounded-lg border border-[#d0c9a4] bg-[#f9f6e7] px-2 py-2 text-[10px] text-[#4b5133]">
+                            <p className="uppercase tracking-[0.12em] text-[#7a7f54]">Completion</p>
+                            <p className="mt-1 text-sm font-semibold text-[#314123]">{dayOverviewAnalytics.completionRate}%</p>
+                          </div>
+                          <div className="rounded-lg border border-[#d0c9a4] bg-[#f9f6e7] px-2 py-2 text-[10px] text-[#4b5133]">
+                            <p className="uppercase tracking-[0.12em] text-[#7a7f54]">Recurring mix</p>
+                            <p className="mt-1 text-sm font-semibold text-[#314123]">{dayOverviewAnalytics.recurringShare}% recurring</p>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] text-amber-900">
+                            <p className="uppercase tracking-[0.12em]">Tasks w/ comments</p>
+                            <p className="mt-1 text-sm font-semibold">{dayOverviewAnalytics.commentTaskCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] text-amber-900">
+                            <p className="uppercase tracking-[0.12em]">Total comments</p>
+                            <p className="mt-1 text-sm font-semibold">{dayOverviewAnalytics.totalCommentCount}</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-3 flex flex-col gap-3">
                         {dayOverviewSummary.tasks.length ? (
                           <>
@@ -5495,23 +5629,68 @@ export default function AdminScheduleEditorPage() {
                               </div>
                               <div className="mt-2 flex flex-col gap-2">
                                 {dayOverviewRecurring.length ? (
-                                  dayOverviewRecurring.map((task) => (
-                                    <button
-                                      key={`${task.name}-day-recurring`}
-                                      type="button"
-                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                                    >
-                                      <span className="truncate font-semibold">{task.name}</span>
-                                      <span
-                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                                          task.status
-                                        )}`}
-                                      >
-                                        {task.status || "Not Started"}
-                                      </span>
-                                    </button>
-                                  ))
+                                  dayOverviewRecurring.map((task) => {
+                                    const commentCount = task.id ? taskCommentCache[task.id] || 0 : 0;
+                                    const isExpanded = task.id ? expandedOverviewTasks.has(task.id) : false;
+                                    const comments = task.id ? dayOverviewCommentsByTask[task.id] || [] : [];
+                                    const commentsLoading = task.id ? dayOverviewCommentsLoading.has(task.id) : false;
+                                    return (
+                                      <div key={`${task.name}-day-recurring`} className="rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                          className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
+                                        >
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate font-semibold">{task.name}</span>
+                                            {commentCount > 0 && (
+                                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-[2px] text-[9px] font-bold uppercase text-amber-900">💬 {commentCount}</span>
+                                            )}
+                                          </div>
+                                          <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
+                                            {task.status || "Not Started"}
+                                          </span>
+                                        </button>
+                                        {task.id && commentCount > 0 && (
+                                          <div className="mt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setExpandedOverviewTasks((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (next.has(task.id!)) {
+                                                    next.delete(task.id!);
+                                                  } else {
+                                                    next.add(task.id!);
+                                                    void loadCommentsForOverviewTask(task.id!);
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              className="text-[10px] font-semibold text-[#3f5b23] underline"
+                                            >
+                                              {isExpanded ? "Hide" : "Show"} comments ({commentCount})
+                                            </button>
+                                            {isExpanded && (
+                                              <div className="mt-1 space-y-1 rounded border border-[#d8d3b4] bg-white p-2 text-[10px] text-[#4b5133]">
+                                                {commentsLoading ? (
+                                                  <p>Loading comments…</p>
+                                                ) : comments.length ? (
+                                                  comments.map((comment) => (
+                                                    <p key={comment.id}>
+                                                      <span className="font-semibold">{comment.author}:</span> {comment.text}
+                                                    </p>
+                                                  ))
+                                                ) : (
+                                                  <p>No comments found.</p>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })
                                 ) : (
                                   <p className="text-[11px] text-[#7a7f54]">
                                     No recurring tasks listed yet.
@@ -5528,23 +5707,68 @@ export default function AdminScheduleEditorPage() {
                               </div>
                               <div className="mt-2 flex flex-col gap-2">
                                 {dayOverviewOneOff.length ? (
-                                  dayOverviewOneOff.map((task) => (
-                                    <button
-                                      key={`${task.name}-day-oneoff`}
-                                      type="button"
-                                      onClick={() => task.id && loadTaskDetail(task.id, task.name)}
-                                      className="flex items-center justify-between gap-2 rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1 text-left text-[12px] text-[#314123] transition hover:border-[#c7b989] hover:bg-[#f4efdd]"
-                                    >
-                                      <span className="truncate font-semibold">{task.name}</span>
-                                      <span
-                                        className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(
-                                          task.status
-                                        )}`}
-                                      >
-                                        {task.status || "Not Started"}
-                                      </span>
-                                    </button>
-                                  ))
+                                  dayOverviewOneOff.map((task) => {
+                                    const commentCount = task.id ? taskCommentCache[task.id] || 0 : 0;
+                                    const isExpanded = task.id ? expandedOverviewTasks.has(task.id) : false;
+                                    const comments = task.id ? dayOverviewCommentsByTask[task.id] || [] : [];
+                                    const commentsLoading = task.id ? dayOverviewCommentsLoading.has(task.id) : false;
+                                    return (
+                                      <div key={`${task.name}-day-oneoff`} className="rounded-md border border-[#e2d7b5] bg-[#faf7eb] px-2 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => task.id && loadTaskDetail(task.id, task.name)}
+                                          className="flex w-full items-center justify-between gap-2 text-left text-[12px] text-[#314123] transition hover:text-[#243319]"
+                                        >
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate font-semibold">{task.name}</span>
+                                            {commentCount > 0 && (
+                                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-[2px] text-[9px] font-bold uppercase text-amber-900">💬 {commentCount}</span>
+                                            )}
+                                          </div>
+                                          <span className={`rounded-full border px-2 py-[2px] text-[9px] font-semibold uppercase ${statusBadgeClasses(task.status)}`}>
+                                            {task.status || "Not Started"}
+                                          </span>
+                                        </button>
+                                        {task.id && commentCount > 0 && (
+                                          <div className="mt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setExpandedOverviewTasks((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (next.has(task.id!)) {
+                                                    next.delete(task.id!);
+                                                  } else {
+                                                    next.add(task.id!);
+                                                    void loadCommentsForOverviewTask(task.id!);
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              className="text-[10px] font-semibold text-[#3f5b23] underline"
+                                            >
+                                              {isExpanded ? "Hide" : "Show"} comments ({commentCount})
+                                            </button>
+                                            {isExpanded && (
+                                              <div className="mt-1 space-y-1 rounded border border-[#d8d3b4] bg-white p-2 text-[10px] text-[#4b5133]">
+                                                {commentsLoading ? (
+                                                  <p>Loading comments…</p>
+                                                ) : comments.length ? (
+                                                  comments.map((comment) => (
+                                                    <p key={comment.id}>
+                                                      <span className="font-semibold">{comment.author}:</span> {comment.text}
+                                                    </p>
+                                                  ))
+                                                ) : (
+                                                  <p>No comments found.</p>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })
                                 ) : (
                                   <p className="text-[11px] text-[#7a7f54]">
                                     No one-off tasks listed yet.
