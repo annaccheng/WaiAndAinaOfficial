@@ -383,6 +383,14 @@ export default function HubSchedulePage() {
   ] as const;
 
   const scheduleDateLabel = data?.scheduleDate;
+  const scheduleReportFlag = useMemo(() => {
+    if (!data || !currentUserName) return false;
+    const rowIndex = data.people.findIndex(
+      (p) => p.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (rowIndex === -1) return false;
+    return Boolean(data.reportFlags?.[rowIndex]);
+  }, [data, currentUserName]);
   useEffect(() => {
     weekSchedulesRef.current = weekSchedules;
   }, [weekSchedules]);
@@ -864,27 +872,37 @@ export default function HubSchedulePage() {
   useEffect(() => {
     if (!reportEnabled || !currentUserName) return;
     if (typeof window === "undefined") return;
+    if (scheduleReportFlag) {
+      setReportOpen(false);
+      return;
+    }
+
     let cancelled = false;
     const checkTime = () => {
       if (cancelled) return;
       const { dateLabel, hour, minute } = getHawaiiTimeParts();
-      if (hour < 14 || (hour === 14 && minute < 30)) return;
-      if (hour > 22 || (hour === 22 && minute > 0)) {
-        if (reportOpen) setReportOpen(false);
-        return;
-      }
+      if (data?.scheduleDate && data.scheduleDate !== dateLabel) return;
+
+      const [targetHourRaw, targetMinuteRaw] = String(data?.reportTime || "14:30").split(":");
+      const targetHour = Number(targetHourRaw || 14);
+      const targetMinute = Number(targetMinuteRaw || 30);
+      const nowMinutes = hour * 60 + minute;
+      const targetMinutes = targetHour * 60 + targetMinute;
+      if (nowMinutes < targetMinutes) return;
+
       const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
       if (localStorage.getItem(key)) return;
       localStorage.setItem(key, "1");
       setReportOpen(true);
     };
+
     checkTime();
     const interval = setInterval(checkTime, 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [currentUserName, reportEnabled, reportOpen]);
+  }, [currentUserName, data?.reportTime, data?.scheduleDate, reportEnabled, scheduleReportFlag]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
@@ -1917,15 +1935,6 @@ export default function HubSchedulePage() {
     return Array.from(unique.values());
   }, [myTasks]);
 
-  const scheduleReportFlag = useMemo(() => {
-    if (!data || !currentUserName) return false;
-    const rowIndex = data.people.findIndex(
-      (p) => p.toLowerCase() === currentUserName.toLowerCase()
-    );
-    if (rowIndex === -1) return false;
-    return Boolean(data.reportFlags?.[rowIndex]);
-  }, [data, currentUserName]);
-
   useEffect(() => {
     if (!reportEnabled) {
       setReportOpen(false);
@@ -1944,29 +1953,6 @@ export default function HubSchedulePage() {
     });
   }, [reportRows, taskMetaMap]);
 
-  useEffect(() => {
-    if (!reportEnabled) return;
-    if (!data || !currentUserName || scheduleReportFlag) return;
-    if (!data.scheduleDate) return;
-    const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Pacific/Honolulu",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const timeFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Pacific/Honolulu",
-      hour: "2-digit",
-      hour12: false,
-    });
-    const hawaiiDate = dateFormatter.format(now);
-    const hawaiiHour = Number(timeFormatter.format(now));
-    if (hawaiiDate !== data.scheduleDate) return;
-    if (hawaiiHour >= 14) {
-      setReportOpen(true);
-    }
-  }, [currentUserName, data, scheduleReportFlag]);
 
   // Meal assignments
   const mealAssignments: MealAssignment[] = useMemo(() => {
