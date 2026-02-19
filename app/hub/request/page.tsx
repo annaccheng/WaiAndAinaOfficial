@@ -36,12 +36,26 @@ type RequestDetail = RequestItem & {
 const REQUEST_TYPES = ["App Request", "Item Request", "Task Request", "Other"];
 const STATUS_OPTIONS: Array<RequestItem["status"]> = ["In Progress", "Approved", "Denied"];
 
+function statusTagClasses(status: RequestItem["status"]) {
+  if (status === "Approved") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "Denied") return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function typeTagClasses(type: string) {
+  if (type === "App Request") return "border-sky-200 bg-sky-50 text-sky-700";
+  if (type === "Item Request") return "border-violet-200 bg-violet-50 text-violet-700";
+  if (type === "Task Request") return "border-lime-200 bg-lime-50 text-lime-700";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
 export default function HubRequestPage() {
   const [sessionName, setSessionName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const [createOverlayOpen, setCreateOverlayOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [requestType, setRequestType] = useState(REQUEST_TYPES[0]);
@@ -131,6 +145,7 @@ export default function HubRequestPage() {
       setUrgent(false);
       setShareable(false);
       setCreateMessage("Request submitted.");
+      setCreateOverlayOpen(false);
       await loadRequests();
     } catch (err) {
       setCreateMessage(err instanceof Error ? err.message : "Unable to submit request");
@@ -231,56 +246,26 @@ export default function HubRequestPage() {
   }, [requests, typeFilter, statusFilter, onlyMine, urgentOnly, shareableOnly, search, sessionName]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold text-[#3b4224]">Work Requests</h1>
-
-      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 space-y-3">
-        <p className="text-sm text-[#4b5133]">Create a public request. Status always starts as In Progress.</p>
-        <div className="grid gap-3 md:grid-cols-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Request title"
-            className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-          />
-          <select
-            value={requestType}
-            onChange={(e) => setRequestType(e.target.value)}
-            className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-          >
-            {REQUEST_TYPES.map((entry) => (
-              <option key={entry}>{entry}</option>
-            ))}
-          </select>
-        </div>
-        <textarea
-          value={details}
-          onChange={(e) => setDetails(e.target.value)}
-          placeholder={"Describe request details. Bullets supported:\n- item 1\n- item 2"}
-          rows={5}
-          className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm whitespace-pre-wrap"
-        />
-        <div className="flex flex-wrap gap-4 text-sm text-[#4b5133]">
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} /> Urgent
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={shareable} onChange={(e) => setShareable(e.target.checked)} /> Shareable (allow suggestions)
-          </label>
-        </div>
-        <div className="flex items-center gap-3">
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-[#d0c9a4] bg-gradient-to-br from-white via-[#f8f6ea] to-[#eef3d8] p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#3b4224]">Work Requests</h1>
+            <p className="mt-1 text-sm text-[#5a6140]">All requests are public and visible to the team for transparency.</p>
+          </div>
           <button
-            onClick={submitRequest}
-            disabled={createBusy}
-            className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold text-white"
+            onClick={() => {
+              setCreateMessage(null);
+              setCreateOverlayOpen(true);
+            }}
+            className="rounded-full bg-[#8fae4c] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#7c9a3f]"
           >
-            {createBusy ? "Submitting..." : "Submit request"}
+            + New Request
           </button>
-          {createMessage && <p className="text-sm text-[#4b5133]">{createMessage}</p>}
         </div>
-      </section>
+      </div>
 
-      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 space-y-3">
+      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 space-y-3 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
             <option value="All">All types</option>
@@ -302,34 +287,32 @@ export default function HubRequestPage() {
           />
         </div>
         <div className="flex flex-wrap gap-4 text-sm text-[#4b5133]">
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> Only mine
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} /> Urgent only
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={shareableOnly} onChange={(e) => setShareableOnly(e.target.checked)} /> Shareable only
-          </label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> Only mine</label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} /> Urgent only</label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={shareableOnly} onChange={(e) => setShareableOnly(e.target.checked)} /> Shareable only</label>
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4">
+      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">All Requests</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {filtered.map((entry) => (
             <button
               key={entry.id}
               onClick={() => openRequest(entry.id)}
-              className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 text-left"
+              className="rounded-xl border border-[#e6dfbe] bg-[#faf8ee] p-3 text-left transition hover:-translate-y-[1px] hover:shadow-md"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <p className="font-semibold text-[#314123]">{entry.title}</p>
-                {entry.urgent && <span className="text-xs text-rose-700">🚨 urgent</span>}
+                {entry.urgent && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Urgent</span>}
               </div>
-              <p className="mt-1 text-xs text-[#6b6f4c]">
-                {entry.requestType} · {entry.status} · {entry.shareable ? "Shareable" : "Private"}
-              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                <span className={`rounded-full border px-2 py-0.5 font-semibold ${typeTagClasses(entry.requestType)}`}>{entry.requestType}</span>
+                <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusTagClasses(entry.status)}`}>{entry.status}</span>
+                <span className="rounded-full border border-[#d7d0ae] bg-[#f6f2de] px-2 py-0.5 font-semibold text-[#5e643f]">
+                  {entry.shareable ? "Shareable" : "Private suggestions"}
+                </span>
+              </div>
               <p className="mt-2 text-sm text-[#4f5730] line-clamp-3 whitespace-pre-wrap">{entry.details}</p>
               <p className="mt-2 text-[11px] text-[#7a7f54]">By {entry.user}</p>
             </button>
@@ -340,10 +323,47 @@ export default function HubRequestPage() {
         </div>
       </section>
 
+      {createOverlayOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => setCreateOverlayOpen(false)}>
+          <section className="w-full max-w-2xl rounded-2xl border border-[#d0c9a4] bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[#314123]">New Public Request</h3>
+              <button onClick={() => setCreateOverlayOpen(false)} className="rounded-md border border-[#d0c9a4] px-3 py-1 text-sm text-[#4b5133]">Close</button>
+            </div>
+            <p className="mt-1 text-sm text-[#5a6140]">Your request is visible to everyone on the team.</p>
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Request title" className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm" />
+                <select value={requestType} onChange={(e) => setRequestType(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
+                  {REQUEST_TYPES.map((entry) => <option key={entry}>{entry}</option>)}
+                </select>
+              </div>
+              <textarea
+                value={details}
+                onChange={(e) => setDetails(e.target.value)}
+                placeholder={"Describe request details. Bullets supported:\n- item 1\n- item 2"}
+                rows={6}
+                className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm whitespace-pre-wrap"
+              />
+              <div className="flex flex-wrap gap-4 text-sm text-[#4b5133]">
+                <label className="inline-flex items-center gap-2"><input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} /> Urgent</label>
+                <label className="inline-flex items-center gap-2"><input type="checkbox" checked={shareable} onChange={(e) => setShareable(e.target.checked)} /> Shareable (allow suggestions)</label>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                {createMessage && <p className="text-sm text-[#4b5133]">{createMessage}</p>}
+                <button onClick={submitRequest} disabled={createBusy} className="ml-auto rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold text-white">
+                  {createBusy ? "Submitting..." : "Submit request"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {(activeLoading || active) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => !activeLoading && setActive(null)}>
           <section
-            className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-[#d0c9a4] bg-white/95 p-4 space-y-3 shadow-2xl"
+            className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#d0c9a4] bg-white/95 p-4 space-y-3 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -355,10 +375,15 @@ export default function HubRequestPage() {
             {active && (
               <>
                 <h4 className="text-lg font-semibold text-[#314123]">{active.title}</h4>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className={`rounded-full border px-2 py-0.5 font-semibold ${typeTagClasses(active.requestType)}`}>{active.requestType}</span>
+                  <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusTagClasses(active.status)}`}>{active.status}</span>
+                  {active.urgent && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 font-semibold text-rose-700">Urgent</span>}
+                  <span className="rounded-full border border-[#d7d0ae] bg-[#f6f2de] px-2 py-0.5 font-semibold text-[#5e643f]">
+                    {active.shareable ? "Shareable" : "Private suggestions"}
+                  </span>
+                </div>
                 <p className="text-sm text-[#4b5133] whitespace-pre-wrap">{active.details}</p>
-                <p className="text-xs text-[#6b6f4c]">
-                  {active.requestType} · {active.status} {active.urgent ? "· Urgent" : ""} {active.shareable ? "· Shareable" : ""}
-                </p>
 
                 {isAdmin && (
                   <div className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 space-y-2">
