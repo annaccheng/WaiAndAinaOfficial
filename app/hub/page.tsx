@@ -114,7 +114,7 @@ type CustomTable = {
   cellType: "user" | "task" | "text";
 };
 
-const TASK_SEPARATOR_REGEX = /\s*•\s*/;
+const TASK_SEPARATOR_REGEX = /\s*[•·]\s*/;
 
 function splitCellTasks(cell: string): string[] {
   if (!cell.trim()) return [];
@@ -134,7 +134,11 @@ function splitCellTasks(cell: string): string[] {
 }
 
 function taskBaseName(task: string): string {
-  return task.split("\n")[0].trim();
+  const firstLine = task.split("\n")[0] || "";
+  return firstLine
+    .split(TASK_SEPARATOR_REGEX)[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
 }
 
 function toIsoDateLabel(dateLabel?: string | null) {
