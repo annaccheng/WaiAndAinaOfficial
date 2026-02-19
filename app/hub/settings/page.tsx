@@ -21,12 +21,19 @@ export default function HubSettingsPage() {
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
+  const [dailyUpdateTime, setDailyUpdateTime] = useState("14:00");
+  const [dailyUpdateTimeSaved, setDailyUpdateTimeSaved] = useState<string | null>(null);
 
   // Load current user from session
   useEffect(() => {
     const session = loadSession();
     if (session?.name) {
       setCurrentUserName(session.name);
+      if (typeof window !== "undefined") {
+        const key = `daily-update-time-${session.name.toLowerCase()}`;
+        const cached = localStorage.getItem(key);
+        if (cached) setDailyUpdateTime(cached);
+      }
     }
   }, []);
 
@@ -98,6 +105,14 @@ export default function HubSettingsPage() {
     }
   }
 
+
+  function handleSaveDailyUpdateTime() {
+    if (!currentUserName || typeof window === "undefined") return;
+    const key = `daily-update-time-${currentUserName.toLowerCase()}`;
+    localStorage.setItem(key, dailyUpdateTime || "14:00");
+    setDailyUpdateTimeSaved("Daily update prompt time saved.");
+    window.setTimeout(() => setDailyUpdateTimeSaved(null), 2500);
+  }
   async function handleClearCache() {
     setCacheStatus(null);
     setCacheBusy(true);
@@ -253,6 +268,31 @@ export default function HubSettingsPage() {
             <p className="text-[11px] text-[#8e875d]">
               Update your display name for the login list.
             </p>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">
+              Daily update prompt time
+            </p>
+            <p className="text-[12px] text-[#6f754f]">
+              Choose when your daily update prompt appears (Hawaii time). Default is 2:00 PM.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="time"
+                value={dailyUpdateTime}
+                onChange={(e) => setDailyUpdateTime(e.target.value)}
+                className="rounded-md border border-[#c8cba0] bg-[#f1edd8] px-3 py-2 text-sm text-[#3b4224]"
+              />
+              <button
+                type="button"
+                onClick={handleSaveDailyUpdateTime}
+                className="rounded-md border border-[#d0c9a4] bg-[#f1edd8] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#4f5730] shadow-sm hover:bg-[#e6dfc2]"
+              >
+                Save time
+              </button>
+              {dailyUpdateTimeSaved && <span className="text-[11px] text-[#6f754f]">{dailyUpdateTimeSaved}</span>}
+            </div>
           </div>
 
           <div className="space-y-2 rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3">
