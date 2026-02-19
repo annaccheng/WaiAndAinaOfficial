@@ -275,9 +275,28 @@ export async function GET(req: Request) {
     let data = await supabaseRequest<any[]>("tasks", {
       query: buildQuery(true),
     });
-    if ((!data || !data.length) && !id.trim() && occurrenceDate) {
+
+    if ((!data || !data.length) && id.trim() && occurrenceDate) {
       data = await supabaseRequest<any[]>("tasks", {
         query: buildQuery(false),
+      });
+    }
+
+    if ((!data || !data.length) && name.trim() && occurrenceDate) {
+      data = await supabaseRequest<any[]>("tasks", {
+        query: {
+          ...buildQuery(true),
+          name: `ilike.${name}`,
+        },
+      });
+    }
+
+    if ((!data || !data.length) && name.trim()) {
+      data = await supabaseRequest<any[]>("tasks", {
+        query: {
+          ...buildQuery(false),
+          name: `ilike.${name}`,
+        },
       });
     }
     const task = data?.[0];
