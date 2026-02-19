@@ -183,20 +183,20 @@ export async function POST(req: Request) {
       saved = created || null;
     }
 
-    const users = await supabaseRequest<any[]>("users", {
-      query: {
-        select: "display_name,active,user_role:user_roles(name)",
-      },
-    });
+    // Send to everyone with a push subscription (excluding submitter), so the
+    // AI-generated summary reaches all subscribed users.
+    const subscriptions = await supabaseRequest<{ user_name: string | null }[]>(
+      "push_subscriptions",
+      {
+        query: {
+          select: "user_name",
+        },
+      }
+    );
     const recipients = Array.from(
       new Set(
-        (users || [])
-          .filter((user) => {
-            const type = String(user?.user_role?.name || "").toLowerCase();
-            const isAdmin = type === "admin";
-            return Boolean(user?.active) || isAdmin;
-          })
-          .map((user) => String(user.display_name || "").trim())
+        (subscriptions || [])
+          .map((row) => String(row.user_name || "").trim())
           .filter(Boolean)
           .filter((entry) => entry.toLowerCase() !== userName.toLowerCase())
       )
