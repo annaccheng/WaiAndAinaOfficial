@@ -34,6 +34,7 @@ type RequestDetail = RequestItem & {
 };
 
 const REQUEST_TYPES = ["App Request", "Item Request", "Task Request", "Other"];
+const STATUS_OPTIONS: Array<RequestItem["status"]> = ["In Progress", "Approved", "Denied"];
 
 export default function HubRequestPage() {
   const [sessionName, setSessionName] = useState("");
@@ -48,6 +49,13 @@ export default function HubRequestPage() {
   const [shareable, setShareable] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
+
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [urgentOnly, setUrgentOnly] = useState(false);
+  const [shareableOnly, setShareableOnly] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [active, setActive] = useState<RequestDetail | null>(null);
   const [activeLoading, setActiveLoading] = useState(false);
@@ -203,10 +211,24 @@ export default function HubRequestPage() {
     }
   }
 
-  const sorted = useMemo(
-    () => [...requests].sort((a, b) => +new Date(b.updatedTime) - +new Date(a.updatedTime)),
-    [requests]
-  );
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return [...requests]
+      .sort((a, b) => +new Date(b.updatedTime) - +new Date(a.updatedTime))
+      .filter((entry) => {
+        if (typeFilter !== "All" && entry.requestType !== typeFilter) return false;
+        if (statusFilter !== "All" && entry.status !== statusFilter) return false;
+        if (onlyMine && entry.user.trim().toLowerCase() !== sessionName.trim().toLowerCase()) return false;
+        if (urgentOnly && !entry.urgent) return false;
+        if (shareableOnly && !entry.shareable) return false;
+        if (!needle) return true;
+        return (
+          entry.title.toLowerCase().includes(needle) ||
+          entry.details.toLowerCase().includes(needle) ||
+          entry.user.toLowerCase().includes(needle)
+        );
+      });
+  }, [requests, typeFilter, statusFilter, onlyMine, urgentOnly, shareableOnly, search, sessionName]);
 
   return (
     <div className="space-y-4">
@@ -258,10 +280,44 @@ export default function HubRequestPage() {
         </div>
       </section>
 
+      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
+            <option value="All">All types</option>
+            {REQUEST_TYPES.map((entry) => (
+              <option key={entry} value={entry}>{entry}</option>
+            ))}
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
+            <option value="All">All statuses</option>
+            {STATUS_OPTIONS.map((entry) => (
+              <option key={entry} value={entry}>{entry}</option>
+            ))}
+          </select>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search title/details/user"
+            className="min-w-[220px] flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="flex flex-wrap gap-4 text-sm text-[#4b5133]">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> Only mine
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} /> Urgent only
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={shareableOnly} onChange={(e) => setShareableOnly(e.target.checked)} /> Shareable only
+          </label>
+        </div>
+      </section>
+
       <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4">
         <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">All Requests</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {sorted.map((entry) => (
+          {filtered.map((entry) => (
             <button
               key={entry.id}
               onClick={() => openRequest(entry.id)}
@@ -278,117 +334,127 @@ export default function HubRequestPage() {
               <p className="mt-2 text-[11px] text-[#7a7f54]">By {entry.user}</p>
             </button>
           ))}
-          {!sorted.length && (
-            <div className="text-sm text-[#7a7f54]">{loading ? "Loading requests..." : "No requests yet."}</div>
+          {!filtered.length && (
+            <div className="text-sm text-[#7a7f54]">{loading ? "Loading requests..." : "No requests match your filters."}</div>
           )}
         </div>
       </section>
 
       {(activeLoading || active) && (
-        <section className="rounded-xl border border-[#d0c9a4] bg-white/95 p-4 space-y-3">
-          {activeLoading && <p className="text-sm text-[#7a7f54]">Loading request…</p>}
-          {active && (
-            <>
-              <h3 className="text-lg font-semibold text-[#314123]">{active.title}</h3>
-              <p className="text-sm text-[#4b5133] whitespace-pre-wrap">{active.details}</p>
-              <p className="text-xs text-[#6b6f4c]">
-                {active.requestType} · {active.status} {active.urgent ? "· Urgent" : ""} {active.shareable ? "· Shareable" : ""}
-              </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => !activeLoading && setActive(null)}>
+          <section
+            className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-[#d0c9a4] bg-white/95 p-4 space-y-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[#314123]">Request details</h3>
+              <button onClick={() => setActive(null)} className="rounded-md border border-[#d0c9a4] px-3 py-1 text-sm text-[#4b5133]">Close</button>
+            </div>
 
-              {isAdmin && (
-                <div className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Admin review</p>
-                  <div className="flex gap-3 text-sm">
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                        type="radio"
-                        checked={reviewDecision === "Approved"}
-                        onChange={() => setReviewDecision("Approved")}
-                      />
-                      Approve
-                    </label>
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                        type="radio"
-                        checked={reviewDecision === "Denied"}
-                        onChange={() => setReviewDecision("Denied")}
-                      />
-                      Deny
-                    </label>
-                  </div>
-                  <textarea
-                    value={reviewNote}
-                    onChange={(e) => setReviewNote(e.target.value)}
-                    placeholder="Required note for approval/denial"
-                    rows={3}
-                    className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
-                  />
-                  <button
-                    onClick={submitReview}
-                    disabled={reviewBusy || !reviewNote.trim()}
-                    className="rounded-md bg-[#8fae4c] px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    {reviewBusy ? "Saving..." : "Save review"}
-                  </button>
-                  {active.reviewNote && (
-                    <p className="text-xs text-[#4f5730]">
-                      Last review by {active.reviewedBy || "Admin"}: {active.reviewNote}
-                    </p>
-                  )}
-                </div>
-              )}
+            {activeLoading && <p className="text-sm text-[#7a7f54]">Loading request…</p>}
+            {active && (
+              <>
+                <h4 className="text-lg font-semibold text-[#314123]">{active.title}</h4>
+                <p className="text-sm text-[#4b5133] whitespace-pre-wrap">{active.details}</p>
+                <p className="text-xs text-[#6b6f4c]">
+                  {active.requestType} · {active.status} {active.urgent ? "· Urgent" : ""} {active.shareable ? "· Shareable" : ""}
+                </p>
 
-              <div className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Suggestions</p>
-                {active.suggestions.length === 0 && (
-                  <p className="text-sm text-[#7a7f54]">No suggestions yet.</p>
-                )}
-                {active.suggestions.map((item) => (
-                  <div key={item.id} className="rounded border border-[#ece4c5] bg-white/80 p-2">
-                    <div className="flex items-center justify-between gap-2 text-xs text-[#6b6f4c]">
-                      <span>{item.author}</span>
-                      <span>{new Date(item.createdTime).toLocaleString()}</span>
+                {isAdmin && (
+                  <div className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Admin review</p>
+                    <div className="flex gap-3 text-sm">
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="radio"
+                          checked={reviewDecision === "Approved"}
+                          onChange={() => setReviewDecision("Approved")}
+                        />
+                        Approve
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="radio"
+                          checked={reviewDecision === "Denied"}
+                          onChange={() => setReviewDecision("Denied")}
+                        />
+                        Deny
+                      </label>
                     </div>
-                    <p className={`mt-1 text-sm whitespace-pre-wrap ${item.removed ? "line-through text-[#8a8f71]" : "text-[#4f5730]"}`}>
-                      {item.content}
-                    </p>
-                    {item.removed && (
-                      <p className="text-[11px] text-[#8a8f71]">Removed by {item.removedBy || "author"}</p>
-                    )}
-                    {!item.removed && active.user.trim().toLowerCase() === sessionName.trim().toLowerCase() && (
-                      <button
-                        onClick={() => removeSuggestion(item.id)}
-                        className="mt-1 text-[11px] text-rose-700 underline"
-                      >
-                        Remove suggestion (strikethrough)
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {active.shareable ? (
-                  <div className="pt-2 space-y-2">
                     <textarea
-                      value={suggestionDraft}
-                      onChange={(e) => setSuggestionDraft(e.target.value)}
-                      placeholder={"Add suggestion (supports bullets)\n- suggestion 1"}
+                      value={reviewNote}
+                      onChange={(e) => setReviewNote(e.target.value)}
+                      placeholder="Required note for approval/denial"
                       rows={3}
                       className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                     />
                     <button
-                      onClick={submitSuggestion}
-                      disabled={suggestionBusy || !suggestionDraft.trim()}
+                      onClick={submitReview}
+                      disabled={reviewBusy || !reviewNote.trim()}
                       className="rounded-md bg-[#8fae4c] px-3 py-2 text-sm font-semibold text-white"
                     >
-                      {suggestionBusy ? "Posting..." : "Add suggestion"}
+                      {reviewBusy ? "Saving..." : "Save review"}
                     </button>
+                    {active.reviewNote && (
+                      <p className="text-xs text-[#4f5730]">
+                        Last review by {active.reviewedBy || "Admin"}: {active.reviewNote}
+                      </p>
+                    )}
                   </div>
-                ) : (
-                  <p className="text-sm text-[#7a7f54]">Suggestions are disabled for this request.</p>
                 )}
-              </div>
-            </>
-          )}
-        </section>
+
+                <div className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">Suggestions</p>
+                  {active.suggestions.length === 0 && (
+                    <p className="text-sm text-[#7a7f54]">No suggestions yet.</p>
+                  )}
+                  {active.suggestions.map((item) => (
+                    <div key={item.id} className="rounded border border-[#ece4c5] bg-white/80 p-2">
+                      <div className="flex items-center justify-between gap-2 text-xs text-[#6b6f4c]">
+                        <span>{item.author}</span>
+                        <span>{new Date(item.createdTime).toLocaleString()}</span>
+                      </div>
+                      <p className={`mt-1 text-sm whitespace-pre-wrap ${item.removed ? "line-through text-[#8a8f71]" : "text-[#4f5730]"}`}>
+                        {item.content}
+                      </p>
+                      {item.removed && (
+                        <p className="text-[11px] text-[#8a8f71]">Removed by {item.removedBy || "author"}</p>
+                      )}
+                      {!item.removed && active.user.trim().toLowerCase() === sessionName.trim().toLowerCase() && (
+                        <button
+                          onClick={() => removeSuggestion(item.id)}
+                          className="mt-1 text-[11px] text-rose-700 underline"
+                        >
+                          Remove suggestion (strikethrough)
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {active.shareable ? (
+                    <div className="pt-2 space-y-2">
+                      <textarea
+                        value={suggestionDraft}
+                        onChange={(e) => setSuggestionDraft(e.target.value)}
+                        placeholder={"Add suggestion (supports bullets)\n- suggestion 1"}
+                        rows={3}
+                        className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={submitSuggestion}
+                        disabled={suggestionBusy || !suggestionDraft.trim()}
+                        className="rounded-md bg-[#8fae4c] px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        {suggestionBusy ? "Posting..." : "Add suggestion"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-[#7a7f54]">Suggestions are disabled for this request.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
       )}
     </div>
   );
