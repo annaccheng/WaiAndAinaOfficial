@@ -105,6 +105,16 @@ type StoredComment =
       authorName?: string | null;
     };
 
+function normalizeRequestedName(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const firstLine = raw.split("\n")[0] || "";
+  return firstLine
+    .split(/\s*[•·,]\s*/)[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
+}
+
 function toIsoDate(label?: string | null) {
   if (!label) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
@@ -221,6 +231,7 @@ export async function GET(req: Request) {
   const listOnly = searchParams.get("list");
   const id = searchParams.get("id") || "";
   const name = searchParams.get("name") || "";
+  const normalizedName = normalizeRequestedName(name);
   const occurrenceDate = toIsoDate(
     searchParams.get("occurrenceDate") || searchParams.get("date")
   );
@@ -296,6 +307,23 @@ export async function GET(req: Request) {
         query: {
           ...buildQuery(false),
           name: `ilike.${name}`,
+        },
+      });
+    }
+    if ((!data || !data.length) && normalizedName && normalizedName !== name.trim()) {
+      data = await supabaseRequest<any[]>("tasks", {
+        query: {
+          ...buildQuery(true),
+          name: `ilike.${normalizedName}`,
+        },
+      });
+    }
+
+    if ((!data || !data.length) && normalizedName && normalizedName !== name.trim()) {
+      data = await supabaseRequest<any[]>("tasks", {
+        query: {
+          ...buildQuery(false),
+          name: `ilike.${normalizedName}`,
         },
       });
     }

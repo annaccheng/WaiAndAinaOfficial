@@ -108,13 +108,20 @@ const baseQuickLinks = [
   },
 ];
 
+
+const TASK_SEPARATOR_REGEX = /\s*[•·,]\s*/;
+
 function isOffPlaceholder(task: string) {
   const base = task.split("\n")[0].trim();
   return base === "-";
 }
 
 function taskBaseName(task: string) {
-  return task.split("\n")[0].trim();
+  const firstLine = task.split("\n")[0] || "";
+  return firstLine
+    .split(TASK_SEPARATOR_REGEX)[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
 }
 
 function toIsoDateLabel(dateLabel?: string | null) {
@@ -131,7 +138,7 @@ function splitCellEntries(cell: string) {
   const [firstLine, ...rest] = cell.split("\n");
   const note = rest.join("\n").trim();
   return firstLine
-    .split(",")
+    .split(TASK_SEPARATOR_REGEX)
     .map((t) => t.trim())
     .filter(Boolean)
     .map((t) => (note ? `${t}\n${note}` : t))
