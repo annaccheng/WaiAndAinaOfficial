@@ -426,6 +426,41 @@ export default function WorkDashboardPage() {
   }, [isExternalVolunteer, name]);
 
 
+  const openTaskOverlay = (task: MyTask) => {
+    setActiveTask(task);
+    setStatusDraft(task.status || statusOptions[0] || "Not Started");
+    setOverlayMessage(null);
+  };
+
+  const saveStatus = async () => {
+    if (!activeTask?.id || !statusDraft) return;
+    setStatusSaving(true);
+    setOverlayMessage(null);
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: activeTask.id, status: statusDraft }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Unable to save status.");
+
+      setMyTasks((prev) =>
+        prev.map((task) =>
+          task.id === activeTask.id ? { ...task, status: statusDraft } : task
+        )
+      );
+      setActiveTask((prev) => (prev ? { ...prev, status: statusDraft } : prev));
+      setOverlayMessage("Status saved.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save status.";
+      setOverlayMessage(message);
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (!name) return;
     const loadFeed = async () => {
