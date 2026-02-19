@@ -14,6 +14,12 @@ type DailyUpdatePayload = {
   updated_at: string;
 };
 
+type DailyTaskStatus = {
+  taskId: string;
+  taskName: string;
+  status: string;
+};
+
 function toIsoDate(label?: string | null) {
   if (!label) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
@@ -103,14 +109,17 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const userName = String(body?.userName || "").trim();
   const updateDate = toIsoDate(body?.updateDate);
-  const taskStatuses = Array.isArray(body?.taskStatuses)
-    ? body.taskStatuses
-        .map((row: any) => ({
-          taskId: String(row?.taskId || "").trim(),
-          taskName: String(row?.taskName || "").trim(),
-          status: String(row?.status || "").trim(),
-        }))
-        .filter((row) => row.taskName)
+  const taskStatuses: DailyTaskStatus[] = Array.isArray(body?.taskStatuses)
+    ? (body.taskStatuses as unknown[])
+        .map((row): DailyTaskStatus => {
+          const source = row as Partial<DailyTaskStatus> | null | undefined;
+          return {
+            taskId: String(source?.taskId || "").trim(),
+            taskName: String(source?.taskName || "").trim(),
+            status: String(source?.status || "").trim(),
+          };
+        })
+        .filter((row: DailyTaskStatus) => Boolean(row.taskName))
     : [];
   const extraNotes = String(body?.extraNotes || "").trim();
   const requests = String(body?.requests || "").trim();
