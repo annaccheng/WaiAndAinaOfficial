@@ -874,9 +874,7 @@ export default function WorkDashboardPage() {
                   value={dailyUpdateNotes}
                   onChange={(event) => setDailyUpdateNotes(event.target.value)}
                   className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                  placeholder={"Share details from your day.
-• Bullet example
-• Another note"}
+                  placeholder={"Share details from your day.\n• Bullet example\n• Another note"}
                 />
               </div>
               <div>
@@ -885,9 +883,7 @@ export default function WorkDashboardPage() {
                   value={dailyUpdateRequests}
                   onChange={(event) => setDailyUpdateRequests(event.target.value)}
                   className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                  placeholder={"Anything needed for tomorrow?
-• Supplies
-• Help request"}
+                  placeholder={"Anything needed for tomorrow?\n• Supplies\n• Help request"}
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
