@@ -633,81 +633,11 @@ export default function WorkDashboardPage() {
               </span>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setDailyUpdateOpen(true)}
-                className="rounded-full bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white"
-              >
-                Submit daily update
-              </button>
+              <p className="text-xs text-[#4f5730]">
+                Daily report appears automatically as a popup at your configured time.
+              </p>
               {dailyUpdateSuccess && <span className="text-xs text-[#4f5730]">{dailyUpdateSuccess}</span>}
             </div>
-
-            {dailyUpdateOpen && (
-              <div className="mt-4 rounded-xl border border-[#d0c9a4] bg-white/85 p-4 space-y-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">1) Task status check</p>
-                  <div className="mt-2 space-y-2">
-                    {dailyUpdateTaskStatuses.length ? dailyUpdateTaskStatuses.map((row, idx) => (
-                      <div key={`${row.taskId || row.taskName}-${idx}`} className="flex items-center justify-between gap-2 rounded-md border border-[#e2dbc0] bg-[#f9f6e7] px-2 py-1">
-                        <span className="text-sm text-[#3b4224] truncate">{row.taskName}</span>
-                        <select
-                          value={row.status}
-                          onChange={(event) =>
-                            setDailyUpdateTaskStatuses((prev) =>
-                              prev.map((entry, entryIdx) =>
-                                entryIdx === idx ? { ...entry, status: event.target.value } : entry
-                              )
-                            )
-                          }
-                          className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
-                        >
-                          {(statusOptions.length ? statusOptions : ["Not Started", "In Progress", "Completed"]).map((status) => (
-                            <option key={status} value={status}>{status}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )) : <p className="text-xs text-[#6f754f]">No assigned tasks for today.</p>}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">2) Extra Notes</p>
-                  <textarea
-                    value={dailyUpdateNotes}
-                    onChange={(event) => setDailyUpdateNotes(event.target.value)}
-                    className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                    placeholder={"Share details from your day.\n• Bullet example\n• Another note"}
-                  />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">3) Request</p>
-                  <textarea
-                    value={dailyUpdateRequests}
-                    onChange={(event) => setDailyUpdateRequests(event.target.value)}
-                    className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
-                    placeholder={"Anything needed for tomorrow?\n• Supplies\n• Help request"}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={submitDailyUpdate}
-                    disabled={dailyUpdateSubmitting}
-                    className="rounded-full bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-70"
-                  >
-                    {dailyUpdateSubmitting ? "Submitting…" : "Submit update"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDailyUpdateOpen(false)}
-                    className="rounded-full border border-[#d0c9a4] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a]"
-                  >
-                    Close
-                  </button>
-                  {dailyUpdateError && <span className="text-xs text-red-700">{dailyUpdateError}</span>}
-                </div>
-              </div>
-            )}
             <p className="mt-3 text-sm text-[#4b5133] leading-relaxed">
               Updates are based on the tasks you are assigned to and recent status or comment changes.
             </p>
@@ -896,6 +826,86 @@ export default function WorkDashboardPage() {
           </div>
         )}
       </div>
+      {dailyUpdateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[#ede8d3] px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Daily updates</p>
+                <h2 className="text-xl font-semibold text-[#3b4224]">Submit your daily report</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailyUpdateOpen(false)}
+                className="rounded-full border border-[#d7d2b0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-4 px-6 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">1) Task status check</p>
+                <div className="mt-2 space-y-2">
+                  {dailyUpdateTaskStatuses.length ? dailyUpdateTaskStatuses.map((row, idx) => (
+                    <div key={`${row.taskId || row.taskName}-${idx}`} className="flex items-center justify-between gap-2 rounded-md border border-[#e2dbc0] bg-[#f9f6e7] px-2 py-1">
+                      <span className="text-sm text-[#3b4224] truncate">{row.taskName}</span>
+                      <select
+                        value={row.status}
+                        onChange={(event) =>
+                          setDailyUpdateTaskStatuses((prev) =>
+                            prev.map((entry, entryIdx) =>
+                              entryIdx === idx ? { ...entry, status: event.target.value } : entry
+                            )
+                          )
+                        }
+                        className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
+                      >
+                        {(statusOptions.length ? statusOptions : ["Not Started", "In Progress", "Completed"]).map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )) : <p className="text-xs text-[#6f754f]">No assigned tasks for today.</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">2) Extra Notes</p>
+                <textarea
+                  value={dailyUpdateNotes}
+                  onChange={(event) => setDailyUpdateNotes(event.target.value)}
+                  className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
+                  placeholder={"Share details from your day.
+• Bullet example
+• Another note"}
+                />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6f4c]">3) Request</p>
+                <textarea
+                  value={dailyUpdateRequests}
+                  onChange={(event) => setDailyUpdateRequests(event.target.value)}
+                  className="mt-2 w-full min-h-24 rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224]"
+                  placeholder={"Anything needed for tomorrow?
+• Supplies
+• Help request"}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitDailyUpdate}
+                  disabled={dailyUpdateSubmitting}
+                  className="rounded-full bg-[#8fae4c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-70"
+                >
+                  {dailyUpdateSubmitting ? "Submitting…" : "Submit update"}
+                </button>
+                {dailyUpdateError && <span className="text-xs text-red-700">{dailyUpdateError}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl bg-white shadow-2xl">
