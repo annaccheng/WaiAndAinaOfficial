@@ -366,6 +366,7 @@ export default function HubSchedulePage() {
   const [reportRequests, setReportRequests] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [userReportTime, setUserReportTime] = useState<string | null>(null);
   const reportEnabled = true;
 
   useEffect(() => {
@@ -890,6 +891,13 @@ export default function HubSchedulePage() {
   }, []);
 
   useEffect(() => {
+    if (!currentUserName || typeof window === "undefined") return;
+    const key = `daily-update-time-${currentUserName.toLowerCase()}`;
+    const saved = window.localStorage.getItem(key);
+    setUserReportTime(saved || null);
+  }, [currentUserName]);
+
+  useEffect(() => {
     if (!reportEnabled || !currentUserName) return;
     if (typeof window === "undefined") return;
     if (scheduleReportFlag) {
@@ -905,7 +913,7 @@ export default function HubSchedulePage() {
       if (scheduleIso && scheduleIso !== dateLabel) return;
 
       const nowMinutes = hour * 60 + minute;
-      const targetMinutes = parseReportTimeToMinutes(data?.reportTime);
+      const targetMinutes = parseReportTimeToMinutes(data?.reportTime || userReportTime);
       if (nowMinutes < targetMinutes) return;
 
       setReportOpen(true);
@@ -917,7 +925,7 @@ export default function HubSchedulePage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [currentUserName, data?.reportTime, data?.scheduleDate, reportEnabled, scheduleReportFlag]);
+  }, [currentUserName, data?.reportTime, data?.scheduleDate, reportEnabled, scheduleReportFlag, userReportTime]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
@@ -1003,7 +1011,8 @@ export default function HubSchedulePage() {
           }),
         });
         if (!dailyUpdateResponse.ok) {
-          throw new Error("Failed to save daily update");
+          const errorPayload = await dailyUpdateResponse.json().catch(() => ({}));
+          throw new Error(errorPayload?.error || "Failed to save daily update");
         }
       }
 
@@ -2519,6 +2528,15 @@ export default function HubSchedulePage() {
                 <div className="mt-2">{scheduleDateControls}</div>
               </div>
               <div className="flex items-center gap-2">
+                {reportEnabled && !scheduleReportFlag && (
+                  <button
+                    type="button"
+                    onClick={() => setReportOpen(true)}
+                    className="rounded-full border border-[#8fae4c] bg-[#eef2d9] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4a5b2a] shadow-sm hover:bg-[#e5ecc6]"
+                  >
+                    Open daily report
+                  </button>
+                )}
                 <div className="relative">
                   <button
                     type="button"
