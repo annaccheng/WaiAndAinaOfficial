@@ -71,6 +71,21 @@ async function notifyRequestSubscribers(requestId: string, title: string, body: 
   });
 }
 
+
+async function isAdminUser(name: string) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return false;
+  const rows = await supabaseRequest<any[]>("users", {
+    query: {
+      select: "display_name,user_role:user_roles(name)",
+      display_name: `eq.${trimmed}`,
+      limit: "1",
+    },
+  });
+  const user = rows?.[0];
+  return String(user?.user_role?.name || "").toLowerCase() === "admin";
+}
+
 async function fetchDetail(requestId: string) {
   const [request] = await supabaseRequest<RequestRow[]>("requests", {
     query: {
@@ -388,5 +403,37 @@ export async function PATCH(req: Request) {
   } catch (err) {
     console.error("Failed to update request", err);
     return NextResponse.json({ error: "Unable to update request" }, { status: 500 });
+  }
+}
+
+
+export async function DELETE(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const id = String(searchParams.get("id") || "").trim();
+  const actor = String(searchParams.get("actor") || "").trim();
+
+  if (!id || !actor) {
+    return NextResponse.json({ error: "Missing id or actor" }, { status: 400 });
+  }
+
+  try {
+    const admin = await isAdminUser(actor);
+    if (!admin) {
+      return NextResponse.json({ error: "Only admins can delete requests." }, { status: 403 });
+    }
+
+    await supabaseRequest("requests", {
+      method: "DELETE",
+      query: { id: `eq.${id}` },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to delete request", err);
+    return NextResponse.json({ error: "Unable to delete request" }, { status: 500 });
   }
 }

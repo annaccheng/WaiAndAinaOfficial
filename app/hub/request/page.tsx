@@ -80,6 +80,7 @@ export default function HubRequestPage() {
   const [reviewDecision, setReviewDecision] = useState<"Approved" | "Denied">("Approved");
   const [reviewNote, setReviewNote] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     const session = loadSession();
@@ -226,6 +227,28 @@ export default function HubRequestPage() {
     }
   }
 
+  async function deleteRequest() {
+    if (!active || !sessionName || !isAdmin || deleteBusy) return;
+    const confirmed = window.confirm(`Delete request "${active.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeleteBusy(true);
+    try {
+      const res = await fetch(
+        `/api/request?id=${encodeURIComponent(active.id)}&actor=${encodeURIComponent(sessionName)}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Unable to delete request");
+      setActive(null);
+      await loadRequests();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return [...requests]
@@ -309,9 +332,11 @@ export default function HubRequestPage() {
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                 <span className={`rounded-full border px-2 py-0.5 font-semibold ${typeTagClasses(entry.requestType)}`}>{entry.requestType}</span>
                 <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusTagClasses(entry.status)}`}>{entry.status}</span>
+                {entry.shareable && (
                 <span className="rounded-full border border-[#d7d0ae] bg-[#f6f2de] px-2 py-0.5 font-semibold text-[#5e643f]">
-                  {entry.shareable ? "Shareable" : "Private suggestions"}
+                  Shareable
                 </span>
+                )}
               </div>
               <p className="mt-2 text-sm text-[#4f5730] line-clamp-3 whitespace-pre-wrap">{entry.details}</p>
               <p className="mt-2 text-[11px] text-[#7a7f54]">By {entry.user}</p>
@@ -379,9 +404,11 @@ export default function HubRequestPage() {
                   <span className={`rounded-full border px-2 py-0.5 font-semibold ${typeTagClasses(active.requestType)}`}>{active.requestType}</span>
                   <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusTagClasses(active.status)}`}>{active.status}</span>
                   {active.urgent && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 font-semibold text-rose-700">Urgent</span>}
+                  {active.shareable && (
                   <span className="rounded-full border border-[#d7d0ae] bg-[#f6f2de] px-2 py-0.5 font-semibold text-[#5e643f]">
-                    {active.shareable ? "Shareable" : "Private suggestions"}
+                    Shareable
                   </span>
+                  )}
                 </div>
                 <p className="text-sm text-[#4b5133] whitespace-pre-wrap">{active.details}</p>
 
@@ -413,13 +440,22 @@ export default function HubRequestPage() {
                       rows={3}
                       className="w-full rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
                     />
-                    <button
-                      onClick={submitReview}
-                      disabled={reviewBusy || !reviewNote.trim()}
-                      className="rounded-md bg-[#8fae4c] px-3 py-2 text-sm font-semibold text-white"
-                    >
-                      {reviewBusy ? "Saving..." : "Save review"}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={submitReview}
+                        disabled={reviewBusy || !reviewNote.trim()}
+                        className="rounded-md bg-[#8fae4c] px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        {reviewBusy ? "Saving..." : "Save review"}
+                      </button>
+                      <button
+                        onClick={deleteRequest}
+                        disabled={deleteBusy}
+                        className="rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        {deleteBusy ? "Deleting..." : "Delete request"}
+                      </button>
+                    </div>
                     {active.reviewNote && (
                       <p className="text-xs text-[#4f5730]">
                         Last review by {active.reviewedBy || "Admin"}: {active.reviewNote}
