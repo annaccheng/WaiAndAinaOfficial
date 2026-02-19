@@ -366,6 +366,7 @@ export default function HubSchedulePage() {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [userReportTime, setUserReportTime] = useState<string | null>(null);
+  const [reportSubmittedToday, setReportSubmittedToday] = useState(false);
   const reportEnabled = true;
 
   useEffect(() => {
@@ -411,6 +412,7 @@ export default function HubSchedulePage() {
     if (rowIndex === -1) return false;
     return Boolean(data.reportFlags?.[rowIndex]);
   }, [data, currentUserName]);
+  const effectiveReportDone = scheduleReportFlag || reportSubmittedToday;
   useEffect(() => {
     weekSchedulesRef.current = weekSchedules;
   }, [weekSchedules]);
@@ -897,9 +899,34 @@ export default function HubSchedulePage() {
   }, [currentUserName]);
 
   useEffect(() => {
+    if (!currentUserName || !scheduleDateLabel) {
+      setReportSubmittedToday(false);
+      return;
+    }
+    let cancelled = false;
+    const dateIso = toIsoDateLabel(scheduleDateLabel) || scheduleDateLabel;
+    void (async () => {
+      try {
+        const search = new URLSearchParams({ date: dateIso, name: currentUserName });
+        const res = await fetch(`/api/daily-updates?${search.toString()}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const hasSubmitted = Array.isArray(json.updates) && json.updates.length > 0;
+        setReportSubmittedToday(hasSubmitted);
+      } catch {
+        if (!cancelled) setReportSubmittedToday(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserName, scheduleDateLabel]);
+
+  useEffect(() => {
     if (!reportEnabled || !currentUserName) return;
     if (typeof window === "undefined") return;
-    if (scheduleReportFlag) {
+    if (effectiveReportDone) {
       setReportOpen(false);
       return;
     }
@@ -924,11 +951,11 @@ export default function HubSchedulePage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [currentUserName, data?.reportTime, data?.scheduleDate, reportEnabled, scheduleReportFlag, userReportTime]);
+  }, [currentUserName, data?.reportTime, data?.scheduleDate, effectiveReportDone, reportEnabled, userReportTime]);
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
-    if (scheduleReportFlag) {
+    if (effectiveReportDone) {
       setReportError("Daily report already submitted for today.");
       return;
     }
@@ -985,13 +1012,14 @@ export default function HubSchedulePage() {
           const errorPayload = await dailyUpdateResponse.json().catch(() => ({}));
           throw new Error(errorPayload?.error || "Failed to save daily update");
         }
+        setReportSubmittedToday(true);
       }
 
       const rowIndex = data.people.findIndex(
         (p) => p.toLowerCase() === currentUserName.toLowerCase()
       );
       if (rowIndex !== -1) {
-        await fetch("/api/schedule/update", {
+        const scheduleReportRes = await fetch("/api/schedule/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1000,6 +1028,9 @@ export default function HubSchedulePage() {
             reportValue: true,
           }),
         });
+        if (!scheduleReportRes.ok) {
+          console.warn("Schedule report flag update failed; relying on daily_updates record.");
+        }
       }
 
       setReportOpen(false);
@@ -2499,7 +2530,7 @@ export default function HubSchedulePage() {
                 <div className="mt-2">{scheduleDateControls}</div>
               </div>
               <div className="flex items-center gap-2">
-                {reportEnabled && !scheduleReportFlag && (
+                {reportEnabled && !effectiveReportDone && (
                   <button
                     type="button"
                     onClick={() => setReportOpen(true)}
@@ -2508,7 +2539,7 @@ export default function HubSchedulePage() {
                     Open daily report
                   </button>
                 )}
-                {reportEnabled && scheduleReportFlag && (
+                {reportEnabled && effectiveReportDone && (
                   <span className="rounded-full border border-[#cdd9a2] bg-[#f3f7df] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#647246]">
                     Daily report done
                   </span>
@@ -3284,10 +3315,10 @@ export default function HubSchedulePage() {
               <button
                 type="button"
                 onClick={handleReportSubmit}
-                disabled={reportSubmitting || scheduleReportFlag}
+                disabled={reportSubmitting || effectiveReportDone}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
-                {scheduleReportFlag ? "Done" : reportSubmitting ? "Submitting…" : "Submit report"}
+                {effectiveReportDone ? "Done" : reportSubmitting ? "Submitting…" : "Submit report"}
               </button>
             </div>
           </div>
