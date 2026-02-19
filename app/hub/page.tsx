@@ -272,6 +272,26 @@ function getHawaiiTimeParts() {
   return { dateLabel, hour, minute };
 }
 
+function parseReportTimeToMinutes(raw?: string | null) {
+  const value = String(raw || "").trim();
+  if (!value) return 14 * 60 + 30;
+
+  const hhmm = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    return Number(hhmm[1]) * 60 + Number(hhmm[2]);
+  }
+
+  const ampm = value.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (ampm) {
+    let hour = Number(ampm[1]) % 12;
+    const minute = Number(ampm[2] || "0");
+    if (ampm[3].toLowerCase() === "pm") hour += 12;
+    return hour * 60 + minute;
+  }
+
+  return 14 * 60 + 30;
+}
+
 export default function HubSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -881,13 +901,11 @@ export default function HubSchedulePage() {
     const checkTime = () => {
       if (cancelled) return;
       const { dateLabel, hour, minute } = getHawaiiTimeParts();
-      if (data?.scheduleDate && data.scheduleDate !== dateLabel) return;
+      const scheduleIso = toIsoDateLabel(data?.scheduleDate) || data?.scheduleDate;
+      if (scheduleIso && scheduleIso !== dateLabel) return;
 
-      const [targetHourRaw, targetMinuteRaw] = String(data?.reportTime || "14:30").split(":");
-      const targetHour = Number(targetHourRaw || 14);
-      const targetMinute = Number(targetMinuteRaw || 30);
       const nowMinutes = hour * 60 + minute;
-      const targetMinutes = targetHour * 60 + targetMinute;
+      const targetMinutes = parseReportTimeToMinutes(data?.reportTime);
       if (nowMinutes < targetMinutes) return;
 
       const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
@@ -911,9 +929,9 @@ export default function HubSchedulePage() {
 
     try {
       const updates = reportRows.map(async (row) => {
-        const base = taskBaseName(row.task);
-        const status = reportStatus[base] || "";
-        const comment = reportComments[base]?.trim() || "";
+        const base = row.base;
+        const status = reportStatus[row.key] || "";
+        const comment = reportComments[row.key]?.trim() || "";
 
         if (status) {
           const statusResponse = await fetch("/api/task", {
@@ -946,9 +964,9 @@ export default function HubSchedulePage() {
 
       const updatesSummary = reportRows
         .map((row) => {
-          const base = taskBaseName(row.task);
-          const status = reportStatus[base] || "";
-          const comment = reportComments[base]?.trim() || "";
+          const base = row.base;
+          const status = reportStatus[row.key] || "";
+          const comment = reportComments[row.key]?.trim() || "";
           if (!status && !comment) return "";
           const pieces = [base];
           if (status) pieces.push(status);
@@ -957,8 +975,8 @@ export default function HubSchedulePage() {
         .filter(Boolean);
       const commentsSummary = reportRows
         .map((row) => {
-          const base = taskBaseName(row.task);
-          const comment = reportComments[base]?.trim() || "";
+          const base = row.base;
+          const comment = reportComments[row.key]?.trim() || "";
           if (!comment) return "";
           return `${base}: ${comment}`;
         })
@@ -978,14 +996,11 @@ export default function HubSchedulePage() {
           body: JSON.stringify({
             userName: currentUserName,
             updateDate: scheduleDateLabel,
-            taskStatuses: reportRows.map((row) => {
-              const base = taskBaseName(row.task);
-              return {
-                taskId: base,
-                taskName: base,
-                status: reportStatus[base] || "",
-              };
-            }),
+            taskStatuses: reportRows.map((row) => ({
+              taskId: row.key,
+              taskName: row.base,
+              status: reportStatus[row.key] || "",
+            })),
             extraNotes: combinedExtraNotes,
             requests: normalizedRequests,
           }),
@@ -1923,16 +1938,33 @@ export default function HubSchedulePage() {
   }, [currentUserName, myTasks, scheduleDateLabel]);
 
   const reportRows = useMemo(() => {
-    if (!myTasks.length) return [];
-    const unique = new Map<string, { task: string; groupNames: string[] }>();
+    if (!myTasks.length) return [] as {
+      key: string;
+      base: string;
+      task: string;
+      slot: Slot;
+      groupNames: string[];
+    }[];
+
+    const seen = new Set<string>();
+    const rows: {
+      key: string;
+      base: string;
+      task: string;
+      slot: Slot;
+      groupNames: string[];
+    }[] = [];
+
     myTasks.forEach((entry) => {
       const base = taskBaseName(entry.task);
       if (!base) return;
-      if (!unique.has(base)) {
-        unique.set(base, { task: entry.task, groupNames: entry.groupNames });
-      }
+      const key = `${entry.slot.id}::${base}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ key, base, task: entry.task, slot: entry.slot, groupNames: entry.groupNames });
     });
-    return Array.from(unique.values());
+
+    return rows;
   }, [myTasks]);
 
   useEffect(() => {
@@ -1944,9 +1976,8 @@ export default function HubSchedulePage() {
     setReportStatus((prev) => {
       const next = { ...prev };
       reportRows.forEach((row) => {
-        const base = taskBaseName(row.task);
-        if (!next[base]) {
-          next[base] = taskMetaMap[base]?.status || "";
+        if (!next[row.key]) {
+          next[row.key] = taskMetaMap[row.base]?.status || "";
         }
       });
       return next;
@@ -3158,19 +3189,17 @@ export default function HubSchedulePage() {
                 <p className="text-sm text-[#7a7f54]">No tasks assigned today.</p>
               )}
               {reportRows.map((row) => {
-                const base = taskBaseName(row.task);
-                const currentStatus = reportStatus[base] || "";
-                const currentComment = reportComments[base] || "";
+                const base = row.base;
+                const currentStatus = reportStatus[row.key] || "";
+                const currentComment = reportComments[row.key] || "";
                 const includesUser = row.groupNames.some(
                   (p) => p.toLowerCase() === (currentUserName || "").toLowerCase()
                 );
-                const slotForTask =
-                  myTasks.find((task) => taskBaseName(task.task) === base)?.slot ||
-                  data?.slots?.[0];
+                const slotForTask = row.slot || data?.slots?.[0];
 
                 return (
                   <div
-                    key={base}
+                    key={row.key}
                     className={`rounded-lg border border-[#e2d7b5] bg-white/80 p-4 shadow-sm ${
                       includesUser ? "ring-2 ring-[#d2e4a0]" : ""
                     }`}
@@ -3196,6 +3225,9 @@ export default function HubSchedulePage() {
                         {row.groupNames.length === 1 ? "person" : "people"}
                       </span>
                     </div>
+                    <p className="mt-1 text-xs text-[#7a7f54]">
+                      {row.slot.label}{row.slot.timeRange ? ` • ${row.slot.timeRange}` : ""}
+                    </p>
 
                     <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
                       <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
@@ -3205,7 +3237,7 @@ export default function HubSchedulePage() {
                           onChange={(e) =>
                             setReportStatus((prev) => ({
                               ...prev,
-                              [base]: e.target.value,
+                              [row.key]: e.target.value,
                             }))
                           }
                           className="mt-1 w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
@@ -3225,7 +3257,7 @@ export default function HubSchedulePage() {
                           onChange={(e) =>
                             setReportComments((prev) => ({
                               ...prev,
-                              [base]: e.target.value,
+                              [row.key]: e.target.value,
                             }))
                           }
                           placeholder="Add a comment for this task"
