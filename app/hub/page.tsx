@@ -892,15 +892,18 @@ export default function HubSchedulePage() {
         const comment = reportComments[base]?.trim() || "";
 
         if (status) {
-          await fetch("/api/task", {
+          const statusResponse = await fetch("/api/task", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
           });
+          if (!statusResponse.ok) {
+            throw new Error(`Failed to update status for ${base}`);
+          }
         }
 
         if (comment) {
-          await fetch("/api/task", {
+          const commentResponse = await fetch("/api/task", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -909,6 +912,9 @@ export default function HubSchedulePage() {
               occurrenceDate: scheduleDateLabel,
             }),
           });
+          if (!commentResponse.ok) {
+            throw new Error(`Failed to save comment for ${base}`);
+          }
         }
       });
 
@@ -936,15 +942,27 @@ export default function HubSchedulePage() {
         .join(" | ");
 
       if (updatesSummary.length || commentsSummary) {
-        await fetch("/api/push/end-of-day", {
+        const dailyUpdateResponse = await fetch("/api/daily-updates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            authorName: currentUserName,
-            tasks: updatesSummary,
-            comments: commentsSummary,
+            userName: currentUserName,
+            updateDate: scheduleDateLabel,
+            taskStatuses: reportRows.map((row) => {
+              const base = taskBaseName(row.task);
+              return {
+                taskId: base,
+                taskName: base,
+                status: reportStatus[base] || "",
+              };
+            }),
+            extraNotes: commentsSummary,
+            requests: "",
           }),
         });
+        if (!dailyUpdateResponse.ok) {
+          throw new Error("Failed to save daily update");
+        }
       }
 
       const rowIndex = data.people.findIndex(
@@ -3117,13 +3135,13 @@ export default function HubSchedulePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.16em] text-[#7a7f54]">
-                  Daily report
+                  Daily updates
                 </p>
                 <h3 className="mt-1 text-xl font-semibold text-[#3e4c24]">
-                  Update today&apos;s tasks
+                  Submit your daily report
                 </h3>
                 <p className="mt-1 text-sm text-[#6b6d4b]">
-                  Quick status updates and notes for today&apos;s assignments.
+                  from the dashboard normal screen.
                 </p>
               </div>
               <button
