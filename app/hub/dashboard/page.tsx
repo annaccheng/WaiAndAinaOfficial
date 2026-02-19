@@ -406,8 +406,7 @@ export default function WorkDashboardPage() {
               nextFeed.push(`Status update: ${task.task} → ${task.status || "Unassigned"}.`);
             }
             if (task.commentCount > (prev.commentCount || 0)) {
-              nextAlerts.push(`New comments on ${task.task}.`);
-              nextFeed.push(`Comment added on ${task.task}.`);
+              nextAlerts.push("New task discussion activity detected.");
             }
           });
 
@@ -747,8 +746,22 @@ export default function WorkDashboardPage() {
                         <span className="text-[10px] text-[#7a7f54]">{new Date(entry.updated_at).toLocaleTimeString()}</span>
                       </div>
                       {entry.summary && <p className="mt-1 text-sm text-[#4b5133]">{entry.summary}</p>}
-                      {entry.extra_notes && <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]"><span className="font-semibold">Extra Notes:</span> {entry.extra_notes}</p>}
-                      {entry.requests && <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]"><span className="font-semibold">Request:</span> {entry.requests}</p>}
+                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">1) Task status check</p>
+                        <p className="mt-1 text-xs text-[#4f5730]">
+                          {entry.task_statuses?.length
+                            ? `${entry.task_statuses.filter((row) => row.status.toLowerCase() === "completed").length} completed · ${entry.task_statuses.filter((row) => row.status.toLowerCase() === "in progress").length} in progress · ${entry.task_statuses.filter((row) => row.status.toLowerCase() === "not started").length} not started`
+                            : "No task status changes shared."}
+                        </p>
+                      </div>
+                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">2) Extra Notes</p>
+                        <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.extra_notes || "—"}</p>
+                      </div>
+                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">3) Request</p>
+                        <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.requests || "—"}</p>
+                      </div>
                     </div>
                   ))}
                 </div>

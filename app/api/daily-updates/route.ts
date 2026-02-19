@@ -185,14 +185,22 @@ export async function POST(req: Request) {
 
     const users = await supabaseRequest<any[]>("users", {
       query: {
-        select: "display_name,active",
-        active: "eq.true",
+        select: "display_name,active,user_type",
       },
     });
-    const recipients = (users || [])
-      .map((user) => String(user.display_name || "").trim())
-      .filter(Boolean)
-      .filter((entry) => entry.toLowerCase() !== userName.toLowerCase());
+    const recipients = Array.from(
+      new Set(
+        (users || [])
+          .filter((user) => {
+            const type = String(user?.user_type || "").toLowerCase();
+            const isAdmin = type === "admin";
+            return Boolean(user?.active) || isAdmin;
+          })
+          .map((user) => String(user.display_name || "").trim())
+          .filter(Boolean)
+          .filter((entry) => entry.toLowerCase() !== userName.toLowerCase())
+      )
+    );
 
     if (recipients.length) {
       await sendPushNotifications({
