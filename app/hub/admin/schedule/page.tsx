@@ -92,6 +92,15 @@ type IndicatorRule = {
   value?: string;
 };
 type TaskCommentPreview = { id: string; text: string; createdTime: string; author: string };
+type DailyUpdateEntry = {
+  id: string;
+  user_name: string;
+  task_statuses: { taskId: string; taskName: string; status: string }[];
+  extra_notes: string | null;
+  requests: string | null;
+  summary: string | null;
+  updated_at: string;
+};
 
 type DayOverviewSummary = {
   tasks: OverviewTaskEntry[];
@@ -292,6 +301,7 @@ export default function AdminScheduleEditorPage() {
     customTables: true,
     scheduleCanvas: true,
     dayOverviews: true,
+    dailyUpdates: true,
   });
   const [selectedCell, setSelectedCell] = useState<{
     person: string;
@@ -462,6 +472,9 @@ export default function AdminScheduleEditorPage() {
     startWidth: number;
   } | null>(null);
   const [isAfk, setIsAfk] = useState(false);
+  const [dailyUpdates, setDailyUpdates] = useState<DailyUpdateEntry[]>([]);
+  const [dailyUpdatesLoading, setDailyUpdatesLoading] = useState(false);
+  const [dailyUpdatesError, setDailyUpdatesError] = useState<string | null>(null);
 
   const formatDateInput = useCallback((value: string) => {
     if (!value) return "";
@@ -1520,6 +1533,47 @@ export default function AdminScheduleEditorPage() {
     () => (selectedDate ? formatLabelToInput(selectedDate) : ""),
     [formatLabelToInput, selectedDate]
   );
+
+  useEffect(() => {
+    if (!selectedDateIso) {
+      setDailyUpdates([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadDailyUpdates = async () => {
+      setDailyUpdatesLoading(true);
+      setDailyUpdatesError(null);
+      try {
+        const res = await fetch(`/api/daily-updates?date=${encodeURIComponent(selectedDateIso)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error || "Unable to load daily updates.");
+        }
+        if (!cancelled) {
+          setDailyUpdates(Array.isArray(json.updates) ? json.updates : []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDailyUpdates([]);
+          setDailyUpdatesError(
+            err instanceof Error ? err.message : "Unable to load daily updates."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setDailyUpdatesLoading(false);
+        }
+      }
+    };
+
+    void loadDailyUpdates();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDateIso]);
 
   const dayOverviewRecurring = useMemo(
     () => dayOverviewSummary?.recurringTasks ?? [],
@@ -5801,6 +5855,75 @@ export default function AdminScheduleEditorPage() {
               )}
             </>
           )}
+
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+              <span>Daily Updates</span>
+              <button
+                type="button"
+                onClick={() => toggleSectionVisibility("dailyUpdates")}
+                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
+              >
+                {sectionVisibility.dailyUpdates ? "Hide" : "Show"}
+              </button>
+            </div>
+            {sectionVisibility.dailyUpdates && (
+              <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
+                <p className="text-[11px] text-[#6a6c4d]">
+                  Reports submitted by team members for {selectedDate || "the selected day"}.
+                </p>
+                {dailyUpdatesLoading && (
+                  <p className="mt-3 text-[11px] text-[#7a7f54]">Loading daily updates…</p>
+                )}
+                {!dailyUpdatesLoading && dailyUpdatesError && (
+                  <p className="mt-3 text-[11px] text-rose-700">{dailyUpdatesError}</p>
+                )}
+                {!dailyUpdatesLoading && !dailyUpdatesError && dailyUpdates.length === 0 && (
+                  <p className="mt-3 text-[11px] text-[#7a7f54]">No daily updates submitted yet.</p>
+                )}
+                {!dailyUpdatesLoading && !dailyUpdatesError && dailyUpdates.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {dailyUpdates.map((entry) => {
+                      const completedCount = entry.task_statuses?.filter(
+                        (row) => row.status.toLowerCase() === "completed"
+                      ).length || 0;
+                      const inProgressCount = entry.task_statuses?.filter(
+                        (row) => row.status.toLowerCase() === "in progress"
+                      ).length || 0;
+                      const notStartedCount = entry.task_statuses?.filter(
+                        (row) => row.status.toLowerCase() === "not started"
+                      ).length || 0;
+
+                      return (
+                        <div key={entry.id} className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-[#314123]">{entry.user_name}</p>
+                            <span className="text-[10px] text-[#7a7f54]">
+                              {new Date(entry.updated_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          {entry.summary && <p className="mt-1 text-xs text-[#4b5133]">{entry.summary}</p>}
+                          <p className="mt-2 text-[11px] text-[#4f5730]">
+                            {completedCount} completed · {inProgressCount} in progress · {notStartedCount} not started
+                          </p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            <div className="rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Extra notes</p>
+                              <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.extra_notes || "—"}</p>
+                            </div>
+                            <div className="rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Requests</p>
+                              <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.requests || "—"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         </div>
 
         <div className="order-first w-full shrink-0 space-y-4 overflow-y-visible lg:order-none lg:h-0 lg:w-0 lg:flex-none lg:shrink-0">
