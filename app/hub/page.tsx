@@ -361,7 +361,6 @@ export default function HubSchedulePage() {
   const animalFetchInFlight = useRef(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<Record<string, string>>({});
-  const [reportComments, setReportComments] = useState<Record<string, string>>({});
   const [reportExtraNotes, setReportExtraNotes] = useState("");
   const [reportRequests, setReportRequests] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -929,6 +928,10 @@ export default function HubSchedulePage() {
 
   const handleReportSubmit = async () => {
     if (!currentUserName || !data) return;
+    if (scheduleReportFlag) {
+      setReportError("Daily report already submitted for today.");
+      return;
+    }
     setReportSubmitting(true);
     setReportError(null);
 
@@ -936,7 +939,6 @@ export default function HubSchedulePage() {
       const updates = reportRows.map(async (row) => {
         const base = row.base;
         const status = reportStatus[row.key] || "";
-        const comment = reportComments[row.key]?.trim() || "";
 
         if (status) {
           const statusResponse = await fetch("/api/task", {
@@ -948,21 +950,6 @@ export default function HubSchedulePage() {
             throw new Error(`Failed to update status for ${base}`);
           }
         }
-
-        if (comment) {
-          const commentResponse = await fetch("/api/task", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: base,
-              comment: `${currentUserName} : ${comment}`,
-              occurrenceDate: scheduleDateLabel,
-            }),
-          });
-          if (!commentResponse.ok) {
-            throw new Error(`Failed to save comment for ${base}`);
-          }
-        }
       });
 
       await Promise.all(updates);
@@ -971,30 +958,14 @@ export default function HubSchedulePage() {
         .map((row) => {
           const base = row.base;
           const status = reportStatus[row.key] || "";
-          const comment = reportComments[row.key]?.trim() || "";
-          if (!status && !comment) return "";
-          const pieces = [base];
-          if (status) pieces.push(status);
+          if (!status) return "";
+          const pieces = [base, status];
           return pieces.filter(Boolean).join(" - ");
         })
         .filter(Boolean);
-      const commentsSummary = reportRows
-        .map((row) => {
-          const base = row.base;
-          const comment = reportComments[row.key]?.trim() || "";
-          if (!comment) return "";
-          return `${base}: ${comment}`;
-        })
-        .filter(Boolean)
-        .join(" | ");
-
       const normalizedExtraNotes = reportExtraNotes.trim();
       const normalizedRequests = reportRequests.trim();
-      const combinedExtraNotes = [normalizedExtraNotes, commentsSummary]
-        .filter(Boolean)
-        .join("\n\nTask comments:\n");
-
-      if (updatesSummary.length || commentsSummary || normalizedExtraNotes || normalizedRequests) {
+      if (updatesSummary.length || normalizedExtraNotes || normalizedRequests) {
         const dailyUpdateResponse = await fetch("/api/daily-updates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1006,7 +977,7 @@ export default function HubSchedulePage() {
               taskName: row.base,
               status: reportStatus[row.key] || "",
             })),
-            extraNotes: combinedExtraNotes,
+            extraNotes: normalizedExtraNotes,
             requests: normalizedRequests,
           }),
         });
@@ -2537,6 +2508,11 @@ export default function HubSchedulePage() {
                     Open daily report
                   </button>
                 )}
+                {reportEnabled && scheduleReportFlag && (
+                  <span className="rounded-full border border-[#cdd9a2] bg-[#f3f7df] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#647246]">
+                    Daily report done
+                  </span>
+                )}
                 <div className="relative">
                   <button
                     type="button"
@@ -3206,7 +3182,6 @@ export default function HubSchedulePage() {
               {reportRows.map((row) => {
                 const base = row.base;
                 const currentStatus = reportStatus[row.key] || "";
-                const currentComment = reportComments[row.key] || "";
                 const includesUser = row.groupNames.some(
                   (p) => p.toLowerCase() === (currentUserName || "").toLowerCase()
                 );
@@ -3244,7 +3219,7 @@ export default function HubSchedulePage() {
                       {row.slot.label}{row.slot.timeRange ? ` • ${row.slot.timeRange}` : ""}
                     </p>
 
-                    <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                    <div className="mt-3">
                       <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
                         Status
                         <select
@@ -3265,20 +3240,6 @@ export default function HubSchedulePage() {
                           ))}
                         </select>
                       </label>
-                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
-                        Comment
-                        <textarea
-                          value={currentComment}
-                          onChange={(e) =>
-                            setReportComments((prev) => ({
-                              ...prev,
-                              [row.key]: e.target.value,
-                            }))
-                          }
-                          placeholder="Add a comment for this task"
-                          className="mt-1 min-h-[90px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
-                        />
-                      </label>
                     </div>
                   </div>
                 );
@@ -3288,7 +3249,7 @@ export default function HubSchedulePage() {
             <div className="mt-5 space-y-4 rounded-lg border border-[#e2d7b5] bg-white/70 p-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">1) Task status check</p>
-                <p className="mt-1 text-xs text-[#6b6d4b]">Update statuses and optional comments in the task cards above.</p>
+                <p className="mt-1 text-xs text-[#6b6d4b]">Update statuses for each task instance in the cards above.</p>
               </div>
               <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
                 2) Extra Notes
@@ -3318,15 +3279,15 @@ export default function HubSchedulePage() {
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-[#6b6d4b]">
-                Submitting marks your report complete for today.
+                Submitting marks your daily report complete for today.
               </p>
               <button
                 type="button"
                 onClick={handleReportSubmit}
-                disabled={reportSubmitting}
+                disabled={reportSubmitting || scheduleReportFlag}
                 className="rounded-md bg-[#8fae4c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#f9f9ec] shadow-md transition hover:bg-[#7e9c44] disabled:opacity-60"
               >
-                {reportSubmitting ? "Submitting…" : "Submit report"}
+                {scheduleReportFlag ? "Done" : reportSubmitting ? "Submitting…" : "Submit report"}
               </button>
             </div>
           </div>
