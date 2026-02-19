@@ -908,9 +908,6 @@ export default function HubSchedulePage() {
       const targetMinutes = parseReportTimeToMinutes(data?.reportTime);
       if (nowMinutes < targetMinutes) return;
 
-      const key = `end-of-day-prompt-${dateLabel}-${currentUserName.toLowerCase()}`;
-      if (localStorage.getItem(key)) return;
-      localStorage.setItem(key, "1");
       setReportOpen(true);
     };
 
