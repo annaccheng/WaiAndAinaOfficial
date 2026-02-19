@@ -338,6 +338,8 @@ export default function HubSchedulePage() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<Record<string, string>>({});
   const [reportComments, setReportComments] = useState<Record<string, string>>({});
+  const [reportExtraNotes, setReportExtraNotes] = useState("");
+  const [reportRequests, setReportRequests] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const reportEnabled = true;
@@ -941,7 +943,13 @@ export default function HubSchedulePage() {
         .filter(Boolean)
         .join(" | ");
 
-      if (updatesSummary.length || commentsSummary) {
+      const normalizedExtraNotes = reportExtraNotes.trim();
+      const normalizedRequests = reportRequests.trim();
+      const combinedExtraNotes = [normalizedExtraNotes, commentsSummary]
+        .filter(Boolean)
+        .join("\n\nTask comments:\n");
+
+      if (updatesSummary.length || commentsSummary || normalizedExtraNotes || normalizedRequests) {
         const dailyUpdateResponse = await fetch("/api/daily-updates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -956,8 +964,8 @@ export default function HubSchedulePage() {
                 status: reportStatus[base] || "",
               };
             }),
-            extraNotes: commentsSummary,
-            requests: "",
+            extraNotes: combinedExtraNotes,
+            requests: normalizedRequests,
           }),
         });
         if (!dailyUpdateResponse.ok) {
@@ -981,6 +989,8 @@ export default function HubSchedulePage() {
       }
 
       setReportOpen(false);
+      setReportExtraNotes("");
+      setReportRequests("");
     } catch (err) {
       console.error("Failed to submit report", err);
       setReportError("Unable to submit the report. Please try again.");
@@ -3236,6 +3246,31 @@ export default function HubSchedulePage() {
                   </div>
                 );
               })}
+            </div>
+
+            <div className="mt-5 space-y-4 rounded-lg border border-[#e2d7b5] bg-white/70 p-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">1) Task status check</p>
+                <p className="mt-1 text-xs text-[#6b6d4b]">Update statuses and optional comments in the task cards above.</p>
+              </div>
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                2) Extra Notes
+                <textarea
+                  value={reportExtraNotes}
+                  onChange={(e) => setReportExtraNotes(e.target.value)}
+                  placeholder={"Share details from your day.\n• Wins\n• Blockers"}
+                  className="mt-2 min-h-[96px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
+                />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                3) Request
+                <textarea
+                  value={reportRequests}
+                  onChange={(e) => setReportRequests(e.target.value)}
+                  placeholder={"Anything needed for tomorrow?\n• Supplies\n• Team help"}
+                  className="mt-2 min-h-[96px] w-full rounded-md border border-[#d0c9a4] bg-white px-3 py-2 text-sm text-[#3b4224] focus:border-[#8fae4c] focus:outline-none"
+                />
+              </label>
             </div>
 
             {reportError && (

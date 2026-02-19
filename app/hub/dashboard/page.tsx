@@ -634,7 +634,7 @@ export default function WorkDashboardPage() {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <p className="text-xs text-[#4f5730]">
-                Daily report appears automatically as a popup at your configured time.
+                Daily report submission is handled from the Schedule screen popup.
               </p>
               {dailyUpdateSuccess && <span className="text-xs text-[#4f5730]">{dailyUpdateSuccess}</span>}
             </div>
