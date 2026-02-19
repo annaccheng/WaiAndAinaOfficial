@@ -185,14 +185,14 @@ export async function POST(req: Request) {
 
     const users = await supabaseRequest<any[]>("users", {
       query: {
-        select: "display_name,active,user_type",
+        select: "display_name,active,user_role:user_roles(name)",
       },
     });
     const recipients = Array.from(
       new Set(
         (users || [])
           .filter((user) => {
-            const type = String(user?.user_type || "").toLowerCase();
+            const type = String(user?.user_role?.name || "").toLowerCase();
             const isAdmin = type === "admin";
             return Boolean(user?.active) || isAdmin;
           })
