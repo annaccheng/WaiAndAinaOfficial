@@ -102,6 +102,11 @@ type DailyUpdateEntry = {
   updated_at: string;
 };
 
+type DailyUpdateSummaryCacheEntry = {
+  summary: string;
+  generatedAt: string;
+};
+
 type DayOverviewSummary = {
   tasks: OverviewTaskEntry[];
   recurringTasks: OverviewTaskEntry[];
@@ -219,6 +224,7 @@ const DEFAULT_STATUS_EMOJI_MAP: Record<string, string> = {
 };
 const INDICATOR_RULES_STORAGE_KEY = "admin-schedule-indicator-rules";
 const STATUS_EMOJI_STORAGE_KEY = "admin-schedule-status-emoji-map";
+const DAILY_UPDATES_SUMMARY_CACHE_KEY = "admin-schedule-daily-updates-summary-cache";
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -475,6 +481,9 @@ export default function AdminScheduleEditorPage() {
   const [dailyUpdates, setDailyUpdates] = useState<DailyUpdateEntry[]>([]);
   const [dailyUpdatesLoading, setDailyUpdatesLoading] = useState(false);
   const [dailyUpdatesError, setDailyUpdatesError] = useState<string | null>(null);
+  const [dailyUpdatesSummaryCache, setDailyUpdatesSummaryCache] = useState<Record<string, DailyUpdateSummaryCacheEntry>>({});
+  const [dailyUpdatesSummaryLoading, setDailyUpdatesSummaryLoading] = useState(false);
+  const [dailyUpdatesSummaryError, setDailyUpdatesSummaryError] = useState<string | null>(null);
 
   const formatDateInput = useCallback((value: string) => {
     if (!value) return "";
@@ -1533,6 +1542,74 @@ export default function AdminScheduleEditorPage() {
     () => (selectedDate ? formatLabelToInput(selectedDate) : ""),
     [formatLabelToInput, selectedDate]
   );
+
+  const dailyUpdatesSummary = selectedDateIso ? dailyUpdatesSummaryCache[selectedDateIso] : undefined;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const cached = localStorage.getItem(DAILY_UPDATES_SUMMARY_CACHE_KEY);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as Record<string, DailyUpdateSummaryCacheEntry>;
+      if (parsed && typeof parsed === "object") {
+        setDailyUpdatesSummaryCache(parsed);
+      }
+    } catch (err) {
+      console.warn("Failed to parse daily updates summary cache", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        DAILY_UPDATES_SUMMARY_CACHE_KEY,
+        JSON.stringify(dailyUpdatesSummaryCache)
+      );
+    } catch (err) {
+      console.warn("Failed to save daily updates summary cache", err);
+    }
+  }, [dailyUpdatesSummaryCache]);
+
+  const generateDailyUpdatesSummary = useCallback(async () => {
+    if (!selectedDateIso || dailyUpdatesSummaryLoading) return;
+    setDailyUpdatesSummaryLoading(true);
+    setDailyUpdatesSummaryError(null);
+    try {
+      const res = await fetch("/api/daily-updates/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: selectedDateIso }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Unable to generate daily update summary.");
+      }
+
+      const summary = String(json.summary || "").trim();
+      if (!summary) {
+        throw new Error("Summary was empty.");
+      }
+
+      setDailyUpdatesSummaryCache((prev) => ({
+        ...prev,
+        [selectedDateIso]: {
+          summary,
+          generatedAt: String(json.generatedAt || new Date().toISOString()),
+        },
+      }));
+    } catch (err) {
+      setDailyUpdatesSummaryError(
+        err instanceof Error ? err.message : "Unable to generate daily update summary."
+      );
+    } finally {
+      setDailyUpdatesSummaryLoading(false);
+    }
+  }, [dailyUpdatesSummaryLoading, selectedDateIso]);
+
+  useEffect(() => {
+    setDailyUpdatesSummaryError(null);
+  }, [selectedDateIso]);
 
   useEffect(() => {
     if (!selectedDateIso) {
@@ -5872,6 +5949,36 @@ export default function AdminScheduleEditorPage() {
                 <p className="text-[11px] text-[#6a6c4d]">
                   Reports submitted by team members for {selectedDate || "the selected day"}.
                 </p>
+                <div className="mt-3 rounded-lg border border-[#d8d3b4] bg-[#f9f6e7] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">
+                      AI Admin Summary
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void generateDailyUpdatesSummary();
+                      }}
+                      disabled={!selectedDateIso || dailyUpdatesSummaryLoading}
+                      className="rounded-full border border-[#c8be8d] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {dailyUpdatesSummaryLoading ? "Generating…" : "Generate summary"}
+                    </button>
+                  </div>
+                  {dailyUpdatesSummaryError && (
+                    <p className="mt-2 text-[11px] text-rose-700">{dailyUpdatesSummaryError}</p>
+                  )}
+                  {dailyUpdatesSummary && (
+                    <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/80 px-2 py-2">
+                      <p className="mb-2 text-[10px] text-[#7a7f54]">
+                        Cached {new Date(dailyUpdatesSummary.generatedAt).toLocaleString()}
+                      </p>
+                      <div className="prose prose-sm max-w-none whitespace-pre-wrap text-[#38412a]">
+                        {dailyUpdatesSummary.summary}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {dailyUpdatesLoading && (
                   <p className="mt-3 text-[11px] text-[#7a7f54]">Loading daily updates…</p>
                 )}
