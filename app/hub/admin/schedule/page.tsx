@@ -3968,6 +3968,7 @@ export default function AdminScheduleEditorPage() {
 
     setCopyingSchedule(true);
     setScheduleNote(null);
+    setSuggestedOneOffByCell({});
 
     try {
       const res = await fetch(
@@ -4024,50 +4025,37 @@ export default function AdminScheduleEditorPage() {
         }
       });
       const sourceOneOffById = new Map<string, any>();
-      const sourceOneOffRes = await fetch(
-        `/api/tasks?recurring=false&start=${sourceIso}&end=${sourceIso}`,
-        { cache: "no-store" }
-      );
-      if (sourceOneOffRes.ok) {
-        const sourceOneOffJson = await sourceOneOffRes.json().catch(() => ({ tasks: [] }));
-        const sourceOneOffTasks = Array.isArray(sourceOneOffJson.tasks) ? sourceOneOffJson.tasks : [];
-        sourceOneOffTasks.forEach((task: any) => {
-          sourceOneOffById.set(String(task.id), task);
-        });
+      if (suggestModeEnabled) {
+        const sourceOneOffRes = await fetch(
+          `/api/tasks?recurring=false&start=${sourceIso}&end=${sourceIso}`,
+          { cache: "no-store" }
+        );
+        if (sourceOneOffRes.ok) {
+          const sourceOneOffJson = await sourceOneOffRes.json().catch(() => ({ tasks: [] }));
+          const sourceOneOffTasks = Array.isArray(sourceOneOffJson.tasks)
+            ? sourceOneOffJson.tasks
+            : [];
+          sourceOneOffTasks.forEach((task: any) => {
+            sourceOneOffById.set(String(task.id), task);
+          });
+        }
       }
-      const clonedOneOffBySourceId = new Map<string, string>();
-      const ensureClonedOneOff = async (taskId: string) => {
-        if (clonedOneOffBySourceId.has(taskId)) {
-          return clonedOneOffBySourceId.get(taskId) || null;
-        }
-        const task = sourceOneOffById.get(taskId);
-        if (!task) return null;
-        const cloned = await cloneOneOffTaskForDate(taskId, targetIso);
-        const clonedId = String(cloned.id || "");
-        if (clonedId) {
-          clonedOneOffBySourceId.set(taskId, clonedId);
-        }
-        return clonedId || null;
-      };
 
       const updates: Promise<void>[] = [];
       sourceData.people.forEach((person, rowIdx) => {
         sourceData.slots.forEach((slot, colIdx) => {
           const cell = sourceData.cells?.[rowIdx]?.[colIdx];
           if (!cell) return;
-          const mappedTasksPromise = Promise.all(
-            cell.tasks.map(async (task) => {
-              const seriesId = sourceRecurringSeries.get(String(task.id));
-              if (!seriesId) {
-                if (!suggestModeEnabled) {
-                  return ensureClonedOneOff(String(task.id));
-                }
-                return null;
-              }
-              const targetTaskId = targetRecurringBySeries.get(seriesId);
-              return targetTaskId || null;
-            })
-          ).then((items) => items.filter(Boolean) as string[]);
+          const mappedTasksPromise = Promise.resolve(
+            cell.tasks
+              .map((task) => {
+                const seriesId = sourceRecurringSeries.get(String(task.id));
+                if (!seriesId) return null;
+                const targetTaskId = targetRecurringBySeries.get(seriesId);
+                return targetTaskId || null;
+              })
+              .filter(Boolean) as string[]
+          );
 
           if (!cell.tasks.length && !cell.note && !cell.blocked) return;
           updates.push(
