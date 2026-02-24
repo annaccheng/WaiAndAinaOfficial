@@ -48,7 +48,11 @@ type TaskDetail = {
   recurring?: boolean;
   occurrenceDate?: string | null;
   parentTaskId?: string | null;
+  recurrenceInterval?: number | null;
+  recurrenceUnit?: string | null;
+  recurrenceUntil?: string | null;
 };
+type SuggestedOneOffTask = ScheduledTask & { sourceTaskId: string };
 type DragPayload = {
   taskId: string;
   taskName: string;
@@ -453,6 +457,10 @@ export default function AdminScheduleEditorPage() {
   const [recurringDockExpanded, setRecurringDockExpanded] = useState(false);
   const [oneOffDockExpanded, setOneOffDockExpanded] = useState(false);
   const [showPastIncomplete, setShowPastIncomplete] = useState(false);
+  const [suggestModeEnabled, setSuggestModeEnabled] = useState(false);
+  const [suggestedOneOffByCell, setSuggestedOneOffByCell] = useState<
+    Record<string, SuggestedOneOffTask[]>
+  >({});
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [photoDropActive, setPhotoDropActive] = useState(false);
@@ -470,6 +478,7 @@ export default function AdminScheduleEditorPage() {
   const [yesterdayScheduleData, setYesterdayScheduleData] =
     useState<ScheduleResponse | null>(null);
   const [yesterdayRecurringTasks, setYesterdayRecurringTasks] = useState<TaskCatalogItem[]>([]);
+  const [yesterdayOneOffTasks, setYesterdayOneOffTasks] = useState<TaskCatalogItem[]>([]);
   const [yesterdayLoading, setYesterdayLoading] = useState(false);
   const [carryOverTaskId, setCarryOverTaskId] = useState<string | null>(null);
   const [columnWidth, setColumnWidth] = useState<number | null>(null);
@@ -484,6 +493,43 @@ export default function AdminScheduleEditorPage() {
   const [dailyUpdatesSummaryCache, setDailyUpdatesSummaryCache] = useState<Record<string, DailyUpdateSummaryCacheEntry>>({});
   const [dailyUpdatesSummaryLoading, setDailyUpdatesSummaryLoading] = useState(false);
   const [dailyUpdatesSummaryError, setDailyUpdatesSummaryError] = useState<string | null>(null);
+
+  const cloneOneOffTaskForDate = useCallback(
+    async (sourceTaskId: string, targetIso: string) => {
+      const detailRes = await fetch(`/api/task?id=${encodeURIComponent(sourceTaskId)}`, {
+        cache: "no-store",
+      });
+      const detailJson = await detailRes.json().catch(() => ({}));
+      if (!detailRes.ok) {
+        throw new Error(detailJson.error || "Failed to load one-off task for duplication.");
+      }
+      const createRes = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: detailJson.name || "Task",
+          description: detailJson.description || null,
+          status: detailJson.status || "Not Started",
+          priority: detailJson.priority || "Medium",
+          recurring: false,
+          origin_date: targetIso,
+          occurrence_date: targetIso,
+          person_count: detailJson.personCount ?? null,
+          links: Array.isArray(detailJson.links)
+            ? detailJson.links.map((link: any) => String(link?.url || link?.label || "")).filter(Boolean)
+            : [],
+          estimated_time: detailJson.estimatedTime || null,
+          extra_notes: Array.isArray(detailJson.extraNotes) ? detailJson.extraNotes : [],
+        }),
+      });
+      const createJson = await createRes.json().catch(() => ({}));
+      if (!createRes.ok || !createJson?.task?.id) {
+        throw new Error(createJson.error || "Failed to duplicate one-off task.");
+      }
+      return createJson.task as any;
+    },
+    []
+  );
 
   const formatDateInput = useCallback((value: string) => {
     if (!value) return "";
@@ -1141,6 +1187,7 @@ export default function AdminScheduleEditorPage() {
     if (!authorized || !yesterdayLabel || scheduleMode !== "page") {
       setYesterdayScheduleData(null);
       setYesterdayRecurringTasks([]);
+      setYesterdayOneOffTasks([]);
       return;
     }
     let cancelled = false;
@@ -1150,13 +1197,14 @@ export default function AdminScheduleEditorPage() {
       try {
         const dateParam = formatLabelToInput(yesterdayLabel);
         if (!dateParam) return;
-        const [scheduleRes, recurringRes] = await Promise.all([
+        const [scheduleRes, recurringRes, oneOffRes] = await Promise.all([
           fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`, {
             cache: "no-store",
           }),
           fetch(
             `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
           ),
+          fetch(`/api/tasks?recurring=false&start=${dateParam}&end=${dateParam}`),
         ]);
         if (cancelled) return;
         if (scheduleRes.ok) {
@@ -1187,11 +1235,34 @@ export default function AdminScheduleEditorPage() {
         } else {
           setYesterdayRecurringTasks([]);
         }
+        if (oneOffRes.ok) {
+          const json = await oneOffRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            priority: task.priority || "",
+            occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
+            description: task.description || null,
+            personCount: task.person_count ?? null,
+            timeSlots: task.time_slots || [],
+            estimatedTime: task.estimated_time || null,
+            commentCount: countCommentsForDate(task.comments, dateParam),
+          }));
+          setYesterdayOneOffTasks(items);
+        } else {
+          setYesterdayOneOffTasks([]);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to load yesterday overview", err);
           setYesterdayScheduleData(null);
           setYesterdayRecurringTasks([]);
+          setYesterdayOneOffTasks([]);
         }
       } finally {
         if (!cancelled) setYesterdayLoading(false);
@@ -1203,6 +1274,60 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, formatLabelToInput, scheduleMode, yesterdayLabel]);
+
+  const ghostSuggestedOneOffByCell = useMemo(() => {
+    if (!suggestModeEnabled || !scheduleData || !yesterdayScheduleData) return {} as Record<string, SuggestedOneOffTask[]>;
+    const yesterdayOneOffById = new Map(yesterdayOneOffTasks.map((task) => [task.id, task]));
+    if (!yesterdayOneOffById.size) return {} as Record<string, SuggestedOneOffTask[]>;
+    const next: Record<string, SuggestedOneOffTask[]> = {};
+
+    yesterdayScheduleData.people.forEach((person, rowIdx) => {
+      const targetRowIdx = scheduleData.people.findIndex(
+        (name) => name.trim().toLowerCase() === person.trim().toLowerCase()
+      );
+      if (targetRowIdx < 0) return;
+      yesterdayScheduleData.slots.forEach((slot, colIdx) => {
+        const targetSlot = scheduleData.slots.find((entry) => entry.id === slot.id);
+        if (!targetSlot) return;
+        const cell = yesterdayScheduleData.cells?.[rowIdx]?.[colIdx];
+        if (!cell?.tasks?.length) return;
+        const key = `${scheduleData.people[targetRowIdx]}-${targetSlot.id}`;
+        const currentNames = new Set(
+          (scheduleData.cells?.[targetRowIdx]?.[scheduleData.slots.findIndex((s) => s.id === targetSlot.id)]?.tasks || [])
+            .map((task) => task.name.trim().toLowerCase())
+        );
+        const suggestions = cell.tasks
+          .filter((task) => yesterdayOneOffById.has(task.id))
+          .filter((task) => !currentNames.has(task.name.trim().toLowerCase()))
+          .map((task) => ({
+            id: `ghost-${task.id}-${rowIdx}-${colIdx}`,
+            name: task.name,
+            sourceTaskId: task.id,
+          }));
+        if (suggestions.length) {
+          next[key] = suggestions;
+        }
+      });
+    });
+
+    return next;
+  }, [scheduleData, suggestModeEnabled, yesterdayOneOffTasks, yesterdayScheduleData]);
+
+  const visibleSuggestedOneOffByCell = useMemo(() => {
+    const merged: Record<string, SuggestedOneOffTask[]> = {};
+    const addAll = (source: Record<string, SuggestedOneOffTask[]>) => {
+      Object.entries(source).forEach(([key, items]) => {
+        const existingIds = new Set((merged[key] || []).map((item) => item.id));
+        const toAdd = items.filter((item) => !existingIds.has(item.id));
+        if (toAdd.length) {
+          merged[key] = [...(merged[key] || []), ...toAdd];
+        }
+      });
+    };
+    addAll(ghostSuggestedOneOffByCell);
+    addAll(suggestedOneOffByCell);
+    return merged;
+  }, [ghostSuggestedOneOffByCell, suggestedOneOffByCell]);
 
   const taskCommentCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -3304,6 +3429,9 @@ export default function AdminScheduleEditorPage() {
         taskType: json.taskType,
         links: normalizedLinks,
         recurring: json.recurring || false,
+        recurrenceInterval: json.recurrenceInterval ?? null,
+        recurrenceUnit: json.recurrenceUnit || null,
+        recurrenceUntil: json.recurrenceUntil || null,
         occurrenceDate: json.occurrenceDate || null,
         parentTaskId: json.parentTaskId || null,
       };
@@ -3431,6 +3559,18 @@ export default function AdminScheduleEditorPage() {
           priority: nextPriority,
           task_type_id: taskTypeMatch?.id || null,
           links: linkValues,
+          recurrence_interval:
+            taskDetail.recurring && taskDetail.recurrenceInterval
+              ? Math.max(1, Number(taskDetail.recurrenceInterval) || 1)
+              : undefined,
+          recurrence_unit:
+            taskDetail.recurring && taskDetail.recurrenceUnit
+              ? taskDetail.recurrenceUnit
+              : undefined,
+          recurrence_until:
+            taskDetail.recurring && taskDetail.recurrenceUntil
+              ? taskDetail.recurrenceUntil
+              : null,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -3720,37 +3860,36 @@ export default function AdminScheduleEditorPage() {
             });
           }
         } else {
-          const res = await fetch("/api/tasks", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: task.id,
-              applyTo: "single",
-              occurrence_date: targetIso,
-            }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            throw new Error(json.error || "Failed to carry over task.");
-          }
-          setOneOffTasks((prev) =>
-            prev.map((item) =>
-              item.id === task.id
-                ? { ...item, occurrenceDate: targetIso }
-                : item
-            )
-          );
+          const cloned = await cloneOneOffTaskForDate(task.id, targetIso);
+          setOneOffTasks((prev) => [
+            {
+              id: cloned.id,
+              name: cloned.name,
+              type: cloned.task_type?.name || "",
+              typeColor: cloned.task_type?.color || "default",
+              status: cloned.status || "",
+              priority: cloned.priority || "",
+              occurrenceDate: cloned.occurrence_date || targetIso,
+              recurring: Boolean(cloned.recurring),
+              parentTaskId: cloned.parent_task_id || null,
+              description: cloned.description || null,
+              personCount: cloned.person_count ?? null,
+              timeSlots: cloned.time_slots || [],
+              estimatedTime: cloned.estimated_time || null,
+            },
+            ...prev,
+          ]);
         }
-        setMessage(`Moved "${task.name}" to ${selectedDate}.`);
+        setMessage(`${task.recurring ? "Moved" : "Copied"} "${task.name}" to ${selectedDate}.`);
         refreshSchedule();
       } catch (err) {
         console.error("Failed to carry over task", err);
-        setMessage("Unable to move task to today.");
+        setMessage(`Unable to ${task.recurring ? "move" : "copy"} task to today.`);
       } finally {
         setCarryOverTaskId(null);
       }
     },
-    [formatLabelToInput, hasRecurringOccurrenceForDate, refreshSchedule, selectedDate]
+    [cloneOneOffTaskForDate, formatLabelToInput, hasRecurringOccurrenceForDate, refreshSchedule, selectedDate]
   );
 
   const publishSchedule = async () => {
@@ -3774,6 +3913,63 @@ export default function AdminScheduleEditorPage() {
       setScheduleNote("Unable to publish the schedule right now.");
     }
   };
+
+  const acceptSuggestedOneOff = useCallback(
+    async (person: string, slotId: string, suggestion: SuggestedOneOffTask) => {
+      if (!selectedDate) return;
+      const targetIso = formatLabelToInput(selectedDate);
+      if (!targetIso) return;
+      try {
+        const cloned = await cloneOneOffTaskForDate(suggestion.sourceTaskId, targetIso);
+        const entry: ScheduledTask = {
+          id: String(cloned.id),
+          name: String(cloned.name || suggestion.name),
+        };
+        const coord = findCoord(person, slotId, scheduleData);
+        if (!coord || !scheduleData) return;
+        const current = scheduleData.cells[coord.row][coord.col];
+        if (current.tasks.some((task) => task.id === entry.id)) return;
+        const next: CellContent = {
+          ...current,
+          tasks: [...current.tasks, entry],
+        };
+        setScheduleData((prev) => {
+          if (!prev) return prev;
+          const nextCells = prev.cells.map((row) => row.map((cell) => cloneCellContent(cell)));
+          nextCells[coord.row][coord.col] = next;
+          return { ...prev, cells: nextCells };
+        });
+        await persistCell(person, slotId, next);
+        setOneOffTasks((prev) => [
+          {
+            id: cloned.id,
+            name: cloned.name,
+            type: cloned.task_type?.name || "",
+            typeColor: cloned.task_type?.color || "default",
+            status: cloned.status || "",
+            priority: cloned.priority || "",
+            occurrenceDate: cloned.occurrence_date || targetIso,
+            recurring: false,
+            parentTaskId: cloned.parent_task_id || null,
+            description: cloned.description || null,
+            personCount: cloned.person_count ?? null,
+            timeSlots: cloned.time_slots || [],
+            estimatedTime: cloned.estimated_time || null,
+          },
+          ...prev,
+        ]);
+        setSuggestedOneOffByCell((prev) => {
+          const key = `${person}-${slotId}`;
+          const nextItems = (prev[key] || []).filter((item) => item.id !== suggestion.id);
+          return { ...prev, [key]: nextItems };
+        });
+      } catch (err) {
+        console.error("Failed to accept suggested one-off", err);
+        setMessage("Unable to duplicate suggested task.");
+      }
+    },
+    [cloneOneOffTaskForDate, findCoord, formatLabelToInput, persistCell, scheduleData, selectedDate]
+  );
 
   const unpublishSchedule = async () => {
     if (scheduleMode !== "page" || !selectedDate) return;
@@ -3852,6 +4048,7 @@ export default function AdminScheduleEditorPage() {
 
     setCopyingSchedule(true);
     setScheduleNote(null);
+    setSuggestedOneOffByCell({});
 
     try {
       const res = await fetch(
@@ -3871,6 +4068,9 @@ export default function AdminScheduleEditorPage() {
 
       const sourceIso = formatLabelToInput(copySourceDate);
       const targetIso = formatLabelToInput(copyTargetDate);
+      const dayShift = Math.round(
+        (new Date(targetIso).getTime() - new Date(sourceIso).getTime()) / (1000 * 60 * 60 * 24)
+      );
       const [sourceRecurringRes, targetRecurringRes] = await Promise.all([
         fetch(
           `/api/tasks?recurring=true&includeOccurrences=true&start=${sourceIso}&end=${sourceIso}`
@@ -3904,39 +4104,83 @@ export default function AdminScheduleEditorPage() {
           targetRecurringBySeries.set(seriesId, task.id);
         }
       });
+      const sourceOneOffById = new Map<string, any>();
+      if (suggestModeEnabled) {
+        const sourceOneOffRes = await fetch(
+          `/api/tasks?recurring=false&start=${sourceIso}&end=${sourceIso}`,
+          { cache: "no-store" }
+        );
+        if (sourceOneOffRes.ok) {
+          const sourceOneOffJson = await sourceOneOffRes.json().catch(() => ({ tasks: [] }));
+          const sourceOneOffTasks = Array.isArray(sourceOneOffJson.tasks)
+            ? sourceOneOffJson.tasks
+            : [];
+          sourceOneOffTasks.forEach((task: any) => {
+            sourceOneOffById.set(String(task.id), task);
+          });
+        }
+      }
 
       const updates: Promise<void>[] = [];
       sourceData.people.forEach((person, rowIdx) => {
         sourceData.slots.forEach((slot, colIdx) => {
           const cell = sourceData.cells?.[rowIdx]?.[colIdx];
           if (!cell) return;
-          const mappedTasks = cell.tasks
-            .map((task) => {
-              const seriesId = sourceRecurringSeries.get(String(task.id));
-              if (!seriesId) return task.id;
-              const targetTaskId = targetRecurringBySeries.get(seriesId);
-              return targetTaskId || null;
-            })
-            .filter(Boolean) as string[];
+          const mappedTasksPromise = Promise.resolve(
+            cell.tasks
+              .map((task) => {
+                const seriesId = sourceRecurringSeries.get(String(task.id));
+                if (!seriesId) return null;
+                const targetTaskId = targetRecurringBySeries.get(seriesId);
+                return targetTaskId || null;
+              })
+              .filter(Boolean) as string[]
+          );
+
           if (!cell.tasks.length && !cell.note && !cell.blocked) return;
-          if (!mappedTasks.length && !cell.note && !cell.blocked) return;
           updates.push(
-            fetch("/api/schedule/update", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                person,
-                slotId: slot.id,
-                tasks: mappedTasks,
-                note: cell.note,
-                blocked: cell.blocked,
-                dateLabel: copyTargetDate,
-                staging: true,
-              }),
-            }).then(async (response) => {
+            mappedTasksPromise.then(async (mappedTasks) => {
+              if (!mappedTasks.length && !cell.note && !cell.blocked) return;
+              const response = await fetch("/api/schedule/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  person,
+                  slotId: slot.id,
+                  tasks: mappedTasks,
+                  note: cell.note,
+                  blocked: cell.blocked,
+                  dateLabel: copyTargetDate,
+                  staging: true,
+                }),
+              });
               if (!response.ok) {
                 const json = await response.json().catch(() => ({}));
                 throw new Error(json.error || "Failed to copy schedule cell.");
+              }
+              if (suggestModeEnabled) {
+                const suggestions = cell.tasks
+                  .map((task) => {
+                    const source = sourceOneOffById.get(String(task.id));
+                    if (!source) return null;
+                    return {
+                      id: `suggest-${task.id}-${rowIdx}-${colIdx}`,
+                      name: String(task.name || source.name || "Task"),
+                      sourceTaskId: String(task.id),
+                    };
+                  })
+                  .filter(Boolean) as SuggestedOneOffTask[];
+                if (suggestions.length) {
+                  const shiftedCol = Math.max(
+                    0,
+                    Math.min(scheduleData?.slots.length ? scheduleData.slots.length - 1 : colIdx, colIdx + dayShift)
+                  );
+                  const key = `${person}-${sourceData.slots[shiftedCol]?.id || slot.id}`;
+                  setSuggestedOneOffByCell((prev) => ({
+                    ...prev,
+                    [key]: [...(prev[key] || []), ...suggestions],
+                  }));
+                }
               }
             })
           );
@@ -4152,6 +4396,56 @@ export default function AdminScheduleEditorPage() {
           {taskDetail.recurring && (
             <>
               <p>Tip: update just this occurrence to avoid changing the full series.</p>
+              <div className="rounded-lg border border-[#d8d3b4] bg-white px-3 py-2 text-[11px] text-[#4b5133]">
+                <p className="font-semibold uppercase tracking-[0.1em] text-[10px]">Recurring timing</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-[0.1em]">Every</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={taskDetail.recurrenceInterval ?? 1}
+                      onChange={(e) =>
+                        setTaskDetail((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                recurrenceInterval: Math.max(1, Number(e.target.value) || 1),
+                              }
+                            : prev
+                        )
+                      }
+                      className="w-16 rounded border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]"
+                    />
+                  </label>
+                  <select
+                    value={taskDetail.recurrenceUnit || "day"}
+                    onChange={(e) =>
+                      setTaskDetail((prev) =>
+                        prev ? { ...prev, recurrenceUnit: e.target.value } : prev
+                      )
+                    }
+                    className="rounded border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]"
+                  >
+                    <option value="day">day(s)</option>
+                    <option value="month">month(s)</option>
+                    <option value="year">year(s)</option>
+                  </select>
+                  <label className="inline-flex items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-[0.1em]">Until</span>
+                    <input
+                      type="date"
+                      value={taskDetail.recurrenceUntil || ""}
+                      onChange={(e) =>
+                        setTaskDetail((prev) =>
+                          prev ? { ...prev, recurrenceUntil: e.target.value || null } : prev
+                        )
+                      }
+                      className="rounded border border-[#d0c9a4] bg-white px-2 py-1 text-[11px]"
+                    />
+                  </label>
+                </div>
+              </div>
               <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                 <p className="font-semibold">⚠️ Recurring task edit scope</p>
                 <p className="mt-1 text-[10px]">Choose whether this edit should affect one task, all tasks, or all tasks after a date.</p>
@@ -4976,6 +5270,15 @@ export default function AdminScheduleEditorPage() {
             >
               {copyingSchedule ? "Copying…" : "Copy schedule"}
             </button>
+            <label className="inline-flex h-8 items-center gap-2 rounded-md border border-[#d0c9a4] bg-white px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4b5133]">
+              <input
+                type="checkbox"
+                checked={suggestModeEnabled}
+                onChange={(e) => setSuggestModeEnabled(e.target.checked)}
+                className="accent-[#8fae4c]"
+              />
+              Suggest mode
+            </label>
             <input
               type="date"
               value={blackoutRangeStart}
@@ -5490,6 +5793,28 @@ export default function AdminScheduleEditorPage() {
 
                     {content.note && (
                       <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
+                    )}
+                    {suggestModeEnabled && (visibleSuggestedOneOffByCell[`${person}-${slot.id}`] || []).length > 0 && (
+                      <div className="mt-1 space-y-1 rounded-md border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-1">
+                        {(visibleSuggestedOneOffByCell[`${person}-${slot.id}`] || []).map((suggestion) => (
+                          <div
+                            key={suggestion.id}
+                            className="flex items-center justify-between gap-1 rounded border border-[#d7dbe8] bg-[#eef2ff]/70 px-1 py-[2px] text-[10px] text-[#314123]"
+                          >
+                            <span className="truncate italic opacity-80">👻 {suggestion.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void acceptSuggestedOneOff(person, slot.id, suggestion);
+                              }}
+                              className="rounded-full border border-[#8fae4c] bg-[#f0f4de] px-1.5 py-[1px] text-[10px] font-semibold text-[#4b5133]"
+                              title="Duplicate suggested one-off task into this schedule"
+                            >
+                              ➜
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {isSelected && cellExists && (
                       <div className="space-y-1">
