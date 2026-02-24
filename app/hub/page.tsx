@@ -1340,6 +1340,9 @@ export default function HubSchedulePage() {
             id,
             status: json.status || "",
             description: json.description || "",
+            extraNotes: Array.isArray(json.extraNotes)
+              ? json.extraNotes.join("\n")
+              : json.extraNotes || "",
             typeName: json.taskType?.name || "",
             typeColor: json.taskType?.color || "default",
           } as const;
@@ -1363,6 +1366,9 @@ export default function HubSchedulePage() {
             original: name,
             status: json.status || "",
             description: json.description || "",
+            extraNotes: Array.isArray(json.extraNotes)
+              ? json.extraNotes.join("\n")
+              : json.extraNotes || "",
             typeName: json.taskType?.name || "",
             typeColor: json.taskType?.color || "default",
           } as const;
@@ -1383,12 +1389,14 @@ export default function HubSchedulePage() {
             next[item.key] = {
               status: item.status,
               description: item.description,
+              extraNotes: item.extraNotes,
               typeName: item.typeName,
               typeColor: item.typeColor,
             };
             next[item.original] = {
               status: item.status,
               description: item.description,
+              extraNotes: item.extraNotes,
               typeName: item.typeName,
               typeColor: item.typeColor,
             };
@@ -2646,6 +2654,7 @@ export default function HubSchedulePage() {
                       statusMap={taskMetaMap}
                       statusColors={statusColorLookup}
                       currentUserName={currentUserName}
+                      scheduleDateLabel={scheduleDateLabel}
                     />
                   )}
                   {!loading && error && (
@@ -4361,12 +4370,14 @@ function MyTasksList({
   statusMap = {},
   statusColors = {},
   currentUserName,
+  scheduleDateLabel,
 }: {
   tasks: { slot: Slot; task: string; groupNames: string[] }[];
   onTaskClick?: (payload: TaskClickPayload) => void;
   statusMap?: Record<string, TaskMeta>;
   statusColors?: Record<string, string>;
   currentUserName?: string | null;
+  scheduleDateLabel?: string;
 }) {
   if (tasks.length === 0) {
     return (
@@ -4376,67 +4387,94 @@ function MyTasksList({
     );
   }
 
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {tasks.map(({ slot, task, groupNames }) => {
-        const primary = taskBaseName(task);
-        const meta = statusMap[primary];
-        const status = meta?.status || "";
-        const description = meta?.description || "";
-        const typeClass = typeColorClasses(meta?.typeColor);
+  const groupedBySlot = tasks.reduce(
+    (acc, entry) => {
+      const key = `${entry.slot.label}__${entry.slot.timeRange || ""}`;
+      if (!acc[key]) {
+        acc[key] = { slot: entry.slot, entries: [] as typeof tasks };
+      }
+      acc[key].entries.push(entry);
+      return acc;
+    },
+    {} as Record<string, { slot: Slot; entries: typeof tasks }>
+  );
 
+  return (
+    <div className="space-y-4">
+      {Object.entries(groupedBySlot).map(([slotKey, grouped]) => {
+        const { slot, entries } = grouped;
         return (
-          <button
-            key={`${primary}-${slot.id}`}
-            type="button"
-            onClick={() =>
-              onTaskClick?.({
-                person: currentUserName || "Me",
-                slot,
-                task,
-                groupNames,
-              })
-            }
-            className={`w-full rounded-lg border px-4 py-3 text-left shadow-sm hover:border-[#b8c98a] hover:shadow ${typeClass}`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">
-                  {slot.label}
-                  {slot.timeRange ? ` • ${slot.timeRange}` : ""}
-                </p>
-                <p className="text-sm font-semibold text-[#3e4c24]">{primary}</p>
-                {description && (
-                  <p className="mt-1 text-[12px] text-[#4f4b33] leading-snug">
-                    {description}
-                  </p>
-                )}
-              </div>
-              <StatusBadge
-                status={status}
-                color={statusColors[status || ""]}
-              />
-            </div>
-            {task.includes("\n") && (
-              <p className="mt-1 whitespace-pre-line text-[11px] text-[#5b593c]">
-                {task
-                  .split("\n")
-                  .slice(1)
-                  .join("\n")}
+          <div key={slotKey} className="space-y-2">
+            <div className="border-b border-[#d9dec1] pb-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                {slot.label}
+                {slot.timeRange ? ` • ${slot.timeRange}` : ""}
               </p>
-            )}
-            <p className="mt-2 text-[11px] text-[#6a6748]">
-              {groupNames.length > 1
-                ? `With ${groupNames
-                    .filter(
-                      (g) =>
-                        currentUserName &&
-                        g.toLowerCase() !== currentUserName.toLowerCase()
-                    )
-                    .join(", ")}`
-                : "Solo shift"}
-            </p>
-          </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {entries.map(({ task, groupNames }) => {
+                const primary = taskBaseName(task);
+                const meta = statusMap[primary];
+                const status = meta?.status || "";
+                const description = meta?.description || "";
+                const hasExtraNotes = Boolean(meta?.extraNotes?.trim());
+                const typeClass = typeColorClasses(meta?.typeColor);
+
+                return (
+                  <button
+                    key={`${primary}-${slot.id}`}
+                    type="button"
+                    onClick={() =>
+                      onTaskClick?.({
+                        person: currentUserName || "Me",
+                        slot,
+                        task,
+                        groupNames,
+                      })
+                    }
+                    className={`w-full rounded-lg border px-4 py-3 text-left shadow-sm hover:border-[#b8c98a] hover:shadow ${hasExtraNotes ? "border-orange-300 bg-orange-50/40" : ""} ${typeClass}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 pr-2 text-sm font-semibold text-[#3e4c24]">{primary}</p>
+                      <StatusBadge
+                        status={status}
+                        color={statusColors[status || ""]}
+                      />
+                    </div>
+                    {description && (
+                      <p className="-mr-3 mt-1 text-[12px] text-[#4f4b33] leading-snug">
+                        {description}
+                      </p>
+                    )}
+                    {hasExtraNotes && (
+                      <p className="mt-1 inline-flex w-fit rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-orange-800">
+                        Extra note for {scheduleDateLabel || "today"}
+                      </p>
+                    )}
+                    {task.includes("\n") && (
+                      <p className="mt-1 whitespace-pre-line text-[11px] text-[#5b593c]">
+                        {task
+                          .split("\n")
+                          .slice(1)
+                          .join("\n")}
+                      </p>
+                    )}
+                    <p className="mt-2 text-[11px] text-[#6a6748]">
+                      {groupNames.length > 1
+                        ? `With ${groupNames
+                            .filter(
+                              (g) =>
+                                currentUserName &&
+                                g.toLowerCase() !== currentUserName.toLowerCase()
+                            )
+                            .join(", ")}`
+                        : "Solo shift"}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         );
       })}
     </div>
