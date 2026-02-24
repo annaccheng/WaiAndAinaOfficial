@@ -317,6 +317,7 @@ export function CustomTablesEditor({
     [scheduleDateIso]
   );
   const [publishedTablesById, setPublishedTablesById] = useState<Record<string, CustomTable>>({});
+  const [draftCacheHydrated, setDraftCacheHydrated] = useState(false);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -438,6 +439,7 @@ export function CustomTablesEditor({
         const tables = Array.isArray(json.tables) ? json.tables : [];
         const normalized = tables.map(normalizeCustomTable);
         let nextTables = normalized;
+        let nextDirty: Record<string, boolean> = {};
         try {
           const cached =
             typeof window !== "undefined"
@@ -445,12 +447,20 @@ export function CustomTablesEditor({
               : null;
           if (cached) {
             const parsed = JSON.parse(cached) as {
+              date?: string;
               tables?: CustomTable[];
               dirty?: Record<string, boolean>;
             };
-            if (Array.isArray(parsed.tables) && parsed.tables.length) {
-              nextTables = parsed.tables.map(normalizeCustomTable);
-              setCustomTablesDirty(parsed.dirty || {});
+            const cachedTables = Array.isArray(parsed.tables)
+              ? parsed.tables.map(normalizeCustomTable)
+              : [];
+            if (cachedTables.length && (!parsed.date || parsed.date === isoDate)) {
+              const cachedById = new Map<string, CustomTable>(cachedTables.map((table: CustomTable) => [table.id, table]));
+              nextTables = normalized.map((table: CustomTable) => cachedById.get(table.id) || table);
+              const allowedIds = new Set<string>(nextTables.map((table: CustomTable) => table.id));
+              nextDirty = Object.fromEntries(
+                Object.entries(parsed.dirty || {}).filter(([tableId, dirty]) => allowedIds.has(tableId) && Boolean(dirty))
+              );
             }
           }
         } catch (err) {
@@ -461,14 +471,13 @@ export function CustomTablesEditor({
           Object.fromEntries(normalized.map((table: CustomTable) => [table.id, table]))
         );
         setCustomTablesAnchorDate(isoDate);
-        if (nextTables === normalized) {
-          setCustomTablesDirty({});
-        }
+        setCustomTablesDirty(nextDirty);
       } catch (err) {
         console.error("Failed to load custom tables:", err);
         setCustomTablesError("Unable to load custom tables.");
       } finally {
         setCustomTablesLoading(false);
+        setDraftCacheHydrated(true);
       }
     },
     [draftCacheKey, draftCacheKeyDateOnly, normalizeCustomTable]
@@ -583,9 +592,10 @@ export function CustomTablesEditor({
   );
 
   useEffect(() => {
-    if (!scheduleDateIso) return;
+    if (!scheduleDateIso || !draftCacheHydrated) return;
     try {
       const payload = JSON.stringify({
+        date: scheduleDateIso,
         tables: customTables,
         dirty: customTablesDirty,
         savedAt: new Date().toISOString(),
@@ -595,7 +605,7 @@ export function CustomTablesEditor({
     } catch (err) {
       console.warn("Failed to save custom table draft cache", err);
     }
-  }, [customTables, customTablesDirty, draftCacheKey, draftCacheKeyDateOnly, scheduleDateIso]);
+  }, [customTables, customTablesDirty, draftCacheHydrated, draftCacheKey, draftCacheKeyDateOnly, scheduleDateIso]);
 
   const handleDeleteCustomTable = useCallback(async (tableId: string) => {
     const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
@@ -637,6 +647,11 @@ export function CustomTablesEditor({
     if (!dateLabel) return;
     void loadCustomTables(dateLabel);
   }, [dateLabel, loadCustomTables]);
+
+
+  useEffect(() => {
+    setDraftCacheHydrated(false);
+  }, [draftCacheKey, draftCacheKeyDateOnly]);
 
   useEffect(() => {
     if (!showPastTables || !pastTablesOpen || pastTablesLoaded) return;
@@ -823,6 +838,7 @@ export function CustomTablesEditor({
           const normalizedUserName = currentUserName?.toLowerCase() || "";
           const hasPublishedSnapshot = Boolean(publishedTablesById[table.id]);
           const hasDraftChanges = Boolean(customTablesDirty[table.id]);
+          const hasLocalDraftBadge = hasDraftChanges || (!hasPublishedSnapshot && table.cells.some((row) => row.some((cell) => cell.trim().length > 0)));
           return (
             <div
               key={table.id}
@@ -872,9 +888,9 @@ export function CustomTablesEditor({
                 )}
                 {canEditCustomTables && (
                   <div className="flex flex-wrap items-center gap-2">
-                    {hasPublishedSnapshot && hasDraftChanges && (
+                    {hasLocalDraftBadge && (
                       <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
-                        Unpublished
+                        Unpublished Draft
                       </span>
                     )}
                     <button
@@ -1044,7 +1060,7 @@ export function CustomTablesEditor({
               )}
 
               <div className="mt-4 overflow-x-auto overflow-y-visible">
-                {hasPublishedSnapshot && hasDraftChanges && (
+                {hasLocalDraftBadge && (
                   <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
                     This table has unpublished draft edits
                   </div>

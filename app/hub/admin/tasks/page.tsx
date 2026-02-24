@@ -130,6 +130,7 @@ export default function TaskEditorPage() {
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [autoOpenedFromQuery, setAutoOpenedFromQuery] = useState(false);
   const [commentCache, setCommentCache] = useState<Record<string, number>>({});
   const [types, setTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState(false);
@@ -389,6 +390,40 @@ export default function TaskEditorPage() {
     const timeout = setTimeout(() => loadRecurringOverrides(recurringEditDate), 200);
     return () => clearTimeout(timeout);
   }, [authorized, recurringEditDate]);
+
+  useEffect(() => {
+    if (!authorized || autoOpenedFromQuery || !tasks.length || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search || "");
+    const autoOpen = params.get("autoOpen");
+    const queryTaskId = params.get("taskId") || "";
+    const queryTaskName = params.get("taskName") || params.get("search") || "";
+    const queryOccurrence = params.get("occurrenceDate") || "";
+    if (!autoOpen && !queryTaskId && !queryTaskName) return;
+
+    let target =
+      (queryTaskId && tasks.find((task) => task.id === queryTaskId)) ||
+      null;
+    if (!target && queryTaskName) {
+      const normalizedName = queryTaskName.trim().toLowerCase();
+      const exactMatches = tasks.filter(
+        (task) => String(task.name || "").trim().toLowerCase() === normalizedName
+      );
+      if (queryOccurrence) {
+        target =
+          exactMatches.find(
+            (task) => String(task.occurrence_date || "") === queryOccurrence
+          ) || null;
+      }
+      if (!target) {
+        target = exactMatches[0] || null;
+      }
+    }
+
+    if (target) {
+      openEditor(target, queryOccurrence || target.occurrence_date || undefined);
+      setAutoOpenedFromQuery(true);
+    }
+  }, [authorized, autoOpenedFromQuery, openEditor, tasks]);
 
   function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
