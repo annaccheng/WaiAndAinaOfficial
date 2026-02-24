@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { loadSession } from "@/lib/session";
 
 type TaskType = { id: string; name: string; color: string };
@@ -127,7 +127,6 @@ function renderTextWithAnimalLinks(text?: string | null): ReactNode {
 
 export default function TaskEditorPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -393,11 +392,12 @@ export default function TaskEditorPage() {
   }, [authorized, recurringEditDate]);
 
   useEffect(() => {
-    if (!authorized || autoOpenedFromQuery || !tasks.length) return;
-    const autoOpen = searchParams.get("autoOpen");
-    const queryTaskId = searchParams.get("taskId") || "";
-    const queryTaskName = searchParams.get("taskName") || searchParams.get("search") || "";
-    const queryOccurrence = searchParams.get("occurrenceDate") || "";
+    if (!authorized || autoOpenedFromQuery || !tasks.length || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search || "");
+    const autoOpen = params.get("autoOpen");
+    const queryTaskId = params.get("taskId") || "";
+    const queryTaskName = params.get("taskName") || params.get("search") || "";
+    const queryOccurrence = params.get("occurrenceDate") || "";
     if (!autoOpen && !queryTaskId && !queryTaskName) return;
 
     let target =
@@ -423,7 +423,7 @@ export default function TaskEditorPage() {
       openEditor(target, queryOccurrence || target.occurrence_date || undefined);
       setAutoOpenedFromQuery(true);
     }
-  }, [authorized, autoOpenedFromQuery, openEditor, searchParams, tasks]);
+  }, [authorized, autoOpenedFromQuery, openEditor, tasks]);
 
   function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {
