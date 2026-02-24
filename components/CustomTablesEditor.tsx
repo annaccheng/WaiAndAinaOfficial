@@ -454,9 +454,9 @@ export function CustomTablesEditor({
               ? parsed.tables.map(normalizeCustomTable)
               : [];
             if (cachedTables.length && (!parsed.date || parsed.date === isoDate)) {
-              const cachedById = new Map(cachedTables.map((table) => [table.id, table]));
-              nextTables = normalized.map((table) => cachedById.get(table.id) || table);
-              const allowedIds = new Set(nextTables.map((table) => table.id));
+              const cachedById = new Map<string, CustomTable>(cachedTables.map((table: CustomTable) => [table.id, table]));
+              nextTables = normalized.map((table: CustomTable) => cachedById.get(table.id) || table);
+              const allowedIds = new Set<string>(nextTables.map((table: CustomTable) => table.id));
               nextDirty = Object.fromEntries(
                 Object.entries(parsed.dirty || {}).filter(([tableId, dirty]) => allowedIds.has(tableId) && Boolean(dirty))
               );
