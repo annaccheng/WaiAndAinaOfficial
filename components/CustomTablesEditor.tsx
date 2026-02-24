@@ -317,6 +317,7 @@ export function CustomTablesEditor({
     [scheduleDateIso]
   );
   const [publishedTablesById, setPublishedTablesById] = useState<Record<string, CustomTable>>({});
+  const [draftCacheHydrated, setDraftCacheHydrated] = useState(false);
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
@@ -476,6 +477,7 @@ export function CustomTablesEditor({
         setCustomTablesError("Unable to load custom tables.");
       } finally {
         setCustomTablesLoading(false);
+        setDraftCacheHydrated(true);
       }
     },
     [draftCacheKey, draftCacheKeyDateOnly, normalizeCustomTable]
@@ -590,7 +592,7 @@ export function CustomTablesEditor({
   );
 
   useEffect(() => {
-    if (!scheduleDateIso) return;
+    if (!scheduleDateIso || !draftCacheHydrated) return;
     try {
       const payload = JSON.stringify({
         date: scheduleDateIso,
@@ -603,7 +605,7 @@ export function CustomTablesEditor({
     } catch (err) {
       console.warn("Failed to save custom table draft cache", err);
     }
-  }, [customTables, customTablesDirty, draftCacheKey, draftCacheKeyDateOnly, scheduleDateIso]);
+  }, [customTables, customTablesDirty, draftCacheHydrated, draftCacheKey, draftCacheKeyDateOnly, scheduleDateIso]);
 
   const handleDeleteCustomTable = useCallback(async (tableId: string) => {
     const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
@@ -645,6 +647,11 @@ export function CustomTablesEditor({
     if (!dateLabel) return;
     void loadCustomTables(dateLabel);
   }, [dateLabel, loadCustomTables]);
+
+
+  useEffect(() => {
+    setDraftCacheHydrated(false);
+  }, [draftCacheKey, draftCacheKeyDateOnly]);
 
   useEffect(() => {
     if (!showPastTables || !pastTablesOpen || pastTablesLoaded) return;
