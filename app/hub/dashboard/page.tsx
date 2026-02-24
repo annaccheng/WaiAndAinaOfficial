@@ -169,6 +169,7 @@ export default function WorkDashboardPage() {
   const [miniLoading, setMiniLoading] = useState(false);
   const [alerts, setAlerts] = useState<string[]>([]);
   const [myTasks, setMyTasks] = useState<MyTask[]>([]);
+  const [scheduledPeople, setScheduledPeople] = useState<string[]>([]);
   const [scheduleDateLabel, setScheduleDateLabel] = useState<string | null>(null);
   const [statusOptions, setStatusOptions] = useState<string[]>([]);
   const [activeTask, setActiveTask] = useState<MyTask | null>(null);
@@ -266,6 +267,7 @@ export default function WorkDashboardPage() {
         });
         if (!res.ok) return;
         const data: ScheduleResponse = await res.json();
+        setScheduledPeople(Array.isArray(data.people) ? data.people.filter(Boolean) : []);
         const scheduleLabel = data.scheduleDate || dateLabel;
         const occurrenceParam = toIsoDateLabel(scheduleLabel) || scheduleLabel;
         setScheduleDateLabel(scheduleLabel);
@@ -497,11 +499,11 @@ export default function WorkDashboardPage() {
   }, [myTasks]);
 
   const dailyUpdateChecklist = useMemo(() => {
-    const scheduledPeople = Array.from(new Set((data?.people || []).filter(Boolean)));
+    const scheduledPeopleUnique = Array.from(new Set((scheduledPeople || []).filter(Boolean)));
     const submittedNames = new Set(
       dailyUpdatesFeed.map((entry) => entry.user_name.trim().toLowerCase()).filter(Boolean)
     );
-    return scheduledPeople
+    return scheduledPeopleUnique
       .map((person) => {
         const update = dailyUpdatesFeed.find(
           (entry) => entry.user_name.trim().toLowerCase() === person.trim().toLowerCase()
@@ -513,7 +515,7 @@ export default function WorkDashboardPage() {
         };
       })
       .sort((a, b) => Number(a.submitted) === Number(b.submitted) ? a.name.localeCompare(b.name) : Number(b.submitted) - Number(a.submitted));
-  }, [data?.people, dailyUpdatesFeed]);
+  }, [dailyUpdatesFeed, scheduledPeople]);
 
 
 
