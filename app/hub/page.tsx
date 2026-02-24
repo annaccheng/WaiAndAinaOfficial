@@ -84,6 +84,7 @@ type TaskDetails = {
   links?: { label: string; url: string }[];
   taskType?: { name: string; color: string };
   estimatedTime?: string;
+  taskHelpReferences?: string[];
 };
 
 type TaskTypeOption = { name: string; color: string };
@@ -2131,6 +2132,7 @@ export default function HubSchedulePage() {
       links: [],
       taskType: { name: "", color: "default" },
       estimatedTime: "",
+      taskHelpReferences: [],
     };
 
     try {
@@ -2166,6 +2168,9 @@ export default function HubSchedulePage() {
         links: normalizedLinks,
         taskType: json.taskType || { name: "", color: "default" },
         estimatedTime: json.estimatedTime || "",
+        taskHelpReferences: Array.isArray(json.taskHelpReferences)
+          ? json.taskHelpReferences.map((entry: any) => String(entry || "").trim()).filter(Boolean)
+          : [],
       };
       applyDetails(detail);
     } catch (e) {
@@ -2328,6 +2333,7 @@ export default function HubSchedulePage() {
       links: [],
       taskType: { name: "", color: "default" },
       estimatedTime: "",
+      taskHelpReferences: [],
     });
     return;
   }
@@ -2875,6 +2881,25 @@ export default function HubSchedulePage() {
                 {animalLoading && (
                   <p className="text-[11px] text-[#7a7f54]">Loading animal details…</p>
                 )}
+
+                {showFullTaskDetail && !modalLoading ? (
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#8a8256]">
+                      Task Help Reference
+                    </p>
+                    {modalDetails?.taskHelpReferences?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {modalDetails.taskHelpReferences.map((person) => (
+                          <span key={person} className="rounded-full border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#4b5133]">
+                            {person}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] italic text-[#a19a70]">No helper references listed.</p>
+                    )}
+                  </div>
+                ) : null}
 
                 {showFullTaskDetail && !modalLoading && modalDetails?.estimatedTime ? (
                   <div className="space-y-1">

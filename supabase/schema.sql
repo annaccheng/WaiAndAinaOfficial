@@ -148,6 +148,8 @@ create table if not exists tasks (
   comments text[] not null default '{}',
   person_count integer,
   photos text[] not null default '{}',
+  created_by_name text,
+  task_help_references text[] not null default '{}',
   occurrence_date date,
   parent_task_id uuid references tasks(id) on delete cascade,
   created_at timestamptz not null default now(),

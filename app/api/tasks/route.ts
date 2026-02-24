@@ -115,7 +115,7 @@ export async function GET(req: Request) {
 
   const query: Record<string, string> = {
     select:
-      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
+      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,created_by_name,task_help_references,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
     order: "created_at.desc",
     ...buildRangeFilter(start, end),
   };
@@ -188,13 +188,27 @@ export async function POST(req: Request) {
     }
     delete (sanitizedBody as Record<string, unknown>).capabilityIds;
 
-    const buildPayload = (payloadBody: Record<string, unknown>) => ({
-      ...payloadBody,
-      origin_date: originDate,
-      occurrence_date: originDate,
-      recurring: isRecurring,
-      person_count: normalizePersonCount(payloadBody.person_count),
-    });
+    const buildPayload = (payloadBody: Record<string, unknown>) => {
+      const helpReferences = Array.isArray(payloadBody.task_help_references)
+        ? payloadBody.task_help_references
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        : [];
+      const createdByName = String(payloadBody.created_by_name || "").trim();
+      return {
+        ...payloadBody,
+        origin_date: originDate,
+        occurrence_date: originDate,
+        recurring: isRecurring,
+        person_count: normalizePersonCount(payloadBody.person_count),
+        created_by_name: createdByName || null,
+        task_help_references: helpReferences.length
+          ? helpReferences
+          : createdByName
+            ? [createdByName]
+            : [],
+      };
+    };
 
     const createOccurrences = async (parentId: string, payloadBody: Record<string, unknown>) => {
       if (!isRecurring || !originDate || interval <= 0 || !unit) return;
@@ -221,7 +235,7 @@ export async function POST(req: Request) {
         if (nextDate > endDate) break;
 
         occurrences.push({
-          ...payloadBody,
+          ...buildPayload(payloadBody),
           origin_date: originDate,
           occurrence_date: nextDate.toISOString().slice(0, 10),
           parent_task_id: parentId,
@@ -335,6 +349,14 @@ export async function POST(req: Request) {
             occurrence_date: originDate,
             recurring: isRecurring,
             person_count: normalizePersonCount(fallbackBody.person_count),
+            created_by_name: String(fallbackBody.created_by_name || "").trim() || null,
+            task_help_references: Array.isArray(fallbackBody.task_help_references)
+              ? (fallbackBody.task_help_references as unknown[])
+                  .map((entry) => String(entry || "").trim())
+                  .filter(Boolean)
+              : String(fallbackBody.created_by_name || "").trim()
+                ? [String(fallbackBody.created_by_name || "").trim()]
+                : [],
           },
         });
         if (parent?.id) {
@@ -388,6 +410,19 @@ export async function PATCH(req: Request) {
     Object.prototype.hasOwnProperty.call(updates, "origin_date");
   if (Object.prototype.hasOwnProperty.call(updates, "person_count")) {
     updates.person_count = normalizePersonCount(updates.person_count);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "task_help_references")) {
+    const references = Array.isArray(updates.task_help_references)
+      ? updates.task_help_references
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [];
+    const createdByName = String((updates as Record<string, unknown>).created_by_name || "").trim();
+    updates.task_help_references = references.length
+      ? references
+      : createdByName
+        ? [createdByName]
+        : [];
   }
   const normalizedCapabilities = Array.isArray(capabilityIds)
     ? normalizeCapabilityIds(capabilityIds)
