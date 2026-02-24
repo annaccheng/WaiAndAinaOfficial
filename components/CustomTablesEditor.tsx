@@ -312,6 +312,10 @@ export function CustomTablesEditor({
       }`,
     [currentUserName, scheduleDateIso]
   );
+  const draftCacheKeyDateOnly = useMemo(
+    () => `custom-table-draft-date-${scheduleDateIso || "none"}`,
+    [scheduleDateIso]
+  );
   const [publishedTablesById, setPublishedTablesById] = useState<Record<string, CustomTable>>({});
 
   const headerTypeOptions = [
@@ -435,7 +439,10 @@ export function CustomTablesEditor({
         const normalized = tables.map(normalizeCustomTable);
         let nextTables = normalized;
         try {
-          const cached = typeof window !== "undefined" ? localStorage.getItem(draftCacheKey) : null;
+          const cached =
+            typeof window !== "undefined"
+              ? localStorage.getItem(draftCacheKey) || localStorage.getItem(draftCacheKeyDateOnly)
+              : null;
           if (cached) {
             const parsed = JSON.parse(cached) as {
               tables?: CustomTable[];
@@ -464,7 +471,7 @@ export function CustomTablesEditor({
         setCustomTablesLoading(false);
       }
     },
-    [draftCacheKey, normalizeCustomTable]
+    [draftCacheKey, draftCacheKeyDateOnly, normalizeCustomTable]
   );
 
   const loadPastTables = useCallback(async () => {
@@ -584,10 +591,11 @@ export function CustomTablesEditor({
         savedAt: new Date().toISOString(),
       });
       localStorage.setItem(draftCacheKey, payload);
+      localStorage.setItem(draftCacheKeyDateOnly, payload);
     } catch (err) {
       console.warn("Failed to save custom table draft cache", err);
     }
-  }, [customTables, customTablesDirty, draftCacheKey, scheduleDateIso]);
+  }, [customTables, customTablesDirty, draftCacheKey, draftCacheKeyDateOnly, scheduleDateIso]);
 
   const handleDeleteCustomTable = useCallback(async (tableId: string) => {
     const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
@@ -1274,6 +1282,11 @@ export function CustomTablesEditor({
                                 cellMatchesUser ? "bg-[#eaf1da]" : ""
                               } ${selectedCell?.tableId === table.id && selectedCell.rowIdx === rowIdx && selectedCell.colIdx === colIdx ? "ring-2 ring-[#8fae4c] ring-inset" : ""}`}
                             >
+                              {hasPublishedSnapshot && hasDraftChanges && (
+                                <span className="mb-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700">
+                                  Draft
+                                </span>
+                              )}
                               {canEditCustomTables ? (
                                 cellType === "user" ? (
                                   <MultiSelectChecklist

@@ -681,11 +681,13 @@ export default function WorkDashboardPage() {
               </p>
             )}
             {!miniLoading && myTasks.length > 0 && (
-              <div className="space-y-4 p-4">
+              <div className="space-y-5 p-4">
                 {groupedMyTasks.map(([slot, tasks]) => (
                   <div key={slot} className="space-y-2">
-                    <div className="rounded-md bg-[#eef2d9] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
-                      {slot}
+                    <div className="border-b border-[#d9dec1] pb-1">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                        {slot}
+                      </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {tasks.map((task) => (
@@ -693,22 +695,22 @@ export default function WorkDashboardPage() {
                     key={`${task.id}-${task.slot}-${task.timeRange}`}
                     type="button"
                     onClick={() => openTaskOverlay(task)}
-                    className="flex h-full flex-col justify-between gap-3 rounded-2xl border border-[#e2dbc0] bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                    className="flex h-full flex-col justify-between gap-2 rounded-2xl border border-[#e2dbc0] bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold text-[#3b4224]">
+                      <div className="relative">
+                        <span className="block pr-[125px] text-sm font-semibold text-[#3b4224]">
                           {task.name}
                         </span>
                         {task.status && (
-                          <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                          <span className="absolute right-0 top-0 rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
                             {task.status}
                           </span>
                         )}
                       </div>
                       <p className="text-xs text-[#7a7f54]">{task.timeRange || "No shift time listed"}</p>
-                      <p className="text-xs text-[#4b5133] line-clamp-3">{task.description || "No description yet."}</p>
-                      {task.extraNotes.length > 0 && (
+                      <p className="text-xs leading-relaxed text-[#4b5133]">{task.description || "No description yet."}</p>
+                      {(task.extraNotes.length > 0 || task.note.trim()) && (
                         <p className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-[11px] font-semibold text-orange-800">
                           ⚠️ Has extra note
                         </p>
