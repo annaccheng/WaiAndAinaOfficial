@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { loadSession } from "@/lib/session";
 
 type TaskType = { id: string; name: string; color: string };
@@ -127,9 +127,11 @@ function renderTextWithAnimalLinks(text?: string | null): ReactNode {
 
 export default function TaskEditorPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [autoOpenedFromQuery, setAutoOpenedFromQuery] = useState(false);
   const [commentCache, setCommentCache] = useState<Record<string, number>>({});
   const [types, setTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState(false);
@@ -389,6 +391,39 @@ export default function TaskEditorPage() {
     const timeout = setTimeout(() => loadRecurringOverrides(recurringEditDate), 200);
     return () => clearTimeout(timeout);
   }, [authorized, recurringEditDate]);
+
+  useEffect(() => {
+    if (!authorized || autoOpenedFromQuery || !tasks.length) return;
+    const autoOpen = searchParams.get("autoOpen");
+    const queryTaskId = searchParams.get("taskId") || "";
+    const queryTaskName = searchParams.get("taskName") || searchParams.get("search") || "";
+    const queryOccurrence = searchParams.get("occurrenceDate") || "";
+    if (!autoOpen && !queryTaskId && !queryTaskName) return;
+
+    let target =
+      (queryTaskId && tasks.find((task) => task.id === queryTaskId)) ||
+      null;
+    if (!target && queryTaskName) {
+      const normalizedName = queryTaskName.trim().toLowerCase();
+      const exactMatches = tasks.filter(
+        (task) => String(task.name || "").trim().toLowerCase() === normalizedName
+      );
+      if (queryOccurrence) {
+        target =
+          exactMatches.find(
+            (task) => String(task.occurrence_date || "") === queryOccurrence
+          ) || null;
+      }
+      if (!target) {
+        target = exactMatches[0] || null;
+      }
+    }
+
+    if (target) {
+      openEditor(target, queryOccurrence || target.occurrence_date || undefined);
+      setAutoOpenedFromQuery(true);
+    }
+  }, [authorized, autoOpenedFromQuery, openEditor, searchParams, tasks]);
 
   function openEditor(task?: TaskItem, occurrenceDate?: string) {
     if (task) {

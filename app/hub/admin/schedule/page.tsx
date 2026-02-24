@@ -53,6 +53,18 @@ type TaskDetail = {
   recurrenceUntil?: string | null;
 };
 type SuggestedOneOffTask = ScheduledTask & { sourceTaskId: string };
+type TaskHistorySnapshot = {
+  id: string;
+  name: string;
+  occurrenceDate: string | null;
+  description: string;
+  extraNotes: string[];
+  personCount: number | null;
+  status: string;
+  priority: string;
+  taskTypeName: string;
+  links: TaskLink[];
+};
 type DragPayload = {
   taskId: string;
   taskName: string;
@@ -399,6 +411,9 @@ export default function AdminScheduleEditorPage() {
   const [taskEditMessage, setTaskEditMessage] = useState<string | null>(null);
   const [taskEditApplyTo, setTaskEditApplyTo] = useState<"single" | "all" | "future">("single");
   const [taskEditFutureDate, setTaskEditFutureDate] = useState("");
+  const [taskOneOffHistory, setTaskOneOffHistory] = useState<TaskHistorySnapshot[]>([]);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
+  const [taskHistoryPreview, setTaskHistoryPreview] = useState<TaskHistorySnapshot | null>(null);
   const [expandedOverviewTasks, setExpandedOverviewTasks] = useState<Set<string>>(new Set());
   const [dayOverviewCommentsByTask, setDayOverviewCommentsByTask] = useState<Record<string, TaskCommentPreview[]>>({});
   const [dayOverviewCommentsLoading, setDayOverviewCommentsLoading] = useState<Set<string>>(new Set());
@@ -3397,16 +3412,68 @@ export default function AdminScheduleEditorPage() {
     setCustomTask("");
   };
 
-  const loadTaskDetail = async (taskId: string, fallbackName?: string) => {
+  const loadTaskDetail = async (
+    taskId: string,
+    fallbackName?: string,
+    options?: { preserveCurrentTask?: boolean }
+  ) => {
     if (!taskId) return;
     setTaskDetailLoading(true);
     setTaskEditMessage(null);
     setPhotoMessage(null);
     setPendingPhotoFile(null);
+    const preserveCurrentTask = Boolean(options?.preserveCurrentTask);
     try {
-      const res = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load task details");
+      const baseRes = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`);
+      const baseJson = await baseRes.json();
+      if (!baseRes.ok) throw new Error(baseJson.error || "Failed to load task details");
+      const baseName = String(baseJson.name || fallbackName || "Task").trim();
+      const baseRecurring = Boolean(baseJson.recurring || baseJson.parentTaskId);
+
+      let resolvedTaskId = String(baseJson.id || taskId);
+      if (!preserveCurrentTask && !baseRecurring && baseName) {
+        try {
+          const lookup = new URLSearchParams({
+            search: baseName,
+            recurring: "false",
+            includeOccurrences: "true",
+          });
+          const historyRes = await fetch(`/api/tasks?${lookup.toString()}`);
+          const historyJson = await historyRes.json().catch(() => ({}));
+          const candidates = Array.isArray(historyJson.tasks) ? historyJson.tasks : [];
+          const exactNameCandidates = candidates.filter((task: any) =>
+            String(task?.name || "").trim().toLowerCase() === baseName.toLowerCase()
+          );
+          const sameDay = exactNameCandidates.find(
+            (task: any) => String(task?.occurrence_date || "") === selectedDate
+          );
+          const sortedByDate = [...exactNameCandidates]
+            .filter((task: any) => String(task?.occurrence_date || "").trim())
+            .sort((a: any, b: any) =>
+              String(b.occurrence_date || "").localeCompare(String(a.occurrence_date || ""))
+            );
+          const mostRecent = sortedByDate[0];
+          const preferred = sameDay || mostRecent;
+          if (preferred?.id) {
+            resolvedTaskId = String(preferred.id);
+          }
+        } catch (historyErr) {
+          console.warn("Failed to resolve one-off task variant:", historyErr);
+        }
+      }
+
+      const detailRes =
+        resolvedTaskId === String(baseJson.id || taskId)
+          ? baseRes
+          : await fetch(`/api/task?id=${encodeURIComponent(resolvedTaskId)}`);
+      const json =
+        resolvedTaskId === String(baseJson.id || taskId)
+          ? baseJson
+          : await detailRes.json();
+      if (!detailRes.ok) {
+        throw new Error(json.error || "Failed to load task details");
+      }
+
       const normalizedLinks = Array.isArray(json.links)
         ? json.links.map((link: any) => {
             if (typeof link === "string") {
@@ -3419,7 +3486,7 @@ export default function AdminScheduleEditorPage() {
           })
         : [];
       const detail = {
-        id: json.id || taskId,
+        id: json.id || resolvedTaskId,
         name: json.name || fallbackName || "Task",
         description: json.description || "",
         extraNotes: Array.isArray(json.extraNotes) ? json.extraNotes : [],
@@ -3455,11 +3522,61 @@ export default function AdminScheduleEditorPage() {
       setExpandedOverviewTasks(new Set());
       taskEditLastSavedSignatureRef.current = getTaskEditSignature(nextDraft, detail.id);
       setTaskEditMessage("Saved");
+
+      if (!detail.recurring && detail.name) {
+        setTaskHistoryLoading(true);
+        try {
+          const params = new URLSearchParams({
+            search: detail.name,
+            recurring: "false",
+            includeOccurrences: "true",
+          });
+          const historyRes = await fetch(`/api/tasks?${params.toString()}`);
+          const historyJson = await historyRes.json().catch(() => ({}));
+          const rows = Array.isArray(historyJson.tasks) ? historyJson.tasks : [];
+          const snapshots = rows
+            .filter((row: any) => String(row?.name || "").trim().toLowerCase() === detail.name.trim().toLowerCase())
+            .map((row: any) => ({
+              id: String(row.id || ""),
+              name: String(row.name || detail.name),
+              occurrenceDate: row.occurrence_date ? String(row.occurrence_date) : null,
+              description: String(row.description || ""),
+              extraNotes: Array.isArray(row.extra_notes) ? row.extra_notes.map((n: any) => String(n || "")).filter(Boolean) : [],
+              personCount: row.person_count === null || row.person_count === undefined ? null : Number(row.person_count),
+              status: String(row.status || ""),
+              priority: String(row.priority || ""),
+              taskTypeName: String(row?.task_type?.name || ""),
+              links: Array.isArray(row.links)
+                ? row.links.map((value: any) => {
+                    const text = String(value || "");
+                    return { label: text, url: text };
+                  })
+                : [],
+            }))
+            .filter((snapshot: TaskHistorySnapshot) => Boolean(snapshot.id))
+            .sort((a: TaskHistorySnapshot, b: TaskHistorySnapshot) =>
+              String(b.occurrenceDate || "").localeCompare(String(a.occurrenceDate || ""))
+            );
+          setTaskOneOffHistory(snapshots);
+          setTaskHistoryPreview(null);
+        } catch (historyErr) {
+          console.error("Failed to load one-off task history", historyErr);
+          setTaskOneOffHistory([]);
+          setTaskHistoryPreview(null);
+        } finally {
+          setTaskHistoryLoading(false);
+        }
+      } else {
+        setTaskOneOffHistory([]);
+        setTaskHistoryPreview(null);
+      }
     } catch (err) {
       console.error(err);
       const friendly = err instanceof Error ? err.message : "Unable to load that task right now.";
       setMessage(friendly);
       setTaskDetail(null);
+      setTaskOneOffHistory([]);
+      setTaskHistoryPreview(null);
       setTaskEditDraft({
         name: "",
         description: "",
@@ -3474,6 +3591,46 @@ export default function AdminScheduleEditorPage() {
       setTaskDetailLoading(false);
     }
   };
+
+  const copyHistorySnapshotToDraft = useCallback(
+    (snapshot: TaskHistorySnapshot, field: "all" | "description" | "extraNotes" | "status" | "priority" | "personCount" | "taskType" | "links") => {
+      setTaskEditDraft((prev) => {
+        if (field === "all") {
+          return {
+            ...prev,
+            description: snapshot.description || "",
+            extraNotes: buildNotesText(snapshot.extraNotes || []),
+            personCount:
+              snapshot.personCount === null || snapshot.personCount === undefined
+                ? ""
+                : String(snapshot.personCount),
+            status: snapshot.status || prev.status,
+            priority: snapshot.priority || prev.priority,
+            taskType: snapshot.taskTypeName || prev.taskType,
+            links: snapshot.links.length ? snapshot.links : prev.links,
+          };
+        }
+        if (field === "description") return { ...prev, description: snapshot.description || "" };
+        if (field === "extraNotes") return { ...prev, extraNotes: buildNotesText(snapshot.extraNotes || []) };
+        if (field === "status") return { ...prev, status: snapshot.status || prev.status };
+        if (field === "priority") return { ...prev, priority: snapshot.priority || prev.priority };
+        if (field === "personCount") {
+          return {
+            ...prev,
+            personCount:
+              snapshot.personCount === null || snapshot.personCount === undefined
+                ? ""
+                : String(snapshot.personCount),
+          };
+        }
+        if (field === "taskType") return { ...prev, taskType: snapshot.taskTypeName || prev.taskType };
+        if (field === "links") return { ...prev, links: snapshot.links.length ? snapshot.links : prev.links };
+        return prev;
+      });
+      setTaskEditMessage("Loaded past values into current task draft");
+    },
+    []
+  );
 
   const updateTaskMetadata = useCallback(
     (taskId: string, updates: Partial<TaskCatalogItem>) => {
@@ -4475,6 +4632,59 @@ export default function AdminScheduleEditorPage() {
         </div>
       )}
 
+      {!taskDetail.recurring && taskDetail.name && (
+        <div className="mt-3 rounded-lg border border-[#d8d3b4] bg-white/80 p-3 text-[11px] text-[#4b5133]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">
+            One-off history for this task name
+          </p>
+          <p className="mt-1 text-[11px] text-[#6b6f4c]">
+            Click a past date to review historical values, then copy any field into today&apos;s draft.
+          </p>
+          {taskHistoryLoading ? (
+            <p className="mt-2 text-[11px] text-[#7a7f54]">Loading history…</p>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {taskOneOffHistory
+                .filter((entry) => entry.occurrenceDate && entry.occurrenceDate !== taskDetail.occurrenceDate)
+                .map((entry) => (
+                  <button
+                    key={`task-history-${entry.id}`}
+                    type="button"
+                    onClick={() => setTaskHistoryPreview(entry)}
+                    className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${taskHistoryPreview?.id === entry.id ? "border-[#8fae4c] bg-[#eef5dd] text-[#42502d]" : "border-[#d0c9a4] bg-white text-[#4b5133]"}`}
+                  >
+                    {entry.occurrenceDate}
+                  </button>
+                ))}
+              {!taskOneOffHistory.filter((entry) => entry.occurrenceDate && entry.occurrenceDate !== taskDetail.occurrenceDate).length && (
+                <p className="text-[11px] text-[#7a7f54]">No past one-off dates found.</p>
+              )}
+            </div>
+          )}
+          {taskHistoryPreview && (
+            <div className="mt-3 rounded-md border border-[#e2d7b5] bg-[#f8f4e3] p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
+                Loaded snapshot: {taskHistoryPreview.occurrenceDate || "No date"}
+              </p>
+              <p className="mt-1 text-[11px] text-[#4b5133] line-clamp-3">
+                {taskHistoryPreview.description || "No description on that date."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "all")} className="rounded-full border border-[#8fae4c] bg-[#8fae4c] px-3 py-1 text-[10px] font-semibold text-white">Copy all values</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "description")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Description</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "extraNotes")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Extra notes</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "status")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Status</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "priority")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Priority</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "personCount")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">People needed</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "taskType")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Task type</button>
+                <button type="button" onClick={() => copyHistorySnapshotToDraft(taskHistoryPreview, "links")} className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Links</button>
+                <button type="button" onClick={() => taskHistoryPreview.id && loadTaskDetail(taskHistoryPreview.id, taskHistoryPreview.name, { preserveCurrentTask: true })} className="rounded-full border border-[#d0c9a4] bg-[#f7f4e5] px-3 py-1 text-[10px] font-semibold text-[#4b5133]">Open this date</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 rounded-lg border border-[#e2d7b5] bg-white/70 p-3 text-[11px] text-[#6a6c4d]">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#7a7f54]">
           Toggle edit fields
@@ -4701,7 +4911,7 @@ export default function AdminScheduleEditorPage() {
           {taskEditSaving ? "Auto-saving…" : taskEditMessage || "Saved"}
         </span>
         <Link
-          href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}`}
+          href={`/hub/admin/tasks?search=${encodeURIComponent(taskDetail.name)}&taskId=${encodeURIComponent(taskDetail.id)}${taskDetail.occurrenceDate ? `&occurrenceDate=${encodeURIComponent(taskDetail.occurrenceDate)}` : ""}&autoOpen=1`}
           className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[11px] font-semibold text-[#4b5133]"
         >
           Open in task editor
