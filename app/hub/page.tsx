@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadSession } from "@/lib/session";
-import { CustomTablesEditor } from "@/components/CustomTablesEditor";
 import type { TaskMeta } from "./types";
 
 type Slot = {
@@ -2654,14 +2653,6 @@ export default function HubSchedulePage() {
                   )}
                 </div>
 
-                <CustomTablesEditor
-                  dateLabel={scheduleDateLabel ?? null}
-                  canEdit={canEditCustomTables}
-                  userOptions={knownUsers}
-                  taskNameOptions={taskOptions}
-                  currentUserName={currentUserName}
-                  showPastTables={canEditCustomTables}
-                />
               </div>
             ) : (
               <>

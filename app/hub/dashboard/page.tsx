@@ -169,6 +169,7 @@ export default function WorkDashboardPage() {
   const [miniLoading, setMiniLoading] = useState(false);
   const [alerts, setAlerts] = useState<string[]>([]);
   const [myTasks, setMyTasks] = useState<MyTask[]>([]);
+  const [scheduledPeople, setScheduledPeople] = useState<string[]>([]);
   const [scheduleDateLabel, setScheduleDateLabel] = useState<string | null>(null);
   const [statusOptions, setStatusOptions] = useState<string[]>([]);
   const [activeTask, setActiveTask] = useState<MyTask | null>(null);
@@ -179,6 +180,7 @@ export default function WorkDashboardPage() {
   const [viewMode, setViewMode] = useState<"updates" | "tasks">("updates");
   const [dailyUpdateSuccess, setDailyUpdateSuccess] = useState<string | null>(null);
   const [dailyUpdatesFeed, setDailyUpdatesFeed] = useState<DailyUpdateEntry[]>([]);
+  const [selectedDailyUpdate, setSelectedDailyUpdate] = useState<DailyUpdateEntry | null>(null);
   const previousSnapshotRef = useRef<MiniTask[] | null>(null);
 
   const quickLinks = useMemo(() => {
@@ -265,6 +267,7 @@ export default function WorkDashboardPage() {
         });
         if (!res.ok) return;
         const data: ScheduleResponse = await res.json();
+        setScheduledPeople(Array.isArray(data.people) ? data.people.filter(Boolean) : []);
         const scheduleLabel = data.scheduleDate || dateLabel;
         const occurrenceParam = toIsoDateLabel(scheduleLabel) || scheduleLabel;
         setScheduleDateLabel(scheduleLabel);
@@ -485,6 +488,35 @@ export default function WorkDashboardPage() {
     void loadFeed();
   }, [name, miniLoading]);
 
+  const groupedMyTasks = useMemo(() => {
+    const groups = new Map<string, MyTask[]>();
+    myTasks.forEach((task) => {
+      const key = task.slot || "Unscheduled";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)?.push(task);
+    });
+    return Array.from(groups.entries());
+  }, [myTasks]);
+
+  const dailyUpdateChecklist = useMemo(() => {
+    const scheduledPeopleUnique = Array.from(new Set((scheduledPeople || []).filter(Boolean)));
+    const submittedNames = new Set(
+      dailyUpdatesFeed.map((entry) => entry.user_name.trim().toLowerCase()).filter(Boolean)
+    );
+    return scheduledPeopleUnique
+      .map((person) => {
+        const update = dailyUpdatesFeed.find(
+          (entry) => entry.user_name.trim().toLowerCase() === person.trim().toLowerCase()
+        );
+        return {
+          name: person,
+          submitted: submittedNames.has(person.trim().toLowerCase()),
+          entry: update || null,
+        };
+      })
+      .sort((a, b) => Number(a.submitted) === Number(b.submitted) ? a.name.localeCompare(b.name) : Number(b.submitted) - Number(a.submitted));
+  }, [dailyUpdatesFeed, scheduledPeople]);
+
 
 
   return (
@@ -577,37 +609,32 @@ export default function WorkDashboardPage() {
                 <p className="text-sm font-semibold text-[#3b4224]">Team daily reports</p>
                 <span className="text-[11px] uppercase tracking-[0.12em] text-[#7a7f54]">Today</span>
               </div>
-              {dailyUpdatesFeed.length ? (
-                <div className="mt-2 space-y-2">
-                  {dailyUpdatesFeed.map((entry) => (
-                    <div key={entry.id} className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#314123]">{entry.user_name}</p>
-                        <span className="text-[10px] text-[#7a7f54]">{new Date(entry.updated_at).toLocaleTimeString()}</span>
+              <div className="mt-2 rounded-lg border border-[#e6dfbe] bg-[#faf8ee] p-3">
+                {dailyUpdateChecklist.length ? (
+                  <div className="space-y-2">
+                    {dailyUpdateChecklist.map((item) => (
+                      <div key={item.name} className="flex items-center justify-between gap-2 rounded-md border border-[#ece4c5] bg-white/70 px-3 py-2">
+                        <label className="flex items-center gap-2 text-sm text-[#314123]">
+                          <input type="checkbox" checked={item.submitted} readOnly className="h-4 w-4 accent-[#8fae4c]" />
+                          <button
+                            type="button"
+                            className="font-semibold text-left underline-offset-2 hover:underline"
+                            onClick={() => item.entry && setSelectedDailyUpdate(item.entry)}
+                            disabled={!item.entry}
+                          >
+                            {item.name}
+                          </button>
+                        </label>
+                        <span className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${item.submitted ? "text-emerald-700" : "text-amber-700"}`}>
+                          {item.submitted ? "Submitted" : "Pending"}
+                        </span>
                       </div>
-                      {entry.summary && <p className="mt-1 text-sm text-[#4b5133]">{entry.summary}</p>}
-                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">1) Task status check</p>
-                        <p className="mt-1 text-xs text-[#4f5730]">
-                          {entry.task_statuses?.length
-                            ? `${entry.task_statuses.filter((row) => row.status.toLowerCase() === "completed").length} completed · ${entry.task_statuses.filter((row) => row.status.toLowerCase() === "in progress").length} in progress · ${entry.task_statuses.filter((row) => row.status.toLowerCase() === "not started").length} not started`
-                            : "No task status changes shared."}
-                        </p>
-                      </div>
-                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">2) Extra Notes</p>
-                        <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.extra_notes || "—"}</p>
-                      </div>
-                      <div className="mt-2 rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">3) Request</p>
-                        <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.requests || "—"}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-[#4b5133]">No team daily reports submitted yet.</p>
-              )}
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#4b5133]">No scheduled volunteers found for today yet.</p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -654,29 +681,40 @@ export default function WorkDashboardPage() {
               </p>
             )}
             {!miniLoading && myTasks.length > 0 && (
-              <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-                {myTasks.map((task) => (
+              <div className="space-y-5 p-4">
+                {groupedMyTasks.map(([slot, tasks]) => (
+                  <div key={slot} className="space-y-2">
+                    <div className="border-b border-[#d9dec1] pb-1">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                        {slot}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {tasks.map((task) => (
                   <button
                     key={`${task.id}-${task.slot}-${task.timeRange}`}
                     type="button"
                     onClick={() => openTaskOverlay(task)}
-                    className="flex h-full flex-col justify-between gap-3 rounded-2xl border border-[#e2dbc0] bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                    className="flex h-full flex-col justify-between gap-2 rounded-2xl border border-[#e2dbc0] bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold text-[#3b4224]">
+                      <div className="relative">
+                        <span className="block pr-[125px] text-sm font-semibold text-[#3b4224]">
                           {task.name}
                         </span>
                         {task.status && (
-                          <span className="rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
+                          <span className="absolute right-0 top-0 rounded-full bg-[#eef2d9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4f5730]">
                             {task.status}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#7a7f54]">
-                        {task.slot}
-                        {task.timeRange ? ` · ${task.timeRange}` : ""}
-                      </p>
+                      <p className="text-xs text-[#7a7f54]">{task.timeRange || "No shift time listed"}</p>
+                      <p className="text-xs leading-relaxed text-[#4b5133]">{task.description || "No description yet."}</p>
+                      {(task.extraNotes.length > 0 || task.note.trim()) && (
+                        <p className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-[11px] font-semibold text-orange-800">
+                          ⚠️ Has extra note
+                        </p>
+                      )}
                       {task.note && (
                         <p className="text-xs text-[#4b5133] line-clamp-2">
                           {task.note}
@@ -688,6 +726,9 @@ export default function WorkDashboardPage() {
                       <span>{task.commentCount} updates</span>
                     </div>
                   </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -839,6 +880,41 @@ export default function WorkDashboardPage() {
                     <span className="text-xs text-[#7a7f54]">{overlayMessage}</span>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedDailyUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[#ede8d3] px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Daily update</p>
+                <h2 className="text-xl font-semibold text-[#3b4224]">{selectedDailyUpdate.user_name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDailyUpdate(null)}
+                className="rounded-full border border-[#d7d2b0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-3 px-6 py-4 text-sm text-[#4b5133]">
+              <p><span className="font-semibold">Updated:</span> {new Date(selectedDailyUpdate.updated_at).toLocaleString()}</p>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Summary</p>
+                <p className="mt-1">{selectedDailyUpdate.summary || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Extra notes</p>
+                <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdate.extra_notes || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Requests</p>
+                <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdate.requests || "—"}</p>
               </div>
             </div>
           </div>
