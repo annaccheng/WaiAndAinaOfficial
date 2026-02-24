@@ -275,7 +275,7 @@ export async function GET(req: Request) {
   try {
     const buildQuery = (withOccurrence: boolean) => ({
       select:
-        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,occurrence_date,parent_task_id,comments,photos,updated_at,task_type:task_types(name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
+        "id,name,description,status,extra_notes,person_count,links,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,occurrence_date,parent_task_id,comments,photos,updated_at,task_type:task_types(name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
       ...(id.trim() ? { id: `eq.${id}` } : { name: `ilike.${name}` }),
       ...(withOccurrence && occurrenceDate
         ? { occurrence_date: `eq.${occurrenceDate}` }
@@ -382,6 +382,14 @@ export async function GET(req: Request) {
       estimatedTime: task.estimated_time || "",
       properties: [],
       recurring: Boolean(task.recurring),
+      recurrenceInterval:
+        typeof task.recurrence_interval === "number"
+          ? task.recurrence_interval
+          : task.recurrence_interval
+            ? Number(task.recurrence_interval)
+            : null,
+      recurrenceUnit: task.recurrence_unit || null,
+      recurrenceUntil: task.recurrence_until || null,
       occurrenceDate: task.occurrence_date || null,
       parentTaskId: task.parent_task_id || null,
     });
