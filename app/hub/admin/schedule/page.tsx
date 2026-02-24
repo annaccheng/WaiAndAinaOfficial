@@ -478,6 +478,7 @@ export default function AdminScheduleEditorPage() {
   const [yesterdayScheduleData, setYesterdayScheduleData] =
     useState<ScheduleResponse | null>(null);
   const [yesterdayRecurringTasks, setYesterdayRecurringTasks] = useState<TaskCatalogItem[]>([]);
+  const [yesterdayOneOffTasks, setYesterdayOneOffTasks] = useState<TaskCatalogItem[]>([]);
   const [yesterdayLoading, setYesterdayLoading] = useState(false);
   const [carryOverTaskId, setCarryOverTaskId] = useState<string | null>(null);
   const [columnWidth, setColumnWidth] = useState<number | null>(null);
@@ -1186,6 +1187,7 @@ export default function AdminScheduleEditorPage() {
     if (!authorized || !yesterdayLabel || scheduleMode !== "page") {
       setYesterdayScheduleData(null);
       setYesterdayRecurringTasks([]);
+      setYesterdayOneOffTasks([]);
       return;
     }
     let cancelled = false;
@@ -1195,13 +1197,14 @@ export default function AdminScheduleEditorPage() {
       try {
         const dateParam = formatLabelToInput(yesterdayLabel);
         if (!dateParam) return;
-        const [scheduleRes, recurringRes] = await Promise.all([
+        const [scheduleRes, recurringRes, oneOffRes] = await Promise.all([
           fetch(`/api/schedule?date=${encodeURIComponent(yesterdayLabel)}&staging=1`, {
             cache: "no-store",
           }),
           fetch(
             `/api/tasks?recurring=true&includeOccurrences=true&start=${dateParam}&end=${dateParam}`
           ),
+          fetch(`/api/tasks?recurring=false&start=${dateParam}&end=${dateParam}`),
         ]);
         if (cancelled) return;
         if (scheduleRes.ok) {
@@ -1232,11 +1235,34 @@ export default function AdminScheduleEditorPage() {
         } else {
           setYesterdayRecurringTasks([]);
         }
+        if (oneOffRes.ok) {
+          const json = await oneOffRes.json();
+          const items = (json.tasks || []).map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            type: task.task_type?.name || "",
+            typeColor: task.task_type?.color || "default",
+            status: task.status || "",
+            priority: task.priority || "",
+            occurrenceDate: task.occurrence_date || null,
+            recurring: Boolean(task.recurring),
+            parentTaskId: task.parent_task_id || null,
+            description: task.description || null,
+            personCount: task.person_count ?? null,
+            timeSlots: task.time_slots || [],
+            estimatedTime: task.estimated_time || null,
+            commentCount: countCommentsForDate(task.comments, dateParam),
+          }));
+          setYesterdayOneOffTasks(items);
+        } else {
+          setYesterdayOneOffTasks([]);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to load yesterday overview", err);
           setYesterdayScheduleData(null);
           setYesterdayRecurringTasks([]);
+          setYesterdayOneOffTasks([]);
         }
       } finally {
         if (!cancelled) setYesterdayLoading(false);
@@ -1248,6 +1274,60 @@ export default function AdminScheduleEditorPage() {
       cancelled = true;
     };
   }, [authorized, formatLabelToInput, scheduleMode, yesterdayLabel]);
+
+  const ghostSuggestedOneOffByCell = useMemo(() => {
+    if (!suggestModeEnabled || !scheduleData || !yesterdayScheduleData) return {} as Record<string, SuggestedOneOffTask[]>;
+    const yesterdayOneOffById = new Map(yesterdayOneOffTasks.map((task) => [task.id, task]));
+    if (!yesterdayOneOffById.size) return {} as Record<string, SuggestedOneOffTask[]>;
+    const next: Record<string, SuggestedOneOffTask[]> = {};
+
+    yesterdayScheduleData.people.forEach((person, rowIdx) => {
+      const targetRowIdx = scheduleData.people.findIndex(
+        (name) => name.trim().toLowerCase() === person.trim().toLowerCase()
+      );
+      if (targetRowIdx < 0) return;
+      yesterdayScheduleData.slots.forEach((slot, colIdx) => {
+        const targetSlot = scheduleData.slots.find((entry) => entry.id === slot.id);
+        if (!targetSlot) return;
+        const cell = yesterdayScheduleData.cells?.[rowIdx]?.[colIdx];
+        if (!cell?.tasks?.length) return;
+        const key = `${scheduleData.people[targetRowIdx]}-${targetSlot.id}`;
+        const currentNames = new Set(
+          (scheduleData.cells?.[targetRowIdx]?.[scheduleData.slots.findIndex((s) => s.id === targetSlot.id)]?.tasks || [])
+            .map((task) => task.name.trim().toLowerCase())
+        );
+        const suggestions = cell.tasks
+          .filter((task) => yesterdayOneOffById.has(task.id))
+          .filter((task) => !currentNames.has(task.name.trim().toLowerCase()))
+          .map((task) => ({
+            id: `ghost-${task.id}-${rowIdx}-${colIdx}`,
+            name: task.name,
+            sourceTaskId: task.id,
+          }));
+        if (suggestions.length) {
+          next[key] = suggestions;
+        }
+      });
+    });
+
+    return next;
+  }, [scheduleData, suggestModeEnabled, yesterdayOneOffTasks, yesterdayScheduleData]);
+
+  const visibleSuggestedOneOffByCell = useMemo(() => {
+    const merged: Record<string, SuggestedOneOffTask[]> = {};
+    const addAll = (source: Record<string, SuggestedOneOffTask[]>) => {
+      Object.entries(source).forEach(([key, items]) => {
+        const existingIds = new Set((merged[key] || []).map((item) => item.id));
+        const toAdd = items.filter((item) => !existingIds.has(item.id));
+        if (toAdd.length) {
+          merged[key] = [...(merged[key] || []), ...toAdd];
+        }
+      });
+    };
+    addAll(ghostSuggestedOneOffByCell);
+    addAll(suggestedOneOffByCell);
+    return merged;
+  }, [ghostSuggestedOneOffByCell, suggestedOneOffByCell]);
 
   const taskCommentCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -5714,14 +5794,14 @@ export default function AdminScheduleEditorPage() {
                     {content.note && (
                       <p className="text-[10px] text-[#4f4b33] opacity-90">{content.note}</p>
                     )}
-                    {suggestModeEnabled && (suggestedOneOffByCell[`${person}-${slot.id}`] || []).length > 0 && (
+                    {suggestModeEnabled && (visibleSuggestedOneOffByCell[`${person}-${slot.id}`] || []).length > 0 && (
                       <div className="mt-1 space-y-1 rounded-md border border-dashed border-[#d0c9a4] bg-[#f9f6e7] p-1">
-                        {(suggestedOneOffByCell[`${person}-${slot.id}`] || []).map((suggestion) => (
+                        {(visibleSuggestedOneOffByCell[`${person}-${slot.id}`] || []).map((suggestion) => (
                           <div
                             key={suggestion.id}
-                            className="flex items-center justify-between gap-1 rounded border border-[#e2d7b5] bg-white px-1 py-[2px] text-[10px] text-[#314123]"
+                            className="flex items-center justify-between gap-1 rounded border border-[#d7dbe8] bg-[#eef2ff]/70 px-1 py-[2px] text-[10px] text-[#314123]"
                           >
-                            <span className="truncate">{suggestion.name}</span>
+                            <span className="truncate italic opacity-80">👻 {suggestion.name}</span>
                             <button
                               type="button"
                               onClick={() => {
