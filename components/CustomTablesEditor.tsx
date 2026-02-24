@@ -301,17 +301,24 @@ export function CustomTablesEditor({
   const [rangeEndDate, setRangeEndDate] = useState("");
   const [customDateInput, setCustomDateInput] = useState("");
   const [customDateSelections, setCustomDateSelections] = useState<string[]>([]);
+  const scheduleDateIso = useMemo(
+    () => (dateLabel ? toIsoDateLabel(dateLabel) || dateLabel : ""),
+    [dateLabel]
+  );
+  const draftCacheKey = useMemo(
+    () =>
+      `custom-table-draft-${(currentUserName || "guest").toLowerCase()}-${
+        scheduleDateIso || "none"
+      }`,
+    [currentUserName, scheduleDateIso]
+  );
+  const [publishedTablesById, setPublishedTablesById] = useState<Record<string, CustomTable>>({});
 
   const headerTypeOptions = [
     { value: "user", label: "User" },
     { value: "task", label: "Task" },
     { value: "text", label: "Custom text" },
   ] as const;
-
-  const scheduleDateIso = useMemo(
-    () => (dateLabel ? toIsoDateLabel(dateLabel) || dateLabel : ""),
-    [dateLabel]
-  );
 
   const normalizeCustomTable = useCallback((table: any): CustomTable => {
     const columnHeaders = Array.isArray(table?.columnHeaders)
@@ -426,9 +433,30 @@ export function CustomTablesEditor({
         const json = await res.json();
         const tables = Array.isArray(json.tables) ? json.tables : [];
         const normalized = tables.map(normalizeCustomTable);
-        setCustomTables(normalized);
+        let nextTables = normalized;
+        try {
+          const cached = typeof window !== "undefined" ? localStorage.getItem(draftCacheKey) : null;
+          if (cached) {
+            const parsed = JSON.parse(cached) as {
+              tables?: CustomTable[];
+              dirty?: Record<string, boolean>;
+            };
+            if (Array.isArray(parsed.tables) && parsed.tables.length) {
+              nextTables = parsed.tables.map(normalizeCustomTable);
+              setCustomTablesDirty(parsed.dirty || {});
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to load custom table draft cache", err);
+        }
+        setCustomTables(nextTables);
+        setPublishedTablesById(
+          Object.fromEntries(normalized.map((table) => [table.id, table]))
+        );
         setCustomTablesAnchorDate(isoDate);
-        setCustomTablesDirty({});
+        if (nextTables === normalized) {
+          setCustomTablesDirty({});
+        }
       } catch (err) {
         console.error("Failed to load custom tables:", err);
         setCustomTablesError("Unable to load custom tables.");
@@ -436,7 +464,7 @@ export function CustomTablesEditor({
         setCustomTablesLoading(false);
       }
     },
-    [normalizeCustomTable]
+    [draftCacheKey, normalizeCustomTable]
   );
 
   const loadPastTables = useCallback(async () => {
@@ -535,6 +563,7 @@ export function CustomTablesEditor({
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setPublishedTablesById((prev) => ({ ...prev, [table.id]: table }));
         setCustomTablesDirty((prev) => ({ ...prev, [table.id]: false }));
       } catch (err) {
         console.error("Failed to save custom table:", err);
@@ -545,6 +574,20 @@ export function CustomTablesEditor({
     },
     []
   );
+
+  useEffect(() => {
+    if (!scheduleDateIso) return;
+    try {
+      const payload = JSON.stringify({
+        tables: customTables,
+        dirty: customTablesDirty,
+        savedAt: new Date().toISOString(),
+      });
+      localStorage.setItem(draftCacheKey, payload);
+    } catch (err) {
+      console.warn("Failed to save custom table draft cache", err);
+    }
+  }, [customTables, customTablesDirty, draftCacheKey, scheduleDateIso]);
 
   const handleDeleteCustomTable = useCallback(async (tableId: string) => {
     const confirmed = window.confirm("Delete this custom table? This cannot be undone.");
@@ -749,6 +792,12 @@ export function CustomTablesEditor({
       {customTablesError && (
         <p className="mt-3 text-sm text-red-700">{customTablesError}</p>
       )}
+      {canEditCustomTables && (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <p className="font-semibold uppercase tracking-[0.12em]">Draft mode enabled</p>
+          <p className="mt-1">Table edits are auto-saved locally as drafts. Click “Save Table” to publish changes.</p>
+        </div>
+      )}
       {!customTablesLoading && visibleCustomTables.length === 0 && (
         <p className="mt-3 text-sm text-[#7a7f54]">
           No custom tables available for this date.
@@ -764,6 +813,8 @@ export function CustomTablesEditor({
           const columnHeaderType = table.columnHeaderType;
           const cellType = table.cellType;
           const normalizedUserName = currentUserName?.toLowerCase() || "";
+          const hasPublishedSnapshot = Boolean(publishedTablesById[table.id]);
+          const hasDraftChanges = Boolean(customTablesDirty[table.id]);
           return (
             <div
               key={table.id}
@@ -813,6 +864,11 @@ export function CustomTablesEditor({
                 )}
                 {canEditCustomTables && (
                   <div className="flex flex-wrap items-center gap-2">
+                    {hasPublishedSnapshot && hasDraftChanges && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
+                        Unpublished
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() =>
@@ -870,6 +926,11 @@ export function CustomTablesEditor({
 
               {canEditCustomTables && (
                 <div className="mt-3 flex flex-wrap gap-3 rounded-lg border border-[#e2d7b5] bg-white/70 px-3 py-2 text-[11px] text-[#6b6f4c]">
+                  {hasPublishedSnapshot && hasDraftChanges && (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
+                      Config/Grid draft pending publish
+                    </span>
+                  )}
                   <label className="flex items-center gap-2">
                     <span className="text-[10px] uppercase tracking-[0.12em]">
                       Visible from
@@ -975,6 +1036,11 @@ export function CustomTablesEditor({
               )}
 
               <div className="mt-4 overflow-x-auto overflow-y-visible">
+                {hasPublishedSnapshot && hasDraftChanges && (
+                  <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
+                    This table has unpublished draft edits
+                  </div>
+                )}
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
                     <tr>

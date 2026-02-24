@@ -94,6 +94,27 @@ async function fetchVolunteers() {
   );
 }
 
+async function fetchScheduledVolunteerNames(isoDate: string, state: "staging" | "live") {
+  const schedules = await supabaseRequest<ScheduleRow[]>("schedules", {
+    query: {
+      select: "id",
+      schedule_date: `eq.${isoDate}`,
+      state: `eq.${state}`,
+      limit: 1,
+    },
+  });
+  const scheduleId = schedules?.[0]?.id;
+  if (!scheduleId) return [] as string[];
+  const rows = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+    query: {
+      select: "name",
+      schedule_id: `eq.${scheduleId}`,
+      order: "order_index.asc",
+    },
+  });
+  return (rows || []).map((row) => row.name).filter(Boolean);
+}
+
 async function fetchSlots(): Promise<Slot[]> {
   const rows = await supabaseRequest<SlotRow[]>("shifts", {
     query: {
@@ -262,7 +283,7 @@ export async function GET(req: Request) {
       });
     }
 
-    const [slots, volunteers] = await Promise.all([
+    const [slots, activeVolunteers] = await Promise.all([
       fetchSlots(),
       fetchVolunteers(),
     ]);
@@ -280,11 +301,12 @@ export async function GET(req: Request) {
     let scheduleId = scheduleRows?.[0]?.id || null;
 
     if (!scheduleId) {
-      const emptyCells = volunteers.map(() =>
+      const allVolunteers = Array.from(new Set(activeVolunteers));
+      const emptyCells = allVolunteers.map(() =>
         slots.map(() => (isStaging ? { tasks: [], note: "" } : ""))
       );
       return NextResponse.json({
-        people: volunteers,
+        people: allVolunteers,
         slots,
         cells: emptyCells,
         scheduleDate: toLabel(isoDate),
@@ -292,14 +314,10 @@ export async function GET(req: Request) {
       });
     }
 
-    const schedulePeople = await syncSchedulePeople(scheduleId, volunteers);
-    const activeVolunteerSet = new Set(
-      volunteers.map((name) => name.trim().toLowerCase())
-    );
-    const activeSchedulePeople = schedulePeople.filter((person) =>
-      activeVolunteerSet.has(person.name.trim().toLowerCase())
-    );
-    await ensureScheduleCells(scheduleId, activeSchedulePeople, slots);
+    const historicalVolunteers = await fetchScheduledVolunteerNames(isoDate, scheduleState);
+    const mergedVolunteers = Array.from(new Set([...activeVolunteers, ...historicalVolunteers]));
+    const schedulePeople = await syncSchedulePeople(scheduleId, mergedVolunteers);
+    await ensureScheduleCells(scheduleId, schedulePeople, slots);
     const cells = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
       query: {
         select: "id,person_id,shift_id,tasks,note,blocked",
@@ -325,7 +343,7 @@ export async function GET(req: Request) {
       : [];
     const taskMap = new Map(taskRows.map((task) => [task.id, task.name]));
 
-    const detailedMatrix = activeSchedulePeople.map((person) =>
+    const detailedMatrix = schedulePeople.map((person) =>
       slots.map((slot) => {
         const cell = cellMap.get(`${person.id}-${slot.id}`);
         if (!cell) return { tasks: [], note: "" };
@@ -351,12 +369,12 @@ export async function GET(req: Request) {
         return `${names.join(" • ")}\n${cell.note}`.trim();
       })
     );
-    const existsMatrix = activeSchedulePeople.map((person) =>
+    const existsMatrix = schedulePeople.map((person) =>
       slots.map((slot) => cellMap.has(`${person.id}-${slot.id}`))
     );
 
     return NextResponse.json({
-      people: activeSchedulePeople.map((person) => person.name),
+      people: schedulePeople.map((person) => person.name),
       slots,
       cells: isStaging ? detailedMatrix : stringMatrix,
       taskCells: detailedMatrix,
