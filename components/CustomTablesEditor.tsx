@@ -451,7 +451,7 @@ export function CustomTablesEditor({
         }
         setCustomTables(nextTables);
         setPublishedTablesById(
-          Object.fromEntries(normalized.map((table) => [table.id, table]))
+          Object.fromEntries(normalized.map((table: CustomTable) => [table.id, table]))
         );
         setCustomTablesAnchorDate(isoDate);
         if (nextTables === normalized) {
