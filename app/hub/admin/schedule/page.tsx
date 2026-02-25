@@ -31,6 +31,7 @@ type TaskCatalogItem = {
   timeSlots?: string[] | null;
   estimatedTime?: string | null;
   commentCount?: number;
+  taskHelpReferences?: string[];
 };
 type TaskTypeOption = { id?: string; name: string; color: string };
 type StatusOption = { name: string; color: string };
@@ -51,6 +52,8 @@ type TaskDetail = {
   recurrenceInterval?: number | null;
   recurrenceUnit?: string | null;
   recurrenceUntil?: string | null;
+  taskHelpReferences?: string[];
+  createdByName?: string | null;
 };
 type SuggestedOneOffTask = ScheduledTask & { sourceTaskId: string };
 type TaskHistorySnapshot = {
@@ -174,6 +177,45 @@ function statusBadgeClasses(status?: string) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   }
   return "border-[#d0c9a4] bg-[#f6f1dd] text-[#4b5133]";
+}
+
+function ChecklistDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string[];
+  options: string[];
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  const selected = new Set(value);
+  return (
+    <details className="relative">
+      <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-2 py-2 text-sm text-[#4b5133]">
+        {value.length ? value.join(", ") : placeholder}
+      </summary>
+      <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-[#d0c9a4] bg-white p-2 shadow-lg">
+        {options.map((option) => (
+          <label key={option} className="flex items-center gap-2 px-1 py-1 text-xs text-[#4b5133]">
+            <input
+              type="checkbox"
+              checked={selected.has(option)}
+              onChange={(event) => {
+                const next = new Set(value);
+                if (event.target.checked) next.add(option);
+                else next.delete(option);
+                onChange(Array.from(next));
+              }}
+              className="accent-[#8fae4c]"
+            />
+            <span>{option}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 
@@ -357,6 +399,7 @@ export default function AdminScheduleEditorPage() {
     >
   >({});
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
+  const [activeSiteUsers, setActiveSiteUsers] = useState<string[]>([]);
   const [customTask, setCustomTask] = useState("");
   const [quickTaskName, setQuickTaskName] = useState("");
   const [quickTaskDescription, setQuickTaskDescription] = useState("");
@@ -393,6 +436,7 @@ export default function AdminScheduleEditorPage() {
     priority: "",
     taskType: "",
     links: [] as TaskLink[],
+    taskHelpReferences: [] as string[],
   });
   const [taskEditSections, setTaskEditSections] = useState({
     title: true,
@@ -402,6 +446,7 @@ export default function AdminScheduleEditorPage() {
     status: true,
     priority: true,
     taskType: true,
+    taskHelpReferences: true,
     links: true,
     photos: true,
     recurrence: true,
@@ -598,12 +643,25 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const typeRes = await fetch("/api/task-types", { cache: "no-store" });
+        const [typeRes, usersRes] = await Promise.all([
+          fetch("/api/task-types", { cache: "no-store" }),
+          fetch("/api/users", { cache: "no-store" }),
+        ]);
 
         if (typeRes.ok) {
           const json = await typeRes.json();
           setTaskTypes(json.types || []);
           setStatusOptions(json.statuses || []);
+        }
+        if (usersRes.ok) {
+          const usersJson = await usersRes.json();
+          const activeUsers = Array.isArray(usersJson.users)
+            ? usersJson.users
+                .filter((user: any) => user?.active)
+                .map((user: any) => String(user?.name || "").trim())
+                .filter(Boolean)
+            : [];
+          setActiveSiteUsers(activeUsers);
         }
         await refreshScheduleList();
         setSelectedDate(todayLabel);
@@ -2293,6 +2351,8 @@ export default function AdminScheduleEditorPage() {
           recurring: false,
           origin_date: dateParam,
           occurrence_date: dateParam,
+          created_by_name: currentUserName || null,
+          task_help_references: [currentUserName || ""].filter(Boolean),
         }),
       });
       if (!res.ok) {
@@ -2325,7 +2385,7 @@ export default function AdminScheduleEditorPage() {
       console.error("Failed to create quick task", err);
       setMessage("Unable to create quick task.");
     }
-  }, [quickTaskDescription, quickTaskName, selectedDate, setMessage]);
+  }, [currentUserName, quickTaskDescription, quickTaskName, selectedDate, setMessage]);
 
   const createRecurringQuickTask = useCallback(async () => {
     if (!recurringQuickName.trim()) return;
@@ -2351,6 +2411,8 @@ export default function AdminScheduleEditorPage() {
           recurrence_until: untilDate,
           origin_date: originDate,
           occurrence_date: originDate,
+          created_by_name: currentUserName || null,
+          task_help_references: [currentUserName || ""].filter(Boolean),
         }),
       });
       if (!res.ok) {
@@ -3501,6 +3563,10 @@ export default function AdminScheduleEditorPage() {
         recurrenceUntil: json.recurrenceUntil || null,
         occurrenceDate: json.occurrenceDate || null,
         parentTaskId: json.parentTaskId || null,
+        createdByName: json.createdByName || null,
+        taskHelpReferences: Array.isArray(json.taskHelpReferences)
+          ? json.taskHelpReferences.map((entry: any) => String(entry || "").trim()).filter(Boolean)
+          : [],
       };
       setTaskDetail(detail);
       const nextDraft = {
@@ -3515,6 +3581,9 @@ export default function AdminScheduleEditorPage() {
         priority: detail.priority || "",
         taskType: detail.taskType?.name || "",
         links: normalizedLinks,
+        taskHelpReferences: Array.isArray(json.taskHelpReferences)
+          ? json.taskHelpReferences.map((entry: any) => String(entry || "").trim()).filter(Boolean)
+          : [],
       };
       setTaskEditDraft(nextDraft);
       setTaskEditApplyTo("single");
@@ -3586,6 +3655,7 @@ export default function AdminScheduleEditorPage() {
         priority: "",
         taskType: "",
         links: [],
+        taskHelpReferences: [],
       });
     } finally {
       setTaskDetailLoading(false);
@@ -3658,6 +3728,7 @@ export default function AdminScheduleEditorPage() {
           label: String(link.label || "").trim(),
           url: String(link.url || "").trim(),
         })),
+        taskHelpReferences: Array.from(new Set((draft.taskHelpReferences || []).map((entry) => String(entry || "").trim()).filter(Boolean))).sort(),
       }),
     [taskDetail?.id]
   );
@@ -3697,6 +3768,16 @@ export default function AdminScheduleEditorPage() {
       const defaultPriority = "Medium";
       const nextPriority =
         taskEditDraft.priority || taskDetail.priority || defaultPriority;
+      const normalizedTaskHelpReferences = Array.from(
+        new Set(
+          (taskEditDraft.taskHelpReferences || [])
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        )
+      );
+      const taskHelpReferences = normalizedTaskHelpReferences.length
+        ? normalizedTaskHelpReferences
+        : [taskDetail.createdByName || currentUserName || ""].filter(Boolean);
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3716,6 +3797,7 @@ export default function AdminScheduleEditorPage() {
           priority: nextPriority,
           task_type_id: taskTypeMatch?.id || null,
           links: linkValues,
+          task_help_references: taskHelpReferences,
           recurrence_interval:
             taskDetail.recurring && taskDetail.recurrenceInterval
               ? Math.max(1, Number(taskDetail.recurrenceInterval) || 1)
@@ -3744,6 +3826,7 @@ export default function AdminScheduleEditorPage() {
           ? { name: taskTypeMatch.name, color: taskTypeMatch.color }
           : taskDetail.taskType,
         links,
+        taskHelpReferences,
       });
       updateTaskMetadata(taskDetail.id, {
         name: trimmedName || taskDetail.name,
@@ -3753,6 +3836,7 @@ export default function AdminScheduleEditorPage() {
         priority: nextPriority || "",
         type: taskTypeMatch?.name || taskDetail.taskType?.name || "",
         typeColor: taskTypeMatch?.color || taskDetail.taskType?.color || "default",
+        taskHelpReferences,
       });
       if (trimmedName && trimmedName !== taskDetail.name && scheduleData) {
         setScheduleData((prev) => {
@@ -4699,6 +4783,7 @@ export default function AdminScheduleEditorPage() {
               ["status", "Status"],
               ["priority", "Priority"],
               ["taskType", "Task type"],
+              ["taskHelpReferences", "Task Help Reference"],
               ["links", "Links"],
               ["photos", "Photos"],
               ["recurrence", "Recurrence info"],
@@ -4835,6 +4920,24 @@ export default function AdminScheduleEditorPage() {
               ))}
             </select>
           </label>
+        )}
+        {taskEditSections.taskHelpReferences && (
+          <div className="space-y-1">
+            <span className="text-[12px] font-semibold text-[#5f5a3b]">
+              Task Help Reference
+            </span>
+            <ChecklistDropdown
+              value={taskEditDraft.taskHelpReferences}
+              options={activeSiteUsers}
+              placeholder="Select people that can help with this task"
+              onChange={(next) =>
+                setTaskEditDraft((prev) => ({ ...prev, taskHelpReferences: next }))
+              }
+            />
+            <p className="text-[11px] text-[#6b6d4b]">
+              If none is selected, this defaults to the admin who created the task.
+            </p>
+          </div>
         )}
         {taskEditSections.links && (
           <div className="space-y-2">
