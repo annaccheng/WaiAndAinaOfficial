@@ -3655,6 +3655,7 @@ export default function AdminScheduleEditorPage() {
         priority: "",
         taskType: "",
         links: [],
+        taskHelpReferences: [],
       });
     } finally {
       setTaskDetailLoading(false);
