@@ -191,7 +191,7 @@ export async function POST(req: Request) {
     const buildPayload = (payloadBody: Record<string, unknown>) => {
       const helpReferences = Array.isArray(payloadBody.task_help_references)
         ? payloadBody.task_help_references
-            .map((entry) => String(entry || "").trim())
+            .map((entry: unknown) => String(entry || "").trim())
             .filter(Boolean)
         : [];
       const createdByName = String(payloadBody.created_by_name || "").trim();
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
             created_by_name: String(fallbackBody.created_by_name || "").trim() || null,
             task_help_references: Array.isArray(fallbackBody.task_help_references)
               ? (fallbackBody.task_help_references as unknown[])
-                  .map((entry) => String(entry || "").trim())
+                  .map((entry: unknown) => String(entry || "").trim())
                   .filter(Boolean)
               : String(fallbackBody.created_by_name || "").trim()
                 ? [String(fallbackBody.created_by_name || "").trim()]
@@ -414,7 +414,7 @@ export async function PATCH(req: Request) {
   if (Object.prototype.hasOwnProperty.call(updates, "task_help_references")) {
     const references = Array.isArray(updates.task_help_references)
       ? updates.task_help_references
-          .map((entry) => String(entry || "").trim())
+          .map((entry: unknown) => String(entry || "").trim())
           .filter(Boolean)
       : [];
     const createdByName = String((updates as Record<string, unknown>).created_by_name || "").trim();
