@@ -2672,7 +2672,7 @@ export default function HubSchedulePage() {
 
                 {showCustomTablesInMyTasks && (
                   <CustomTablesEditor
-                    dateLabel={scheduleDateLabel}
+                    dateLabel={scheduleDateLabel ?? null}
                     canEdit={false}
                     userOptions={userOptions}
                     taskNameOptions={taskNameOptions}
