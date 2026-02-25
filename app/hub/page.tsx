@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadSession } from "@/lib/session";
+import { CustomTablesEditor } from "@/components/CustomTablesEditor";
 import type { TaskMeta } from "./types";
 
 type Slot = {
@@ -1820,6 +1821,7 @@ export default function HubSchedulePage() {
     !isExternalVolunteer && (isVolunteer || isAdminView || eveningHasContent);
   const showWeekendSection =
     isVolunteer || isAdminView || isExternalVolunteer || weekendHasContent;
+  const showCustomTablesInMyTasks = isVolunteer || adminViewAsVolunteer;
 
   const myTasks = useMemo(() => {
     if (!data || !currentUserName) return [] as {
@@ -2667,6 +2669,16 @@ export default function HubSchedulePage() {
                     <p className="text-sm text-red-700">{error}</p>
                   )}
                 </div>
+
+                {showCustomTablesInMyTasks && (
+                  <CustomTablesEditor
+                    dateLabel={scheduleDateLabel ?? null}
+                    canEdit={false}
+                    userOptions={userOptions}
+                    taskNameOptions={taskNameOptions}
+                    currentUserName={currentUserName}
+                  />
+                )}
 
               </div>
             ) : (
