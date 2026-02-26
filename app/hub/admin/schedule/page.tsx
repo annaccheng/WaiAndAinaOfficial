@@ -100,7 +100,6 @@ type IndicatorRuleType =
   | "missing_description"
   | "status"
   | "priority"
-  | "missing_person_count"
   | "task_type"
   | "has_comments";
 type IndicatorRule = {
@@ -1065,7 +1064,7 @@ export default function AdminScheduleEditorPage() {
     try {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed)) {
-        const normalized = parsed.filter((rule) => rule && typeof rule === "object");
+        const normalized = parsed.filter((rule) => rule && typeof rule === "object" && rule.type !== "missing_person_count");
         if (normalized.length) {
           setIndicatorRules(normalized as IndicatorRule[]);
         }
@@ -1462,8 +1461,6 @@ export default function AdminScheduleEditorPage() {
     switch (rule.type) {
       case "missing_description":
         return !task.description?.trim();
-      case "missing_person_count":
-        return !task.personCount || task.personCount <= 0;
       case "status":
         return Boolean(rule.value) && task.status?.toLowerCase() === rule.value?.toLowerCase();
       case "priority":
@@ -5265,7 +5262,6 @@ export default function AdminScheduleEditorPage() {
                                 className="rounded-md border border-[#d0c9a4] bg-white px-2 py-1 text-xs"
                               >
                                 <option value="missing_description">Missing description</option>
-                                <option value="missing_person_count">Missing person count</option>
                                 <option value="status">Status equals</option>
                                 <option value="priority">Priority equals</option>
                                 <option value="task_type">Task type equals</option>
