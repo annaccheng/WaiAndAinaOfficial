@@ -5895,8 +5895,6 @@ export default function AdminScheduleEditorPage() {
                         taskPeopleCountById.byName.get(task.name.trim().toLowerCase()) ??
                         0;
                       const neededCount = meta?.personCount ?? 0;
-                      const hasEnoughPeople =
-                        neededCount > 0 ? assignedCount >= neededCount : false;
                       const taskStatus = meta?.status || "Not Started";
                       const taskType = meta?.type || "Uncategorized";
                       const commentCount = meta?.commentCount ?? 0;
@@ -6086,11 +6084,6 @@ export default function AdminScheduleEditorPage() {
                               <span className="rounded-full bg-white/80 px-1.5 py-[1px] text-[9px] font-semibold text-[#2f3b21]">
                                 {assignedCount}/{neededCount}
                               </span>
-                              {hasEnoughPeople && (
-                                <span className="text-[11px] text-emerald-600 shrink-0" title="Enough people assigned">
-                                  ✅
-                                </span>
-                              )}
                             </div>
 
                           </div>
@@ -6943,9 +6936,6 @@ export default function AdminScheduleEditorPage() {
                                 {task.priority ? ` • ${task.priority}` : ""}
                               </div>
                             </div>
-                            {taskHandled.hasEnoughPeople && (
-                              <span className="text-2xl text-emerald-600">✅</span>
-                            )}
                           </button>
                         );
                       })}
@@ -7092,9 +7082,6 @@ export default function AdminScheduleEditorPage() {
                                 {task.priority ? ` • ${task.priority}` : ""}
                               </div>
                             </div>
-                            {taskHandled.hasEnoughPeople && (
-                              <span className="text-2xl text-emerald-600">✅</span>
-                            )}
                           </button>
                         );
                       })}
@@ -7447,9 +7434,6 @@ export default function AdminScheduleEditorPage() {
                           {task.priority ? ` • ${task.priority}` : ""}
                         </div>
                       </div>
-                      {taskHandled.hasEnoughPeople && (
-                        <span className="text-2xl text-emerald-600">✅</span>
-                      )}
                     </button>
                   );
                 }
