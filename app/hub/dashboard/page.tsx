@@ -909,6 +909,45 @@ export default function WorkDashboardPage() {
                 <p className="mt-1">{selectedDailyUpdate.summary || "—"}</p>
               </div>
               <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Task outcomes</p>
+                {selectedDailyUpdate.task_statuses?.length ? (
+                  <div className="mt-2 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">Completed</p>
+                      <ul className="mt-1 space-y-1">
+                        {selectedDailyUpdate.task_statuses
+                          .filter((task) => (task.status || "").toLowerCase() === "completed")
+                          .map((task) => (
+                            <li key={`${selectedDailyUpdate.id}-done-${task.taskId}-${task.taskName}`} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                              {task.taskName}
+                            </li>
+                          ))}
+                        {!selectedDailyUpdate.task_statuses.some(
+                          (task) => (task.status || "").toLowerCase() === "completed"
+                        ) && <li className="text-xs text-[#6b6f4c]">No completed tasks reported.</li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">Not completed</p>
+                      <ul className="mt-1 space-y-1">
+                        {selectedDailyUpdate.task_statuses
+                          .filter((task) => (task.status || "").toLowerCase() !== "completed")
+                          .map((task) => (
+                            <li key={`${selectedDailyUpdate.id}-open-${task.taskId}-${task.taskName}`} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                              {task.taskName} <span className="text-[11px] text-amber-700">({task.status || "Not started"})</span>
+                            </li>
+                          ))}
+                        {!selectedDailyUpdate.task_statuses.some(
+                          (task) => (task.status || "").toLowerCase() !== "completed"
+                        ) && <li className="text-xs text-[#6b6f4c]">All reported tasks are completed.</li>}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-1">—</p>
+                )}
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Extra notes</p>
                 <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdate.extra_notes || "—"}</p>
               </div>
