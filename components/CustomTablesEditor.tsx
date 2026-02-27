@@ -18,6 +18,13 @@ type CustomTable = {
 };
 
 type DraggingAxis = { tableId: string; index: number } | null;
+type CellSelection = {
+  tableId: string;
+  startRowIdx: number;
+  startColIdx: number;
+  endRowIdx: number;
+  endColIdx: number;
+};
 
 type CustomTablesEditorProps = {
   dateLabel: string | null;
@@ -268,6 +275,22 @@ function matchesKeybind(event: KeyboardEvent, keybind: string) {
   if (usesAlt !== event.altKey) return false;
   return Boolean(matchKey) && key === matchKey;
 }
+
+function isStandardCopyPaste(event: KeyboardEvent, action: "copy" | "paste") {
+  if (event.altKey) return false;
+  if (!event.ctrlKey && !event.metaKey) return false;
+  const expectedKey = action === "copy" ? "c" : "v";
+  return event.key.toLowerCase() === expectedKey;
+}
+
+function getSelectionBounds(selection: CellSelection) {
+  return {
+    minRow: Math.min(selection.startRowIdx, selection.endRowIdx),
+    maxRow: Math.max(selection.startRowIdx, selection.endRowIdx),
+    minCol: Math.min(selection.startColIdx, selection.endColIdx),
+    maxCol: Math.max(selection.startColIdx, selection.endColIdx),
+  };
+}
 export function CustomTablesEditor({
   dateLabel,
   canEdit,
@@ -293,6 +316,7 @@ export function CustomTablesEditor({
   const [pastTablesOpen, setPastTablesOpen] = useState(false);
   const [pastTablesLoaded, setPastTablesLoaded] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ tableId: string; rowIdx: number; colIdx: number } | null>(null);
+  const [selectedRange, setSelectedRange] = useState<CellSelection | null>(null);
   const keybindCacheKey = useMemo(() => `custom-table-keybinds-${(currentUserName || "guest").toLowerCase()}`, [currentUserName]);
   const [copyKeybind, setCopyKeybind] = useState(DEFAULT_KEYBINDS.copy);
   const [pasteKeybind, setPasteKeybind] = useState(DEFAULT_KEYBINDS.paste);
@@ -699,6 +723,54 @@ export function CustomTablesEditor({
     });
   }, [selectedCell, updateCustomTableState]);
 
+  const setSelectedRangeValues = useCallback(
+    (clipboardValue: string) => {
+      const activeRange = selectedRange;
+      if (!activeRange) {
+        setSelectedCellValue(clipboardValue);
+        return;
+      }
+      const parsedRows = clipboardValue
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .filter((row, idx, arr) => !(idx === arr.length - 1 && row === ""))
+        .map((row) => row.split("\t"));
+      if (!parsedRows.length) return;
+
+      updateCustomTableState(activeRange.tableId, (prev) => {
+        const nextCells = prev.cells.map((row) => [...row]);
+        const bounds = getSelectionBounds(activeRange);
+        const selectionHeight = bounds.maxRow - bounds.minRow + 1;
+        const selectionWidth = bounds.maxCol - bounds.minCol + 1;
+        const isSingleValuePaste = parsedRows.length === 1 && parsedRows[0].length === 1;
+
+        if (isSingleValuePaste && (selectionHeight > 1 || selectionWidth > 1)) {
+          for (let rowIdx = bounds.minRow; rowIdx <= bounds.maxRow; rowIdx += 1) {
+            if (!nextCells[rowIdx]) continue;
+            for (let colIdx = bounds.minCol; colIdx <= bounds.maxCol; colIdx += 1) {
+              if (colIdx >= nextCells[rowIdx].length) continue;
+              nextCells[rowIdx][colIdx] = parsedRows[0][0] ?? "";
+            }
+          }
+          return { ...prev, cells: nextCells };
+        }
+
+        parsedRows.forEach((rowValues, rowOffset) => {
+          const targetRowIdx = bounds.minRow + rowOffset;
+          if (!nextCells[targetRowIdx]) return;
+          rowValues.forEach((cellValue, colOffset) => {
+            const targetColIdx = bounds.minCol + colOffset;
+            if (targetColIdx >= nextCells[targetRowIdx].length) return;
+            nextCells[targetRowIdx][targetColIdx] = cellValue ?? "";
+          });
+        });
+
+        return { ...prev, cells: nextCells };
+      });
+    },
+    [selectedRange, setSelectedCellValue, updateCustomTableState]
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!selectedCell) return;
@@ -706,22 +778,39 @@ export function CustomTablesEditor({
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
         return;
       }
-      if (matchesKeybind(event, copyKeybind)) {
-        const table = customTables.find((entry) => entry.id === selectedCell.tableId);
-        const value = table?.cells?.[selectedCell.rowIdx]?.[selectedCell.colIdx] ?? "";
-        void navigator.clipboard?.writeText(value);
+      const copyPressed = isStandardCopyPaste(event, "copy") || matchesKeybind(event, copyKeybind);
+      if (copyPressed) {
+        const activeRange = selectedRange;
+        const tableId = activeRange?.tableId || selectedCell.tableId;
+        const table = customTables.find((entry) => entry.id === tableId);
+        if (!table) return;
+        if (activeRange) {
+          const bounds = getSelectionBounds(activeRange);
+          const copied = Array.from({ length: bounds.maxRow - bounds.minRow + 1 }, (_, rowOffset) => {
+            const rowIdx = bounds.minRow + rowOffset;
+            return Array.from({ length: bounds.maxCol - bounds.minCol + 1 }, (_, colOffset) => {
+              const colIdx = bounds.minCol + colOffset;
+              return table.cells?.[rowIdx]?.[colIdx] ?? "";
+            }).join("\t");
+          }).join("\n");
+          void navigator.clipboard?.writeText(copied);
+        } else {
+          const value = table?.cells?.[selectedCell.rowIdx]?.[selectedCell.colIdx] ?? "";
+          void navigator.clipboard?.writeText(value);
+        }
         event.preventDefault();
         return;
       }
-      if (matchesKeybind(event, pasteKeybind)) {
-        void navigator.clipboard?.readText().then((value) => setSelectedCellValue(value || ""));
+      const pastePressed = isStandardCopyPaste(event, "paste") || matchesKeybind(event, pasteKeybind);
+      if (pastePressed) {
+        void navigator.clipboard?.readText().then((value) => setSelectedRangeValues(value || ""));
         event.preventDefault();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [copyKeybind, customTables, pasteKeybind, selectedCell, setSelectedCellValue]);
+  }, [copyKeybind, customTables, pasteKeybind, selectedCell, selectedRange, setSelectedRangeValues]);
 
   return (
     <section className="mt-10 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
@@ -1293,10 +1382,30 @@ export function CustomTablesEditor({
                           return (
                             <td
                               key={`${table.id}-cell-${rowIdx}-${colIdx}`}
-                              onClick={() => setSelectedCell({ tableId: table.id, rowIdx, colIdx })}
+                              onClick={(event) => {
+                                const nextCell = { tableId: table.id, rowIdx, colIdx };
+                                setSelectedCell(nextCell);
+                                if (event.shiftKey && selectedCell?.tableId === table.id) {
+                                  setSelectedRange({
+                                    tableId: table.id,
+                                    startRowIdx: selectedCell.rowIdx,
+                                    startColIdx: selectedCell.colIdx,
+                                    endRowIdx: rowIdx,
+                                    endColIdx: colIdx,
+                                  });
+                                } else {
+                                  setSelectedRange({
+                                    tableId: table.id,
+                                    startRowIdx: rowIdx,
+                                    startColIdx: colIdx,
+                                    endRowIdx: rowIdx,
+                                    endColIdx: colIdx,
+                                  });
+                                }
+                              }}
                               className={`border border-[#e2d7b5] px-2 py-2 ${
                                 cellMatchesUser ? "bg-[#eaf1da]" : ""
-                              } ${selectedCell?.tableId === table.id && selectedCell.rowIdx === rowIdx && selectedCell.colIdx === colIdx ? "ring-2 ring-[#8fae4c] ring-inset" : ""}`}
+                              } ${selectedRange?.tableId === table.id && rowIdx >= Math.min(selectedRange.startRowIdx, selectedRange.endRowIdx) && rowIdx <= Math.max(selectedRange.startRowIdx, selectedRange.endRowIdx) && colIdx >= Math.min(selectedRange.startColIdx, selectedRange.endColIdx) && colIdx <= Math.max(selectedRange.startColIdx, selectedRange.endColIdx) ? "ring-2 ring-[#8fae4c] ring-inset" : ""}`}
                             >
                               {hasPublishedSnapshot && hasDraftChanges && (
                                 <span className="mb-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700">
@@ -1333,7 +1442,16 @@ export function CustomTablesEditor({
                                 ) : (
                                   <input
                                     value={cellValue}
-                                    onFocus={() => setSelectedCell({ tableId: table.id, rowIdx, colIdx })}
+                                    onFocus={() => {
+                                      setSelectedCell({ tableId: table.id, rowIdx, colIdx });
+                                      setSelectedRange({
+                                        tableId: table.id,
+                                        startRowIdx: rowIdx,
+                                        startColIdx: colIdx,
+                                        endRowIdx: rowIdx,
+                                        endColIdx: colIdx,
+                                      });
+                                    }}
                                     onChange={(event) =>
                                       updateCustomTableState(table.id, (prev) => {
                                         const nextCells = prev.cells.map((row) => [...row]);
