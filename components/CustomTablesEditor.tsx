@@ -858,11 +858,11 @@ export function CustomTablesEditor({
   }, [customTables, selectedCell, selectedRange, setSelectedRangeValues]);
 
   return (
-    <section className="mt-6 sm:mt-10 rounded-lg border border-[#dadce0] bg-white p-3 sm:p-4 shadow-sm">
+    <section className="mt-6 sm:mt-10 rounded-lg border border-[#d0c9a4] bg-[#fdfbf4] p-3 sm:p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-base sm:text-lg font-semibold text-[#333]">Custom Tables</h3>
-          <p className="text-[10px] sm:text-xs text-[#666]">
+          <h3 className="text-base sm:text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
+          <p className="text-[10px] sm:text-xs text-[#7a7f54]">
             Select cells and use Ctrl/Cmd+C to copy, Ctrl/Cmd+V to paste. Shift+click to select a range.
           </p>
         </div>
@@ -1193,7 +1193,7 @@ export function CustomTablesEditor({
                 </p>
               )}
 
-              <div className="mt-4 overflow-x-auto overflow-y-visible rounded-md border border-[#dadce0] shadow-sm">
+              <div className="mt-4 overflow-x-auto overflow-y-visible rounded-md border border-[#d0c9a4] shadow-sm">
                 {hasLocalDraftBadge && (
                   <div className="mb-0 rounded-t-md border-b border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
                     This table has unpublished draft edits
@@ -1306,7 +1306,7 @@ export function CustomTablesEditor({
                               </button>
                             </div>
                           ) : (
-                            <span className="text-[12px] font-medium text-[#333]">
+                            <span className="text-[12px] font-medium text-[#3b4224]">
                               {header}
                             </span>
                           )}
@@ -1322,7 +1322,7 @@ export function CustomTablesEditor({
                           normalizedUserName &&
                           rowHeaderType === "user" &&
                           rowHeader.toLowerCase() === normalizedUserName
-                            ? "[&>td]:!bg-[#e8f0fe] [&>th]:!bg-[#e8f0fe]"
+                            ? "[&>td]:!bg-[#eaf1da] [&>th]:!bg-[#eaf1da]"
                             : ""
                         }
                         onDragOver={(event) => {
@@ -1415,7 +1415,7 @@ export function CustomTablesEditor({
                               </button>
                             </div>
                           ) : (
-                            <span className="text-[12px] font-medium text-[#333]">
+                            <span className="text-[12px] font-medium text-[#3b4224]">
                               {rowHeader}
                             </span>
                           )}
@@ -1506,11 +1506,11 @@ export function CustomTablesEditor({
                                         return { ...prev, cells: nextCells };
                                       })
                                     }
-                                    className="w-full border-0 bg-transparent px-1 py-0 text-[12px] text-[#333] outline-none focus:bg-white"
+                                    className="w-full border-0 bg-transparent px-1 py-0 text-[12px] text-[#3b4224] outline-none focus:bg-[#fffdf5]"
                                   />
                                 )
                               ) : (
-                                <span className="text-[12px] text-[#333]">{cellValue}</span>
+                                <span className="text-[12px] text-[#3b4224]">{cellValue}</span>
                               )}
                             </td>
                           );
@@ -1610,7 +1610,7 @@ export function CustomTablesEditor({
                       </div>
                     )}
                   </div>
-                  <div className="mt-3 overflow-x-auto overflow-y-visible rounded-md border border-[#dadce0] shadow-sm">
+                  <div className="mt-3 overflow-x-auto overflow-y-visible rounded-md border border-[#d0c9a4] shadow-sm">
                     <table className="spreadsheet-table">
                       <thead>
                         <tr>
@@ -1627,7 +1627,7 @@ export function CustomTablesEditor({
                               key={`past-${table.id}-column-${colIdx}`}
                               className="text-left"
                             >
-                              <span className="text-[12px] font-medium text-[#333]">
+                              <span className="text-[12px] font-medium text-[#3b4224]">
                                 {header}
                               </span>
                             </th>
@@ -1639,7 +1639,7 @@ export function CustomTablesEditor({
                           <tr key={`past-${table.id}-row-${rowIdx}`}>
                             <td className="row-num">{rowIdx + 1}</td>
                             <th className="frozen-header-cell text-left">
-                              <span className="text-[12px] font-medium text-[#333]">
+                              <span className="text-[12px] font-medium text-[#3b4224]">
                                 {rowHeader}
                               </span>
                             </th>
@@ -1647,7 +1647,7 @@ export function CustomTablesEditor({
                               <td
                                 key={`past-${table.id}-cell-${rowIdx}-${colIdx}`}
                               >
-                                <span className="text-[12px] text-[#333]">
+                                <span className="text-[12px] text-[#3b4224]">
                                   {table.cells[rowIdx]?.[colIdx] ?? ""}
                                 </span>
                               </td>

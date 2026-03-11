@@ -5793,7 +5793,7 @@ export default function AdminScheduleEditorPage() {
           )}
           <div
             ref={scheduleContainerRef}
-            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-lg border border-[#dadce0] bg-white shadow-sm ${
+            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-lg border border-[#d0c9a4] bg-[#fdfbf4] shadow-sm ${
               scheduleLoading ? "pointer-events-none opacity-70" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
             style={{ WebkitOverflowScrolling: "touch" }}
@@ -5819,7 +5819,7 @@ export default function AdminScheduleEditorPage() {
             <div>
               <div>{slot.label}</div>
               {slot.timeRange && (
-                <div className="text-[8px] text-[#999] normal-case font-normal">{slot.timeRange}</div>
+                <div className="text-[8px] text-[#9a9e7a] normal-case font-normal">{slot.timeRange}</div>
               )}
             </div>
             <button
@@ -5831,7 +5831,7 @@ export default function AdminScheduleEditorPage() {
                   return next;
                 })
               }
-              className="rounded border border-[#dadce0] bg-white px-1.5 py-[1px] text-[8px] font-medium text-[#666] hover:bg-[#f1f3f4]"
+              className="rounded border border-[#d0c9a4] bg-[#fdfbf4] px-1.5 py-[1px] text-[8px] font-medium text-[#6b6f4c] hover:bg-[#f7f2e2]"
             >
               Hide
             </button>
@@ -5871,7 +5871,7 @@ export default function AdminScheduleEditorPage() {
                   }
                 }}
                 disabled={removingVolunteer === person}
-                className="rounded border border-[#dadce0] bg-white px-1 py-[0px] text-[9px] font-medium text-[#d93025] opacity-0 pointer-events-none group-hover/person:opacity-100 group-hover/person:pointer-events-auto hover:bg-[#fce8e6] transition disabled:opacity-40"
+                className="rounded border border-[#d0c9a4] bg-[#fdfbf4] px-1 py-[0px] text-[9px] font-medium text-[#a05252] opacity-0 pointer-events-none group-hover/person:opacity-100 group-hover/person:pointer-events-auto hover:bg-[#f7e3e3] transition disabled:opacity-40"
                 title={`Remove ${person}`}
               >
                 {removingVolunteer === person ? "…" : "✕"}
@@ -5928,8 +5928,8 @@ export default function AdminScheduleEditorPage() {
               className={`min-h-[28px] p-0.5 align-top transition-colors duration-100 ${
                 isRangeSelected ? "cell-range-selected" : ""
               } ${isSelected ? "cell-selected" : ""} ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
-                isBlocked ? "bg-[#f8d7da]" : ""
-              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#1a73e8]/40 bg-[#e8f0fe]" : ""} relative`}
+                isBlocked ? "bg-[#e8dcc4]/40" : ""
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#8fae4c]/40 bg-[#eaf1da]" : ""} relative`}
               style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
               title={
                 isPresenceLocked && presenceLock ? `${presenceLock.user} is editing this cell.` : undefined
