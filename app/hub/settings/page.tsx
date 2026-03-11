@@ -144,14 +144,15 @@ export default function HubSettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b]">
-        Settings
-      </h1>
-      <p className="text-sm text-[#7a7f54]">
-        Update your display name and passcode for your account.
-      </p>
+      <div className="mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8fae4c]">Account</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-[#2a3618] mt-0.5">Settings</h1>
+        <p className="text-xs sm:text-sm text-[#6a6c4d] mt-1">
+          Update your display name and passcode for your account.
+        </p>
+      </div>
 
-      <div className="mt-4 rounded-lg bg-[#d3d6b0] px-6 py-6 text-[#4f5730] text-sm shadow-sm border border-[#c8cba0]/70">
+      <div className="rounded-xl bg-gradient-to-br from-[#e8ebc8] to-[#d3d6b0] px-5 sm:px-6 py-6 text-[#4f5730] text-sm shadow-md border border-[#c8cba0]/60">
         {currentUserName && (
           <div className="mb-4 text-xs text-[#666242]">
             Logged in as{" "}

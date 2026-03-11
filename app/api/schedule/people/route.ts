@@ -131,3 +131,70 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to add person." }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => null);
+  const personName = String(body?.name || "").trim();
+  const isoDate = toIsoDate(body?.dateLabel);
+
+  if (!personName) {
+    return NextResponse.json({ error: "Name is required." }, { status: 400 });
+  }
+
+  if (!isoDate) {
+    return NextResponse.json({ error: "Schedule date is required." }, { status: 400 });
+  }
+
+  try {
+    const scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+      query: {
+        select: "id",
+        schedule_date: `eq.${isoDate}`,
+        state: "eq.staging",
+        limit: 1,
+      },
+    });
+
+    const scheduleId = scheduleRows?.[0]?.id ?? null;
+    if (!scheduleId) {
+      return NextResponse.json({ error: "No staging schedule found for this date." }, { status: 404 });
+    }
+
+    const people = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+      query: {
+        select: "id,name,order_index",
+        schedule_id: `eq.${scheduleId}`,
+      },
+    });
+
+    const match = people.find(
+      (person) => person.name.trim().toLowerCase() === personName.toLowerCase()
+    );
+
+    if (!match) {
+      return NextResponse.json({ error: "Person not found in this schedule." }, { status: 404 });
+    }
+
+    // Delete associated cells first
+    await supabaseRequest("schedule_cells", {
+      method: "DELETE",
+      query: {
+        schedule_id: `eq.${scheduleId}`,
+        person_id: `eq.${match.id}`,
+      },
+    });
+
+    // Delete the schedule person row
+    await supabaseRequest("schedule_people", {
+      method: "DELETE",
+      query: {
+        id: `eq.${match.id}`,
+      },
+    });
+
+    return NextResponse.json({ ok: true, person: personName });
+  } catch (err) {
+    console.error("Failed to remove schedule person", err);
+    return NextResponse.json({ error: "Unable to remove person." }, { status: 500 });
+  }
+}

@@ -521,26 +521,26 @@ export default function WorkDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-[#d0c9a4] bg-gradient-to-br from-white via-[#f9f6e7] to-[#f1edd8] shadow-sm p-6 flex flex-col gap-3">
-        <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Work dashboard</p>
+      <div className="rounded-2xl border border-[#d4cea8] bg-gradient-to-br from-white via-[#f9f6e7] to-[#f0ead4] shadow-md p-5 sm:p-6 flex flex-col gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8fae4c]">Work dashboard</p>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold text-[#3b4224]">Welcome{ name ? `, ${name.split(" ")[0]}` : "" }</h1>
-          <span className="rounded-full bg-[#eef2d9] text-[#4f5730] px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em]">
+          <h1 className="text-xl sm:text-2xl font-bold text-[#2a3618]">Welcome{ name ? `, ${name.split(" ")[0]}` : "" }</h1>
+          <span className="rounded-full bg-[#e5efc8] text-[#3b4224] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] border border-[#c8d0a4]">
             Central Hub
           </span>
         </div>
-        <p className="text-sm text-[#4b5133] max-w-3xl leading-relaxed">
-          Use the shortcuts below to jump between schedules, requests, guides, and games. The quick toggles above the page also let you swap views instantly.
+        <p className="text-xs sm:text-sm text-[#5f5a3b] max-w-3xl leading-relaxed">
+          Jump between schedules, requests, guides, and games using the shortcuts below.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setViewMode("updates")}
-          className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+          className={`rounded-lg border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition-all duration-200 ${
             viewMode === "updates"
-              ? "border-[#8fae4c] bg-[#8fae4c] text-white"
-              : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+              ? "border-[#7e9c44] bg-[#8fae4c] text-white shadow-md"
+              : "border-[#d4cea8] bg-white/90 text-[#4a5b2a] shadow-sm hover:bg-[#f4f7de] hover:shadow-md"
           }`}
         >
           Daily Updates
@@ -548,10 +548,10 @@ export default function WorkDashboardPage() {
         <button
           type="button"
           onClick={() => setViewMode("tasks")}
-          className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+          className={`rounded-lg border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition-all duration-200 ${
             viewMode === "tasks"
-              ? "border-[#8fae4c] bg-[#8fae4c] text-white"
-              : "border-[#d0c9a4] bg-white/80 text-[#4a5b2a]"
+              ? "border-[#7e9c44] bg-[#8fae4c] text-white shadow-md"
+              : "border-[#d4cea8] bg-white/90 text-[#4a5b2a] shadow-sm hover:bg-[#f4f7de] hover:shadow-md"
           }`}
         >
           My Tasks

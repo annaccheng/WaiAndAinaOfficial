@@ -273,9 +273,9 @@ export default function HubLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <PushNotificationManager userName={name} userRole={userType} />
-      <main className="min-h-screen flex flex-col bg-[#f8f4e3] text-[#3b4224]">
+      <main className="min-h-screen flex flex-col bg-[#f8f5ec] text-[#3b4224]">
         {/* Header bar */}
-        <header className="w-full bg-[#a0b764] text-[#f9f9ec] shadow-md relative">
+        <header className="w-full bg-gradient-to-r from-[#96b05a] via-[#a0b764] to-[#8fae4c] text-[#f9f9ec] shadow-lg relative">
           <div className="w-full px-2 sm:px-4 py-2 sm:py-3 flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
             {/* Top row on mobile: logo + toggles */}
             <div className="flex items-center justify-between gap-3 w-full">
@@ -585,8 +585,8 @@ export default function HubLayout({ children }: { children: ReactNode }) {
       </header>
 
       {showOnlineRibbon && onlineUsers.length > 0 && (
-        <div className="bg-[#eef2d9]/70 border-b border-[#d7d0ad]">
-          <div className="w-full px-2 sm:px-4 py-1.5 flex items-center gap-2 overflow-x-auto no-scrollbar text-[#405124]">
+        <div className="bg-gradient-to-r from-[#eef2d9]/80 to-[#f4f7de]/60 border-b border-[#d4cea8]">
+          <div className="w-full px-3 sm:px-6 py-1.5 flex items-center gap-2 overflow-x-auto no-scrollbar text-[#405124]">
             <span className="inline-flex items-center gap-1 rounded-full bg-[#f7f4e6] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] border border-[#d0c9a4] shadow-sm">
               <span className="relative inline-flex h-2 w-2 items-center justify-center">
                 <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -612,8 +612,8 @@ export default function HubLayout({ children }: { children: ReactNode }) {
       )}
 
       {canAccessWork && workLinks.length > 0 && (
-        <div className="bg-[#f7f4e6] border-b border-[#d0c9a4]">
-          <div className="w-full px-2 sm:px-4 py-2 flex flex-wrap gap-2">
+        <div className="bg-gradient-to-b from-[#f4f0de] to-[#f8f5ec] border-b border-[#d4cea8]">
+          <div className="w-full px-2 sm:px-4 py-2.5 flex flex-wrap gap-2">
             {workLinks.map((link) => (
               <WorkNavLink key={link.href} href={link.href} active={pathname === link.href}>
                 {link.label}
@@ -625,7 +625,7 @@ export default function HubLayout({ children }: { children: ReactNode }) {
 
       {/* Page body */}
       <section className="flex-1">
-        <div className="w-full px-2 sm:px-4 py-4 sm:py-6">
+        <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
           {children}
         </div>
       </section>
@@ -701,10 +701,10 @@ function WorkNavLink({
   return (
     <Link
       href={href}
-      className={`rounded-full px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-semibold uppercase tracking-[0.12em] transition shadow-sm border ${
+      className={`rounded-lg px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs font-semibold uppercase tracking-[0.1em] transition-all duration-200 border ${
         active
-          ? "bg-[#a0b764] text-white border-[#8fae4c]"
-          : "bg-white text-[#485926] border-[#d0c9a4] hover:bg-[#f4f7de]"
+          ? "bg-[#8fae4c] text-white border-[#7e9c44] shadow-md"
+          : "bg-white text-[#485926] border-[#d4cea8] shadow-sm hover:bg-[#f0f4de] hover:border-[#c8d0a4] hover:shadow-md"
       }`}
     >
       {children}
