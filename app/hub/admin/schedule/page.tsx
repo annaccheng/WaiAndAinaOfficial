@@ -5793,32 +5793,33 @@ export default function AdminScheduleEditorPage() {
           )}
           <div
             ref={scheduleContainerRef}
-            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#d4cea8] bg-[#fdfbf4] shadow-inner ${
+            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-lg border border-[#dadce0] bg-white shadow-sm ${
               scheduleLoading ? "pointer-events-none opacity-70" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
+            style={{ WebkitOverflowScrolling: "touch" }}
           >
             {scheduleLoading && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
                 Loading schedule…
               </div>
             )}
-            <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
-  <thead className="bg-gradient-to-b from-[#e8ebc8] to-[#dde0b8]">
+            <table className="schedule-spreadsheet table-fixed">
+  <thead>
     <tr>
-      <th className="w-[84px] sm:w-[110px] border border-[#c8cba2] px-1.5 sm:px-2 py-1.5 text-left text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.16em] text-[#4a6230] sticky left-0 top-0 z-30 bg-gradient-to-b from-[#e8ebc8] to-[#dde0b8]">
+      <th className="person-cell w-[84px] sm:w-[110px] text-[9px] sm:text-[10px] uppercase tracking-[0.12em]">
         Person
       </th>
       {visibleSlotsWithIndex.map(({ slot }) => (
  <th
   key={slot.id}
-  className="relative border border-[#c8cba2] px-1.5 sm:px-2 py-1.5 text-left text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.12em] text-[#4a6230] sticky top-0 z-10 bg-gradient-to-b from-[#e8ebc8] to-[#dde0b8]"
+  className="relative px-1 sm:px-1.5 py-1 text-[9px] sm:text-[10px] uppercase tracking-[0.08em]"
   style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
 >
           <div className="flex items-center justify-between gap-2">
             <div>
               <div>{slot.label}</div>
               {slot.timeRange && (
-                <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
+                <div className="text-[8px] text-[#999] normal-case font-normal">{slot.timeRange}</div>
               )}
             </div>
             <button
@@ -5830,7 +5831,7 @@ export default function AdminScheduleEditorPage() {
                   return next;
                 })
               }
-              className="rounded-full border border-[#c8d0a4] bg-white/80 px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#5d7f3b] hover:bg-white"
+              className="rounded border border-[#dadce0] bg-white px-1.5 py-[1px] text-[8px] font-medium text-[#666] hover:bg-[#f1f3f4]"
             >
               Hide
             </button>
@@ -5855,8 +5856,8 @@ export default function AdminScheduleEditorPage() {
   </thead>
   <tbody>
     {scheduleData?.people.map((person, rowIdx) => (
-      <tr key={person} className={`transition-colors ${rowIdx % 2 === 0 ? "bg-[#fdfbf4]" : "bg-[#f6f4e6]"}`}>
-        <td className="group/person border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 align-top text-[10px] sm:text-[11px] font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
+      <tr key={person} className="transition-colors">
+        <td className="group/person person-cell px-1 sm:px-1.5 py-1 align-top text-[10px] sm:text-[11px]">
           <div className="flex items-center justify-between gap-1">
             <span className="truncate">{person}</span>
             <div className="flex items-center gap-1 shrink-0">
@@ -5870,7 +5871,7 @@ export default function AdminScheduleEditorPage() {
                   }
                 }}
                 disabled={removingVolunteer === person}
-                className="rounded-full border border-[#d1d4aa] bg-white/80 px-1 py-[0px] text-[9px] font-semibold text-[#a05252] opacity-0 pointer-events-none group-hover/person:opacity-100 group-hover/person:pointer-events-auto hover:bg-[#f7e3e3] transition disabled:opacity-40"
+                className="rounded border border-[#dadce0] bg-white px-1 py-[0px] text-[9px] font-medium text-[#d93025] opacity-0 pointer-events-none group-hover/person:opacity-100 group-hover/person:pointer-events-auto hover:bg-[#fce8e6] transition disabled:opacity-40"
                 title={`Remove ${person}`}
               >
                 {removingVolunteer === person ? "…" : "✕"}
@@ -5924,11 +5925,11 @@ export default function AdminScheduleEditorPage() {
           return (
             <td
               key={`${person}-${slot.id}`}
-              className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
-                isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
-              } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
-                isBlocked ? "bg-[#2f3b21]/10" : ""
-              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-emerald-500/70 bg-emerald-50/60" : ""} relative`}
+              className={`min-h-[28px] p-0.5 align-top transition-colors duration-100 ${
+                isRangeSelected ? "cell-range-selected" : ""
+              } ${isSelected ? "cell-selected" : ""} ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
+                isBlocked ? "bg-[#f8d7da]" : ""
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#1a73e8]/40 bg-[#e8f0fe]" : ""} relative`}
               style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
               title={
                 isPresenceLocked && presenceLock ? `${presenceLock.user} is editing this cell.` : undefined
