@@ -812,13 +812,58 @@ export function CustomTablesEditor({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [copyKeybind, customTables, pasteKeybind, selectedCell, selectedRange, setSelectedRangeValues]);
 
+  useEffect(() => {
+    const handleCopy = (event: ClipboardEvent) => {
+      if (!selectedCell) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      const activeRange = selectedRange;
+      const tableId = activeRange?.tableId || selectedCell.tableId;
+      const table = customTables.find((entry) => entry.id === tableId);
+      if (!table) return;
+      if (activeRange) {
+        const bounds = getSelectionBounds(activeRange);
+        const copied = Array.from({ length: bounds.maxRow - bounds.minRow + 1 }, (_, rowOffset) => {
+          const rowIdx = bounds.minRow + rowOffset;
+          return Array.from({ length: bounds.maxCol - bounds.minCol + 1 }, (_, colOffset) => {
+            const colIdx = bounds.minCol + colOffset;
+            return table.cells?.[rowIdx]?.[colIdx] ?? "";
+          }).join("\t");
+        }).join("\n");
+        event.clipboardData?.setData("text/plain", copied);
+      } else {
+        const value = table?.cells?.[selectedCell.rowIdx]?.[selectedCell.colIdx] ?? "";
+        event.clipboardData?.setData("text/plain", value);
+      }
+      event.preventDefault();
+    };
+
+    const handlePaste = (event: ClipboardEvent) => {
+      if (!selectedCell) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      const text = event.clipboardData?.getData("text/plain") || "";
+      if (text) {
+        setSelectedRangeValues(text);
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("copy", handleCopy);
+    window.addEventListener("paste", handlePaste);
+    return () => {
+      window.removeEventListener("copy", handleCopy);
+      window.removeEventListener("paste", handlePaste);
+    };
+  }, [customTables, selectedCell, selectedRange, setSelectedRangeValues]);
+
   return (
-    <section className="mt-10 rounded-lg border border-[#d0c9a4] bg-white/80 p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
-          <p className="text-xs text-[#7a7f54]">
-            Review custom sections with editable headers and volunteer selections. Use Ctrl/Cmd+C and Ctrl/Cmd+V on selected cells.
+    <section className="mt-6 sm:mt-10 rounded-lg border border-[#d0c9a4] bg-[#fdfbf4] p-3 sm:p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base sm:text-lg font-semibold text-[#3b4224]">Custom Tables</h3>
+          <p className="text-[10px] sm:text-xs text-[#7a7f54]">
+            Select cells and use Ctrl/Cmd+C to copy, Ctrl/Cmd+V to paste. Shift+click to select a range.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1148,16 +1193,17 @@ export function CustomTablesEditor({
                 </p>
               )}
 
-              <div className="mt-4 overflow-x-auto overflow-y-visible">
+              <div className="mt-4 overflow-x-auto overflow-y-visible rounded-md border border-[#d0c9a4] shadow-sm">
                 {hasLocalDraftBadge && (
-                  <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
+                  <div className="mb-0 rounded-t-md border-b border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
                     This table has unpublished draft edits
                   </div>
                 )}
-                <table className="min-w-full border-collapse text-sm">
+                <table className="spreadsheet-table">
                   <thead>
                     <tr>
-                      <th className="sticky left-0 z-20 min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                      <th className="row-num"></th>
+                      <th className="frozen-header-cell text-left text-[11px]">
                         {rowHeaderType === "user"
                           ? "Users"
                           : rowHeaderType === "task"
@@ -1167,7 +1213,7 @@ export function CustomTablesEditor({
                       {table.columnHeaders.map((header, colIdx) => (
                         <th
                           key={`${table.id}-column-${colIdx}`}
-                          className="border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left"
+                          className="text-left"
                           onDragOver={(event) => {
                             if (!canEditCustomTables || !draggingColumn) return;
                             if (draggingColumn.tableId !== table.id) return;
@@ -1260,7 +1306,7 @@ export function CustomTablesEditor({
                               </button>
                             </div>
                           ) : (
-                            <span className="text-[12px] font-semibold text-[#3b4224]">
+                            <span className="text-[12px] font-medium text-[#3b4224]">
                               {header}
                             </span>
                           )}
@@ -1276,7 +1322,7 @@ export function CustomTablesEditor({
                           normalizedUserName &&
                           rowHeaderType === "user" &&
                           rowHeader.toLowerCase() === normalizedUserName
-                            ? "bg-[#eaf1da]"
+                            ? "[&>td]:!bg-[#eaf1da] [&>th]:!bg-[#eaf1da]"
                             : ""
                         }
                         onDragOver={(event) => {
@@ -1297,7 +1343,8 @@ export function CustomTablesEditor({
                           setDraggingRow(null);
                         }}
                       >
-                        <th className="sticky left-0 z-10 border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
+                        <td className="row-num text-[10px] text-[#999]">{rowIdx + 1}</td>
+                        <th className="frozen-header-cell text-left">
                           {canEditCustomTables ? (
                             <div className="flex items-center gap-2">
                               <button
@@ -1368,7 +1415,7 @@ export function CustomTablesEditor({
                               </button>
                             </div>
                           ) : (
-                            <span className="text-[12px] font-semibold text-[#3b4224]">
+                            <span className="text-[12px] font-medium text-[#3b4224]">
                               {rowHeader}
                             </span>
                           )}
@@ -1403,9 +1450,9 @@ export function CustomTablesEditor({
                                   });
                                 }
                               }}
-                              className={`border border-[#e2d7b5] px-2 py-2 ${
-                                cellMatchesUser ? "bg-[#eaf1da]" : ""
-                              } ${selectedRange?.tableId === table.id && rowIdx >= Math.min(selectedRange.startRowIdx, selectedRange.endRowIdx) && rowIdx <= Math.max(selectedRange.startRowIdx, selectedRange.endRowIdx) && colIdx >= Math.min(selectedRange.startColIdx, selectedRange.endColIdx) && colIdx <= Math.max(selectedRange.startColIdx, selectedRange.endColIdx) ? "ring-2 ring-[#8fae4c] ring-inset" : ""}`}
+                              className={`${
+                                cellMatchesUser ? "cell-highlighted" : ""
+                              } ${selectedRange?.tableId === table.id && rowIdx >= Math.min(selectedRange.startRowIdx, selectedRange.endRowIdx) && rowIdx <= Math.max(selectedRange.startRowIdx, selectedRange.endRowIdx) && colIdx >= Math.min(selectedRange.startColIdx, selectedRange.endColIdx) && colIdx <= Math.max(selectedRange.startColIdx, selectedRange.endColIdx) ? "cell-range-selected" : ""} ${selectedCell?.tableId === table.id && selectedCell?.rowIdx === rowIdx && selectedCell?.colIdx === colIdx ? "cell-selected" : ""}`}
                             >
                               {hasPublishedSnapshot && hasDraftChanges && (
                                 <span className="mb-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700">
@@ -1459,7 +1506,7 @@ export function CustomTablesEditor({
                                         return { ...prev, cells: nextCells };
                                       })
                                     }
-                                    className="w-full rounded-md border border-[#d0c9a4] bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#3b4224]"
+                                    className="w-full border-0 bg-transparent px-1 py-0 text-[12px] text-[#3b4224] outline-none focus:bg-[#fffdf5]"
                                   />
                                 )
                               ) : (
@@ -1563,11 +1610,12 @@ export function CustomTablesEditor({
                       </div>
                     )}
                   </div>
-                  <div className="mt-3 overflow-x-auto overflow-y-visible">
-                    <table className="min-w-full border-collapse text-sm">
+                  <div className="mt-3 overflow-x-auto overflow-y-visible rounded-md border border-[#d0c9a4] shadow-sm">
+                    <table className="spreadsheet-table">
                       <thead>
                         <tr>
-                          <th className="sticky left-0 z-20 min-w-[140px] border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left text-[11px] uppercase tracking-[0.12em] text-[#6b6f4c]">
+                          <th className="row-num"></th>
+                          <th className="frozen-header-cell text-left text-[11px]">
                             {table.rowHeaderType === "user"
                               ? "Users"
                               : table.rowHeaderType === "task"
@@ -1577,9 +1625,9 @@ export function CustomTablesEditor({
                           {table.columnHeaders.map((header, colIdx) => (
                             <th
                               key={`past-${table.id}-column-${colIdx}`}
-                              className="border border-[#e2d7b5] bg-[#f1ecd7] px-2 py-2 text-left"
+                              className="text-left"
                             >
-                              <span className="text-[12px] font-semibold text-[#3b4224]">
+                              <span className="text-[12px] font-medium text-[#3b4224]">
                                 {header}
                               </span>
                             </th>
@@ -1589,15 +1637,15 @@ export function CustomTablesEditor({
                       <tbody>
                         {table.rowHeaders.map((rowHeader, rowIdx) => (
                           <tr key={`past-${table.id}-row-${rowIdx}`}>
-                            <th className="sticky left-0 z-10 border border-[#e2d7b5] bg-[#f7f2e2] px-2 py-2 text-left">
-                              <span className="text-[12px] font-semibold text-[#3b4224]">
+                            <td className="row-num">{rowIdx + 1}</td>
+                            <th className="frozen-header-cell text-left">
+                              <span className="text-[12px] font-medium text-[#3b4224]">
                                 {rowHeader}
                               </span>
                             </th>
                             {table.columnHeaders.map((_col, colIdx) => (
                               <td
                                 key={`past-${table.id}-cell-${rowIdx}-${colIdx}`}
-                                className="border border-[#e2d7b5] px-2 py-2"
                               >
                                 <span className="text-[12px] text-[#3b4224]">
                                   {table.cells[rowIdx]?.[colIdx] ?? ""}

@@ -270,33 +270,34 @@ export default function HubRequestPage() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-[#d0c9a4] bg-gradient-to-br from-white via-[#f8f6ea] to-[#eef3d8] p-5 shadow-sm">
+      <div className="rounded-2xl border border-[#d4cea8] bg-gradient-to-br from-white via-[#f9f6e7] to-[#eef3d8] p-5 sm:p-6 shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-[#3b4224]">Work Requests</h1>
-            <p className="mt-1 text-sm text-[#5a6140]">All requests are public and visible to the team for transparency.</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8fae4c]">Requests</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#2a3618] mt-0.5">Work Requests</h1>
+            <p className="mt-1 text-xs sm:text-sm text-[#5a6140]">All requests are public and visible to the team.</p>
           </div>
           <button
             onClick={() => {
               setCreateMessage(null);
               setCreateOverlayOpen(true);
             }}
-            className="rounded-full bg-[#8fae4c] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#7c9a3f]"
+            className="rounded-lg bg-[#8fae4c] px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-[#7e9c44] hover:shadow-lg"
           >
             + New Request
           </button>
         </div>
       </div>
 
-      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 space-y-3 shadow-sm">
+      <section className="rounded-xl border border-[#d4cea8] bg-white/90 p-4 space-y-3 shadow-sm">
         <div className="flex flex-wrap gap-2">
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-lg border border-[#d4cea8] px-3 py-2 text-sm shadow-sm focus:border-[#8fae4c] focus:outline-none focus:ring-1 focus:ring-[#8fae4c]/30">
             <option value="All">All types</option>
             {REQUEST_TYPES.map((entry) => (
               <option key={entry} value={entry}>{entry}</option>
             ))}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-[#d0c9a4] px-3 py-2 text-sm">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-[#d4cea8] px-3 py-2 text-sm shadow-sm focus:border-[#8fae4c] focus:outline-none focus:ring-1 focus:ring-[#8fae4c]/30">
             <option value="All">All statuses</option>
             {STATUS_OPTIONS.map((entry) => (
               <option key={entry} value={entry}>{entry}</option>
@@ -306,24 +307,24 @@ export default function HubRequestPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search title/details/user"
-            className="min-w-[220px] flex-1 rounded-md border border-[#d0c9a4] px-3 py-2 text-sm"
+            className="min-w-[220px] flex-1 rounded-lg border border-[#d4cea8] px-3 py-2 text-sm shadow-sm focus:border-[#8fae4c] focus:outline-none focus:ring-1 focus:ring-[#8fae4c]/30"
           />
         </div>
         <div className="flex flex-wrap gap-4 text-sm text-[#4b5133]">
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> Only mine</label>
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} /> Urgent only</label>
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={shareableOnly} onChange={(e) => setShareableOnly(e.target.checked)} /> Shareable only</label>
+          <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} className="accent-[#8fae4c]" /> Only mine</label>
+          <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} className="accent-[#8fae4c]" /> Urgent only</label>
+          <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={shareableOnly} onChange={(e) => setShareableOnly(e.target.checked)} className="accent-[#8fae4c]" /> Shareable only</label>
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#d0c9a4] bg-white/90 p-4 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">All Requests</h2>
+      <section className="rounded-xl border border-[#d4cea8] bg-white/90 p-4 shadow-sm">
+        <h2 className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8fae4c]">All Requests</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {filtered.map((entry) => (
             <button
               key={entry.id}
               onClick={() => openRequest(entry.id)}
-              className="rounded-xl border border-[#e6dfbe] bg-[#faf8ee] p-3 text-left transition hover:-translate-y-[1px] hover:shadow-md"
+              className="rounded-xl border border-[#e2dbc0] bg-gradient-to-br from-[#fdfbf4] to-[#f6f4e6] p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:border-[#c8d0a4]"
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-semibold text-[#314123]">{entry.title}</p>

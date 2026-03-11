@@ -242,23 +242,23 @@ export default function HomePage() {
   }
 
   return (
-      <main className="min-h-screen bg-[#f8f4e3] text-[#3b4224] flex flex-col">
+      <main className="min-h-screen bg-[#f8f5ec] text-[#3b4224] flex flex-col">
       {/* Top navigation */}
-      <header className="sticky top-0 z-20 w-full bg-white/90 backdrop-blur shadow-sm">
-        <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-20 w-full bg-white/95 backdrop-blur-md shadow-md border-b border-[#e8e2c8]">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden inline-flex items-center justify-center rounded-full border border-[#d0c9a4] bg-white h-10 w-10 text-lg shadow-sm"
+              className="md:hidden inline-flex items-center justify-center rounded-lg border border-[#d4cea8] bg-white h-10 w-10 text-lg shadow-sm transition hover:bg-[#f4f7de]"
               onClick={() => setShowMobileMenu(true)}
               aria-label="Open menu"
             >
               ☰
             </button>
-            <div className="h-10 w-10 rounded-full bg-[#f1e4b5] flex items-center justify-center shadow">
+            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-[#f1e4b5] to-[#e5d89a] flex items-center justify-center shadow-md">
               <span className="text-xl">🐐</span>
             </div>
             <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold tracking-[0.16em] uppercase text-[#5d7f3b]">
+              <span className="text-sm font-bold tracking-[0.16em] uppercase text-[#4a6230]">
                 Wai &amp; Aina
               </span>
               <span className="text-[11px] text-[#7a7f54]">Sustainable living &amp; care</span>
@@ -492,14 +492,14 @@ export default function HomePage() {
           <div className="pointer-events-none absolute -left-10 top-10 h-40 w-40 rounded-full bg-white/50 blur-3xl" />
           <div className="pointer-events-none absolute right-0 bottom-0 h-56 w-56 rounded-full bg-[#b8d29b]/50 blur-3xl" />
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-12 sm:py-16 grid md:grid-cols-2 gap-10 items-center">
-            <div className="space-y-5 bg-white/70 backdrop-blur rounded-2xl border border-white/60 shadow-lg p-6">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#5d7f3b] shadow-sm">
-                🐐 Since 2023
+            <div className="space-y-5 bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 shadow-xl p-6 sm:p-8">
+              <div className="inline-flex items-center gap-2 rounded-full bg-[#e5efc8] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#4a6230] shadow-sm border border-[#c8d0a4]">
+                Since 2023
               </div>
-              <h1 className="text-3xl sm:text-4xl font-semibold text-[#2f331d] leading-tight drop-shadow-sm">
+              <h1 className="text-3xl sm:text-4xl font-bold text-[#2a3618] leading-tight">
                 {homeContent.heroTitle}
               </h1>
-              <p className="text-[#4b5133] text-sm leading-relaxed">
+              <p className="text-[#4b5133] text-sm leading-relaxed max-w-lg">
                 {homeContent.heroSubtitle}
               </p>
               <div className="flex flex-wrap gap-3 pt-2">

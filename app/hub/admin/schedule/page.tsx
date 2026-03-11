@@ -425,6 +425,9 @@ export default function AdminScheduleEditorPage() {
   const [unpublishingSchedule, setUnpublishingSchedule] = useState(false);
   const [newCustomVolunteer, setNewCustomVolunteer] = useState("");
   const [addingCustomVolunteer, setAddingCustomVolunteer] = useState(false);
+  const [removingVolunteer, setRemovingVolunteer] = useState<string | null>(null);
+  const [availableVolunteers, setAvailableVolunteers] = useState<string[]>([]);
+  const [selectedVolunteerToAdd, setSelectedVolunteerToAdd] = useState("");
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
   const [taskEditDraft, setTaskEditDraft] = useState({
     name: "",
@@ -642,9 +645,10 @@ export default function AdminScheduleEditorPage() {
     if (!authorized) return;
     const loadStatic = async () => {
       try {
-        const [typeRes, usersRes] = await Promise.all([
+        const [typeRes, usersRes, volunteersRes] = await Promise.all([
           fetch("/api/task-types", { cache: "no-store" }),
           fetch("/api/users", { cache: "no-store" }),
+          fetch("/api/schedule/volunteers", { cache: "no-store" }),
         ]);
 
         if (typeRes.ok) {
@@ -661,6 +665,10 @@ export default function AdminScheduleEditorPage() {
                 .filter(Boolean)
             : [];
           setActiveSiteUsers(activeUsers);
+        }
+        if (volunteersRes.ok) {
+          const volJson = await volunteersRes.json();
+          setAvailableVolunteers(volJson.volunteers || []);
         }
         await refreshScheduleList();
         setSelectedDate(todayLabel);
@@ -4273,6 +4281,85 @@ export default function AdminScheduleEditorPage() {
     }
   };
 
+  const removeVolunteerRow = async (personName: string) => {
+    if (!personName || !selectedDate || scheduleMode !== "page" || !scheduleData) return;
+    setRemovingVolunteer(personName);
+    setScheduleNote(null);
+    try {
+      const res = await fetch("/api/schedule/people", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateLabel: selectedDate, name: personName }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to remove volunteer");
+
+      setScheduleData((prev) => {
+        if (!prev) return prev;
+        const idx = prev.people.findIndex(
+          (p) => p.trim().toLowerCase() === personName.trim().toLowerCase()
+        );
+        if (idx === -1) return prev;
+        const nextPeople = [...prev.people];
+        const nextCells = [...prev.cells];
+        nextPeople.splice(idx, 1);
+        nextCells.splice(idx, 1);
+        return { ...prev, people: nextPeople, cells: nextCells };
+      });
+
+      setHasUnpublishedChanges(true);
+      setScheduleNote(`Removed ${personName} from the staging schedule.`);
+    } catch (err) {
+      console.error("Failed to remove volunteer", err);
+      setScheduleNote("Unable to remove that volunteer.");
+    } finally {
+      setRemovingVolunteer(null);
+    }
+  };
+
+  const addVolunteerFromList = async () => {
+    if (!selectedVolunteerToAdd) return;
+    setNewCustomVolunteer(selectedVolunteerToAdd);
+    setSelectedVolunteerToAdd("");
+    const name = selectedVolunteerToAdd;
+    if (!name || !selectedDate || scheduleMode !== "page" || !scheduleData) return;
+    setAddingCustomVolunteer(true);
+    setScheduleNote(null);
+    try {
+      const res = await fetch("/api/schedule/people", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateLabel: selectedDate, name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to add volunteer");
+
+      const rowExists = scheduleData.people.some(
+        (person) => person.trim().toLowerCase() === name.toLowerCase()
+      );
+      if (!rowExists) {
+        const newRow = scheduleData.slots.map(() => ({ tasks: [], note: "", blocked: false }));
+        setScheduleData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            people: [...prev.people, name],
+            cells: [...prev.cells, newRow],
+          };
+        });
+      }
+
+      setNewCustomVolunteer("");
+      setHasUnpublishedChanges(true);
+      setScheduleNote(`Added ${name} to the staging schedule.`);
+    } catch (err) {
+      console.error("Failed to add volunteer from list", err);
+      setScheduleNote("Unable to add that volunteer.");
+    } finally {
+      setAddingCustomVolunteer(false);
+    }
+  };
+
   const copySchedule = async () => {
     if (scheduleMode !== "page") return;
     if (!copySourceDate || !copyTargetDate) {
@@ -5083,123 +5170,132 @@ export default function AdminScheduleEditorPage() {
   }
 
   return (
-    <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#fdfbf4]">
-      <div className="border-b border-[#e2d7b5] bg-[#f7f4e6] px-1 sm:px-2 py-3">
+    <div className="flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#faf8f0]">
+      <div className="border-b border-[#d4cea8] bg-gradient-to-r from-[#f0ead4] via-[#f7f4e6] to-[#f4f7de] px-2 sm:px-4 py-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div>
-            <p className="text-xs uppercase tracking-[0.14em] text-[#7a7f54]">Admin schedule</p>
-            <h1 className="text-xl font-semibold text-[#314123]">{scheduleTitle}</h1>
-            <p className="text-xs text-[#5f5a3b]">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#8fae4c] font-semibold">Admin schedule</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#2a3618] mt-0.5">{scheduleTitle}</h1>
+            <p className="text-xs text-[#6a6c4d] mt-1">
               Staging schedule with auto-synced volunteers and background saves.
             </p>
             {selectedEntry && (
-              <p className="mt-1 text-xs text-[#6a6c4d]">
-                Live: {selectedEntry.liveId ? "ready" : "missing"} • Staging:{" "}
-                {selectedEntry.stagingId ? "ready" : "missing"}
-              </p>
+              <div className="mt-2 flex items-center gap-3 text-[11px]">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold ${selectedEntry.liveId ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${selectedEntry.liveId ? "bg-emerald-500" : "bg-amber-400"}`} />
+                  Live: {selectedEntry.liveId ? "ready" : "missing"}
+                </span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold ${selectedEntry.stagingId ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${selectedEntry.stagingId ? "bg-emerald-500" : "bg-amber-400"}`} />
+                  Staging: {selectedEntry.stagingId ? "ready" : "missing"}
+                </span>
+              </div>
             )}
             {scheduleNote && (
-              <p className="mt-2 text-xs text-[#4b5133]">{scheduleNote}</p>
+              <div className="mt-2 rounded-lg border border-[#c8d0a4] bg-[#f4f7de]/80 px-3 py-2 text-xs text-[#3b4224] font-medium">
+                {scheduleNote}
+              </div>
             )}
           </div>
           <div className="flex flex-col gap-3 text-xs text-[#6a6c4d]">
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={undoLastChange}
-                disabled={!undoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
-              >
-                Undo
-              </button>
-              <button
-                type="button"
-                onClick={redoLastChange}
-                disabled={!redoStack.length}
-                className="rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8] disabled:opacity-60"
-              >
-                Redo
-              </button>
+              <div className="flex items-center gap-1 rounded-lg border border-[#d0c9a4] bg-white/80 p-0.5 shadow-sm">
+                <button
+                  type="button"
+                  onClick={undoLastChange}
+                  disabled={!undoStack.length}
+                  className="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#314123] transition hover:bg-[#f4f7de] disabled:opacity-40"
+                  title="Undo"
+                >
+                  Undo
+                </button>
+                <div className="h-4 w-px bg-[#d0c9a4]" />
+                <button
+                  type="button"
+                  onClick={redoLastChange}
+                  disabled={!redoStack.length}
+                  className="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#314123] transition hover:bg-[#f4f7de] disabled:opacity-40"
+                  title="Redo"
+                >
+                  Redo
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={publishSchedule}
                 disabled={!selectedDate || scheduleMode !== "page"}
-                className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#f9f9ec] shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-60"
+                className="rounded-lg bg-[#8fae4c] px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-md transition hover:bg-[#7e9c44] hover:shadow-lg disabled:opacity-50"
               >
                 Publish
               </button>
               <button
                 type="button"
                 onClick={() => setBlackoutMode((prev) => !prev)}
-                className={`rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
+                className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] shadow-sm transition ${
                   blackoutMode
-                    ? "border-[#22311b] bg-[#2f3b21] text-[#f9f9ec] hover:bg-[#25301b]"
-                    : "border-[#d0c9a4] bg-white text-[#314123] hover:bg-[#f1edd8]"
+                    ? "border-[#22311b] bg-[#2f3b21] text-white hover:bg-[#25301b] ring-2 ring-[#2f3b21]/20"
+                    : "border-[#d0c9a4] bg-white text-[#314123] hover:bg-[#f4f7de]"
                 }`}
               >
-                {blackoutMode ? "Blackout mode: On" : "Blackout mode"}
+                {blackoutMode ? "Blackout: On" : "Blackout"}
               </button>
               <details className="relative">
-                <summary className="cursor-pointer list-none rounded-md border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f1edd8]">
-                  More actions
+                <summary className="cursor-pointer list-none rounded-lg border border-[#d0c9a4] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#314123] shadow-sm transition hover:bg-[#f4f7de]">
+                  More
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-[#d0c9a4] bg-white p-2 shadow-lg">
+                <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-[#d0c9a4] bg-white p-1.5 shadow-xl">
                   <button
                     type="button"
                     onClick={refreshSchedule}
-                    className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                    className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#314123] hover:bg-[#f4f7de] transition-colors"
                   >
-                    🔄 Refresh
+                    Refresh schedule
                   </button>
                   <button
                     type="button"
                     onClick={autoGenerateSchedule}
                     disabled={autoGenerating || !scheduleData}
-                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                    className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#314123] hover:bg-[#f4f7de] transition-colors disabled:opacity-50"
                   >
-                    {autoGenerating ? "✨ Auto-generating…" : "✨ Auto-generate"}
+                    {autoGenerating ? "Auto-generating…" : "Auto-generate schedule"}
                   </button>
                   <button
                     type="button"
                     onClick={clearSchedule}
                     disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
-                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                    className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#314123] hover:bg-[#f4f7de] transition-colors disabled:opacity-50"
                   >
-                    🧹 Clear schedule
+                    Clear schedule
                   </button>
                   <button
                     type="button"
                     onClick={clearCompletedOneOffTasks}
                     disabled={!scheduleData || (scheduleMode === "page" && !selectedDate)}
-                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8] disabled:opacity-60"
+                    className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#314123] hover:bg-[#f4f7de] transition-colors disabled:opacity-50"
                   >
-                    ✅ Clear completed one-offs
+                    Clear completed one-offs
                   </button>
                   <button
                     type="button"
                     onClick={sendVolunteerReminder}
-                    className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
+                    className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#314123] hover:bg-[#f4f7de] transition-colors"
                   >
-                    🔔 Remind volunteers
+                    Remind volunteers
                   </button>
-                  <Link
-                    href="/hub/admin/tasks"
-                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
-                  >
-                    🗂️ Task editor
-                  </Link>
-                  <Link
-                    href="/hub/admin/shifts"
-                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
-                  >
-                    🧭 Shift editor
-                  </Link>
-                  <Link
-                    href="/hub/admin"
-                    className="mt-1 block rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#314123] hover:bg-[#f1edd8]"
-                  >
-                    🏡 Back to admin
-                  </Link>
+                  <div className="mt-1.5 border-t border-[#e8e2c8] pt-1.5">
+                    <Link
+                      href="/hub/admin/tasks"
+                      className="block rounded-md px-3 py-1.5 text-xs text-[#6a6c4d] hover:bg-[#f4f7de] hover:text-[#314123]"
+                    >
+                      Task editor
+                    </Link>
+                    <Link
+                      href="/hub/admin/shifts"
+                      className="block rounded-md px-3 py-1.5 text-xs text-[#6a6c4d] hover:bg-[#f4f7de] hover:text-[#314123]"
+                    >
+                      Shift editor
+                    </Link>
+                  </div>
                   <div className="mt-2 border-t border-dashed border-[#d0c9a4] pt-2">
                     <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6c4d]">
                       Indicator emojis
@@ -5392,8 +5488,9 @@ export default function AdminScheduleEditorPage() {
       )}
 
       {scheduleMode === "page" && hasUnpublishedChanges && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-base font-semibold text-red-700 shadow-sm">
-          Unpublished changes: remember to publish this schedule.
+        <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-sm">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-600 text-sm">!</span>
+          <span className="text-sm font-semibold text-amber-800">Unpublished changes &mdash; remember to publish this schedule.</span>
         </div>
       )}
 
@@ -5444,16 +5541,16 @@ export default function AdminScheduleEditorPage() {
         }`}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+          <button
+            type="button"
+            onClick={() => toggleSectionVisibility("customTables")}
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#c8d0a4] bg-gradient-to-r from-white to-[#f9f8f0] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3b4224] shadow-sm transition hover:shadow-md"
+          >
             <span>Custom Tables</span>
-            <button
-              type="button"
-              onClick={() => toggleSectionVisibility("customTables")}
-              className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-            >
-              {sectionVisibility.customTables ? "Hide" : "Show"}
-            </button>
-          </div>
+            <span className={`text-[10px] text-[#8fae4c] transition-transform ${sectionVisibility.customTables ? "rotate-180" : ""}`}>
+              ▼
+            </span>
+          </button>
           {sectionVisibility.customTables && (
             <CustomTablesEditor
               dateLabel={customTablesDateLabel}
@@ -5464,20 +5561,20 @@ export default function AdminScheduleEditorPage() {
               showPastTables
             />
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+          <button
+            type="button"
+            onClick={() => toggleSectionVisibility("scheduleCanvas")}
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#c8d0a4] bg-gradient-to-r from-white to-[#f9f8f0] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3b4224] shadow-sm transition hover:shadow-md"
+          >
             <span>Schedule Canvas</span>
-            <button
-              type="button"
-              onClick={() => toggleSectionVisibility("scheduleCanvas")}
-              className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-            >
-              {sectionVisibility.scheduleCanvas ? "Hide" : "Show"}
-            </button>
-          </div>
+            <span className={`text-[10px] text-[#8fae4c] transition-transform ${sectionVisibility.scheduleCanvas ? "rotate-180" : ""}`}>
+              ▼
+            </span>
+          </button>
           {sectionVisibility.scheduleCanvas && (
             <div
-              className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#d0c9a4] p-2 shadow-md ${
-                canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/80 lg:flex-[2.4]"
+              className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[#c8d0a4] p-3 shadow-lg ${
+                canvasExpanded ? "bg-white lg:flex-[3.2]" : "bg-white/90 lg:flex-[2.4]"
               }`}
             >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -5611,29 +5708,64 @@ export default function AdminScheduleEditorPage() {
               {blackoutApplying ? "Applying…" : "Apply blackout"}
             </button>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-[#d0c9a4] bg-white/80 px-3 py-2 text-xs text-[#4b5133]">
-            <input
-              value={newCustomVolunteer}
-              onChange={(event) => setNewCustomVolunteer(event.target.value)}
-              placeholder="Custom volunteer name"
-              className="h-8 min-w-[180px] rounded-md border border-[#d0c9a4] bg-white px-2 text-xs"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void addCustomVolunteerRow();
-                }
-              }}
-            />
-            <button
-              type="button"
-              onClick={addCustomVolunteerRow}
-              disabled={addingCustomVolunteer || !newCustomVolunteer.trim()}
-              className="h-8 rounded-md border border-[#d0c9a4] bg-white px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#314123] shadow-sm disabled:opacity-60"
-            >
-              {addingCustomVolunteer ? "Adding…" : "Add volunteer row"}
-            </button>
+          <div className="mt-2 rounded-xl border border-[#c8d0a4] bg-gradient-to-r from-[#f4f7de]/80 to-white/90 px-4 py-3 shadow-sm">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b]">
+              Manage volunteers
+            </p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#4b5133]">
+              {/* Dropdown to add from existing volunteers */}
+              <select
+                value={selectedVolunteerToAdd}
+                onChange={(e) => setSelectedVolunteerToAdd(e.target.value)}
+                className="h-9 min-w-[180px] rounded-lg border border-[#c8d0a4] bg-white px-2 text-xs text-[#314123] shadow-sm focus:border-[#8fae4c] focus:outline-none focus:ring-1 focus:ring-[#8fae4c]/30"
+              >
+                <option value="">Add existing volunteer…</option>
+                {availableVolunteers
+                  .filter(
+                    (v) =>
+                      !scheduleData?.people.some(
+                        (p) => p.trim().toLowerCase() === v.trim().toLowerCase()
+                      )
+                  )
+                  .map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                onClick={addVolunteerFromList}
+                disabled={addingCustomVolunteer || !selectedVolunteerToAdd}
+                className="h-9 rounded-lg bg-[#8fae4c] px-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-white shadow-sm transition hover:bg-[#7e9c44] disabled:opacity-50"
+              >
+                {addingCustomVolunteer ? "Adding…" : "Add"}
+              </button>
+              <span className="mx-1 text-[10px] text-[#9a9e7a]">or</span>
+              {/* Custom name input */}
+              <input
+                value={newCustomVolunteer}
+                onChange={(event) => setNewCustomVolunteer(event.target.value)}
+                placeholder="Type a custom name…"
+                className="h-9 min-w-[160px] rounded-lg border border-[#c8d0a4] bg-white px-3 text-xs shadow-sm focus:border-[#8fae4c] focus:outline-none focus:ring-1 focus:ring-[#8fae4c]/30"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void addCustomVolunteerRow();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={addCustomVolunteerRow}
+                disabled={addingCustomVolunteer || !newCustomVolunteer.trim()}
+                className="h-9 rounded-lg border border-[#c8d0a4] bg-white px-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#314123] shadow-sm transition hover:bg-[#f4f7de] disabled:opacity-50"
+              >
+                {addingCustomVolunteer ? "Adding…" : "Add custom"}
+              </button>
+            </div>
             {blackoutMode && (
-              <span className="rounded-full bg-[#2f3b21] px-3 py-1 text-[10px] font-semibold text-white">
+              <span className="mt-2 inline-block rounded-full bg-[#2f3b21] px-3 py-1 text-[10px] font-semibold text-white">
                 Blackout mode active
               </span>
             )}
@@ -5661,32 +5793,33 @@ export default function AdminScheduleEditorPage() {
           )}
           <div
             ref={scheduleContainerRef}
-            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-xl border border-[#e2d7b5] bg-[#faf7eb] shadow-inner ${
-              scheduleLoading ? "pointer-events-none opacity-80" : ""
+            className={`relative mt-3 min-w-0 flex-1 overflow-auto rounded-lg border border-[#d0c9a4] bg-[#fdfbf4] shadow-sm ${
+              scheduleLoading ? "pointer-events-none opacity-70" : ""
             } ${canvasExpanded ? "min-h-[70vh] lg:min-h-[calc(100vh-18rem)]" : ""}`}
+            style={{ WebkitOverflowScrolling: "touch" }}
           >
             {scheduleLoading && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-semibold text-[#4b5133]">
                 Loading schedule…
               </div>
             )}
-            <table className="w-full table-fixed border-collapse text-[10px] sm:text-[11px]">
-  <thead className="bg-[#e5e7c5]">
+            <table className="schedule-spreadsheet table-fixed">
+  <thead>
     <tr>
-      <th className="w-[74px] sm:w-[96px] border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[8px] sm:text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5d7f3b] sticky left-0 top-0 z-30 bg-[#e5e7c5]">
+      <th className="person-cell w-[84px] sm:w-[110px] text-[9px] sm:text-[10px] uppercase tracking-[0.12em]">
         Person
       </th>
       {visibleSlotsWithIndex.map(({ slot }) => (
  <th
   key={slot.id}
-  className="relative border border-[#d1d4aa] px-1 sm:px-1.5 py-1 text-left text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5d7f3b] sticky top-0 z-10 bg-[#e5e7c5]"
+  className="relative px-1 sm:px-1.5 py-1 text-[9px] sm:text-[10px] uppercase tracking-[0.08em]"
   style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
 >
           <div className="flex items-center justify-between gap-2">
             <div>
               <div>{slot.label}</div>
               {slot.timeRange && (
-                <div className="text-[9px] text-[#7a7f54] normal-case">{slot.timeRange}</div>
+                <div className="text-[8px] text-[#9a9e7a] normal-case font-normal">{slot.timeRange}</div>
               )}
             </div>
             <button
@@ -5698,7 +5831,7 @@ export default function AdminScheduleEditorPage() {
                   return next;
                 })
               }
-              className="rounded-full border border-[#c8d0a4] bg-white/80 px-2 py-[2px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#5d7f3b] hover:bg-white"
+              className="rounded border border-[#d0c9a4] bg-[#fdfbf4] px-1.5 py-[1px] text-[8px] font-medium text-[#6b6f4c] hover:bg-[#f7f2e2]"
             >
               Hide
             </button>
@@ -5723,11 +5856,27 @@ export default function AdminScheduleEditorPage() {
   </thead>
   <tbody>
     {scheduleData?.people.map((person, rowIdx) => (
-      <tr key={person} className={rowIdx % 2 === 0 ? "bg-[#faf8ea]" : "bg-[#f4f2df]"}>
-        <td className="border border-[#d1d4aa] px-1.5 sm:px-2 py-1.5 align-top text-[10px] sm:text-[11px] font-semibold text-[#4f5730] sticky left-0 z-20 bg-[#f6f4e3]">
-          <div className="flex items-center justify-between gap-2">
-            <span>{person}</span>
-            <span className="text-[10px] text-[#7a7f54]">{rowIdx + 1}</span>
+      <tr key={person} className="transition-colors">
+        <td className="group/person person-cell px-1 sm:px-1.5 py-1 align-top text-[10px] sm:text-[11px]">
+          <div className="flex items-center justify-between gap-1">
+            <span className="truncate">{person}</span>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[9px] text-[#9a9e7a]">{rowIdx + 1}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(`Remove ${person} from this schedule?`)) {
+                    void removeVolunteerRow(person);
+                  }
+                }}
+                disabled={removingVolunteer === person}
+                className="rounded border border-[#d0c9a4] bg-[#fdfbf4] px-1 py-[0px] text-[9px] font-medium text-[#a05252] opacity-0 pointer-events-none group-hover/person:opacity-100 group-hover/person:pointer-events-auto hover:bg-[#f7e3e3] transition disabled:opacity-40"
+                title={`Remove ${person}`}
+              >
+                {removingVolunteer === person ? "…" : "✕"}
+              </button>
+            </div>
           </div>
         </td>
         {visibleSlotsWithIndex.map(({ slot, index: colIdx }) => {
@@ -5776,11 +5925,11 @@ export default function AdminScheduleEditorPage() {
           return (
             <td
               key={`${person}-${slot.id}`}
-              className={`border border-[#d1d4aa] min-h-[28px] p-0.5 align-top transition-colors duration-150 ${
-                isRangeSelected ? "bg-[#f0f4de] ring-2 ring-[#8fae4c]" : ""
-              } ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
-                isBlocked ? "bg-[#2f3b21]/10" : ""
-              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-emerald-500/70 bg-emerald-50/60" : ""} relative`}
+              className={`min-h-[28px] p-0.5 align-top transition-colors duration-100 ${
+                isRangeSelected ? "cell-range-selected" : ""
+              } ${isSelected ? "cell-selected" : ""} ${saving ? "animate-pulse" : ""} ${cellExists ? "" : "opacity-60"} ${
+                isBlocked ? "bg-[#e8dcc4]/40" : ""
+              } ${isPresenceLocked ? "cursor-not-allowed opacity-80 ring-2 ring-[#8fae4c]/40 bg-[#eaf1da]" : ""} relative`}
               style={columnWidth ? { width: columnWidth, minWidth: columnWidth } : undefined}
               title={
                 isPresenceLocked && presenceLock ? `${presenceLock.user} is editing this cell.` : undefined
@@ -6186,16 +6335,16 @@ export default function AdminScheduleEditorPage() {
           )}
           {(dayOverviewSummary || yesterdayOverviewSummary) && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+              <button
+                type="button"
+                onClick={() => toggleSectionVisibility("dayOverviews")}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#c8d0a4] bg-gradient-to-r from-white to-[#f9f8f0] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3b4224] shadow-sm transition hover:shadow-md"
+              >
                 <span>Day Overviews</span>
-                <button
-                  type="button"
-                  onClick={() => toggleSectionVisibility("dayOverviews")}
-                  className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-                >
-                  {sectionVisibility.dayOverviews ? "Hide" : "Show"}
-                </button>
-              </div>
+                <span className={`text-[10px] text-[#8fae4c] transition-transform ${sectionVisibility.dayOverviews ? "rotate-180" : ""}`}>
+                  ▼
+                </span>
+              </button>
               {sectionVisibility.dayOverviews && (
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {yesterdayOverviewSummary && (
@@ -6561,16 +6710,16 @@ export default function AdminScheduleEditorPage() {
           )}
 
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#d0c9a4] bg-white/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#4b5133] shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSectionVisibility("dailyUpdates")}
+              className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#c8d0a4] bg-gradient-to-r from-white to-[#f9f8f0] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3b4224] shadow-sm transition hover:shadow-md"
+            >
               <span>Daily Updates</span>
-              <button
-                type="button"
-                onClick={() => toggleSectionVisibility("dailyUpdates")}
-                className="rounded-full border border-[#d0c9a4] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4b5133]"
-              >
-                {sectionVisibility.dailyUpdates ? "Hide" : "Show"}
-              </button>
-            </div>
+              <span className={`text-[10px] text-[#8fae4c] transition-transform ${sectionVisibility.dailyUpdates ? "rotate-180" : ""}`}>
+                ▼
+              </span>
+            </button>
             {sectionVisibility.dailyUpdates && (
               <div className="rounded-xl border border-[#d0c9a4] bg-white/90 p-3 shadow-sm">
                 <p className="text-[11px] text-[#6a6c4d]">

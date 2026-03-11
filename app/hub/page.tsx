@@ -2515,14 +2515,14 @@ export default function HubSchedulePage() {
           )}
 
         {taskTypes.length > 0 && (
-          <section className="rounded-lg border border-[#d0c9a4] bg-white/80 px-4 py-3 shadow-sm">
+          <section className="rounded-xl border border-[#d4cea8] bg-white/90 px-4 py-3 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#5d7f3b]">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8fae4c]">
                   Task type guide
                 </p>
-                <p className="text-xs text-[#7a7f54]">
-                  Colors are softened to help you spot categories at a glance.
+                <p className="text-xs text-[#7a7f54] mt-0.5">
+                  Colors help you spot categories at a glance.
                 </p>
               </div>
             </div>
@@ -2534,10 +2534,10 @@ export default function HubSchedulePage() {
           <section className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-2xl font-semibold tracking-[0.18em] uppercase text-[#5d7f3b] mb-1">
+                <h2 className="text-xl sm:text-2xl font-bold tracking-[0.14em] uppercase text-[#3b4224] mb-0.5">
                   {viewMode === "tasks" ? "My Tasks" : "Today's Schedule"}
                 </h2>
-                <p className="text-sm text-[#7a7f54]">
+                <p className="text-xs sm:text-sm text-[#6a6c4d]">
                   {viewMode === "tasks"
                     ? `Your assigned tasks for ${scheduleDateLabel || "today"}.`
                     : "Click any task to see its details and who you are assigned with."}
