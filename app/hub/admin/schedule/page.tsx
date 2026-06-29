@@ -112,6 +112,7 @@ type IndicatorRule = {
 type TaskCommentPreview = { id: string; text: string; createdTime: string; author: string };
 type DailyUpdateEntry = {
   id: string;
+  update_date: string;
   user_name: string;
   task_statuses: { taskId: string; taskName: string; status: string }[];
   extra_notes: string | null;
@@ -555,6 +556,9 @@ export default function AdminScheduleEditorPage() {
   const [dailyUpdatesSummaryCache, setDailyUpdatesSummaryCache] = useState<Record<string, DailyUpdateSummaryCacheEntry>>({});
   const [dailyUpdatesSummaryLoading, setDailyUpdatesSummaryLoading] = useState(false);
   const [dailyUpdatesSummaryError, setDailyUpdatesSummaryError] = useState<string | null>(null);
+  const [selectedDailyUpdateModal, setSelectedDailyUpdateModal] = useState<DailyUpdateEntry | null>(null);
+  const [adminModalTaskComments, setAdminModalTaskComments] = useState<Record<string, { text: string; createdTime: string }[]>>({});
+  const [adminModalCommentsLoading, setAdminModalCommentsLoading] = useState(false);
 
   const cloneOneOffTaskForDate = useCallback(
     async (sourceTaskId: string, targetIso: string) => {
@@ -1813,6 +1817,51 @@ export default function AdminScheduleEditorPage() {
   useEffect(() => {
     setDailyUpdatesSummaryError(null);
   }, [selectedDateIso]);
+
+  useEffect(() => {
+    if (!selectedDailyUpdateModal) {
+      setAdminModalTaskComments({});
+      return;
+    }
+    const taskNames = (selectedDailyUpdateModal.task_statuses || [])
+      .map((t) => t.taskName)
+      .filter(Boolean);
+    if (!taskNames.length) return;
+
+    let cancelled = false;
+    setAdminModalCommentsLoading(true);
+    void (async () => {
+      try {
+        const occurrenceDate = selectedDailyUpdateModal.update_date;
+        const results = await Promise.all(
+          taskNames.map(async (taskName) => {
+            const search = new URLSearchParams({ name: taskName });
+            if (occurrenceDate) search.set("occurrenceDate", occurrenceDate);
+            const res = await fetch(`/api/task?${search.toString()}`);
+            if (!res.ok) return { taskName, comments: [] as { text: string; createdTime: string }[] };
+            const detail = await res.json();
+            const allComments: { text: string; createdTime: string; author: string }[] =
+              Array.isArray(detail.comments) ? detail.comments : [];
+            const userComments = allComments
+              .filter((c) => c.author.toLowerCase() === selectedDailyUpdateModal.user_name.toLowerCase())
+              .map((c) => ({ text: c.text, createdTime: c.createdTime }));
+            return { taskName, comments: userComments };
+          })
+        );
+        if (cancelled) return;
+        const map: Record<string, { text: string; createdTime: string }[]> = {};
+        results.forEach(({ taskName, comments }) => {
+          if (comments.length) map[taskName] = comments;
+        });
+        setAdminModalTaskComments(map);
+      } catch (err) {
+        console.error("Failed to load task comments for admin daily update modal", err);
+      } finally {
+        if (!cancelled) setAdminModalCommentsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedDailyUpdateModal]);
 
   useEffect(() => {
     if (!selectedDateIso) {
@@ -6778,7 +6827,12 @@ export default function AdminScheduleEditorPage() {
                       ).length || 0;
 
                       return (
-                        <div key={entry.id} className="rounded-lg border border-[#e6dfbe] bg-[#faf8ee] px-3 py-2">
+                        <button
+                          key={entry.id}
+                          type="button"
+                          onClick={() => setSelectedDailyUpdateModal(entry)}
+                          className="w-full rounded-lg border border-[#e6dfbe] bg-[#faf8ee] px-3 py-2 text-left transition hover:border-[#c8be8d] hover:shadow-sm"
+                        >
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-[#314123]">{entry.user_name}</p>
                             <span className="text-[10px] text-[#7a7f54]">
@@ -6789,17 +6843,7 @@ export default function AdminScheduleEditorPage() {
                           <p className="mt-2 text-[11px] text-[#4f5730]">
                             {completedCount} completed · {inProgressCount} in progress · {notStartedCount} not started
                           </p>
-                          <div className="mt-2 grid gap-2 md:grid-cols-2">
-                            <div className="rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Extra notes</p>
-                              <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.extra_notes || "—"}</p>
-                            </div>
-                            <div className="rounded-md border border-[#ece4c5] bg-white/70 px-2 py-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Requests</p>
-                              <p className="mt-1 text-xs whitespace-pre-wrap text-[#4f5730]">{entry.requests || "—"}</p>
-                            </div>
-                          </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -7605,6 +7649,108 @@ export default function AdminScheduleEditorPage() {
           </button>
         )}
       </div>
+
+      {selectedDailyUpdateModal && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[#ede8d3] px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#7a7f54]">Daily update</p>
+                <h2 className="text-xl font-semibold text-[#3b4224]">{selectedDailyUpdateModal.user_name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDailyUpdateModal(null)}
+                className="rounded-full border border-[#d7d2b0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b7247]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-3 px-6 py-4 text-sm text-[#4b5133]">
+              <p><span className="font-semibold">Updated:</span> {new Date(selectedDailyUpdateModal.updated_at).toLocaleString()}</p>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Summary</p>
+                <p className="mt-1">{selectedDailyUpdateModal.summary || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Task outcomes</p>
+                {selectedDailyUpdateModal.task_statuses?.length ? (
+                  <div className="mt-2 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">Completed</p>
+                      <ul className="mt-1 space-y-1">
+                        {selectedDailyUpdateModal.task_statuses
+                          .filter((task) => (task.status || "").toLowerCase() === "completed")
+                          .map((task) => (
+                            <li key={`done-${task.taskId}-${task.taskName}`} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                              {task.taskName}
+                            </li>
+                          ))}
+                        {!selectedDailyUpdateModal.task_statuses.some(
+                          (task) => (task.status || "").toLowerCase() === "completed"
+                        ) && <li className="text-xs text-[#6b6f4c]">No completed tasks reported.</li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">Not completed</p>
+                      <ul className="mt-1 space-y-1">
+                        {selectedDailyUpdateModal.task_statuses
+                          .filter((task) => (task.status || "").toLowerCase() !== "completed")
+                          .map((task) => (
+                            <li key={`open-${task.taskId}-${task.taskName}`} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                              {task.taskName} <span className="text-[11px] text-amber-700">({task.status || "Not started"})</span>
+                            </li>
+                          ))}
+                        {!selectedDailyUpdateModal.task_statuses.some(
+                          (task) => (task.status || "").toLowerCase() !== "completed"
+                        ) && <li className="text-xs text-[#6b6f4c]">All reported tasks are completed.</li>}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-1">—</p>
+                )}
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Extra notes</p>
+                <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdateModal.extra_notes || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Requests</p>
+                <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdateModal.requests || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Task comments</p>
+                {adminModalCommentsLoading ? (
+                  <p className="mt-1 text-xs text-[#7a7f54]">Loading comments…</p>
+                ) : Object.keys(adminModalTaskComments).length === 0 ? (
+                  <p className="mt-1 text-xs text-[#7a7f54]">No comments left on tasks.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {Object.entries(adminModalTaskComments).map(([taskName, comments]) => (
+                      <div key={taskName}>
+                        <p className="text-[10px] font-semibold text-[#4b5133]">{taskName}</p>
+                        <ul className="mt-1 space-y-1">
+                          {comments.map((c, idx) => (
+                            <li key={`${taskName}-${idx}`} className="rounded-md border border-[#ddd8b8] bg-white/70 px-2 py-1 text-xs text-[#4b5133]">
+                              <span>{c.text}</span>
+                              {c.createdTime && (
+                                <span className="ml-2 text-[10px] text-[#9a9f74]">
+                                  {new Date(c.createdTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

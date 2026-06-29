@@ -181,6 +181,8 @@ export default function WorkDashboardPage() {
   const [dailyUpdateSuccess, setDailyUpdateSuccess] = useState<string | null>(null);
   const [dailyUpdatesFeed, setDailyUpdatesFeed] = useState<DailyUpdateEntry[]>([]);
   const [selectedDailyUpdate, setSelectedDailyUpdate] = useState<DailyUpdateEntry | null>(null);
+  const [modalTaskComments, setModalTaskComments] = useState<Record<string, { text: string; createdTime: string }[]>>({});
+  const [modalCommentsLoading, setModalCommentsLoading] = useState(false);
   const previousSnapshotRef = useRef<MiniTask[] | null>(null);
 
   const quickLinks = useMemo(() => {
@@ -487,6 +489,51 @@ export default function WorkDashboardPage() {
     };
     void loadFeed();
   }, [name, miniLoading]);
+
+  useEffect(() => {
+    if (!selectedDailyUpdate) {
+      setModalTaskComments({});
+      return;
+    }
+    const taskNames = (selectedDailyUpdate.task_statuses || [])
+      .map((t) => t.taskName)
+      .filter(Boolean);
+    if (!taskNames.length) return;
+
+    let cancelled = false;
+    setModalCommentsLoading(true);
+    void (async () => {
+      try {
+        const occurrenceDate = selectedDailyUpdate.update_date;
+        const results = await Promise.all(
+          taskNames.map(async (taskName) => {
+            const search = new URLSearchParams({ name: taskName });
+            if (occurrenceDate) search.set("occurrenceDate", occurrenceDate);
+            const res = await fetch(`/api/task?${search.toString()}`);
+            if (!res.ok) return { taskName, comments: [] };
+            const detail = await res.json();
+            const allComments: { text: string; createdTime: string; author: string }[] =
+              Array.isArray(detail.comments) ? detail.comments : [];
+            const userComments = allComments.filter(
+              (c) => c.author.toLowerCase() === selectedDailyUpdate.user_name.toLowerCase()
+            );
+            return { taskName, comments: userComments };
+          })
+        );
+        if (cancelled) return;
+        const map: Record<string, { text: string; createdTime: string }[]> = {};
+        results.forEach(({ taskName, comments }) => {
+          if (comments.length) map[taskName] = comments;
+        });
+        setModalTaskComments(map);
+      } catch (err) {
+        console.error("Failed to load task comments for daily update modal", err);
+      } finally {
+        if (!cancelled) setModalCommentsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedDailyUpdate]);
 
   const groupedMyTasks = useMemo(() => {
     const groups = new Map<string, MyTask[]>();
@@ -954,6 +1001,34 @@ export default function WorkDashboardPage() {
               <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Requests</p>
                 <p className="mt-1 whitespace-pre-wrap">{selectedDailyUpdate.requests || "—"}</p>
+              </div>
+              <div className="rounded-md border border-[#ece4c5] bg-[#faf8ee] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6f4c]">Task comments</p>
+                {modalCommentsLoading ? (
+                  <p className="mt-1 text-xs text-[#7a7f54]">Loading comments…</p>
+                ) : Object.keys(modalTaskComments).length === 0 ? (
+                  <p className="mt-1 text-xs text-[#7a7f54]">No comments left on tasks.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {Object.entries(modalTaskComments).map(([taskName, comments]) => (
+                      <div key={taskName}>
+                        <p className="text-[10px] font-semibold text-[#4b5133]">{taskName}</p>
+                        <ul className="mt-1 space-y-1">
+                          {comments.map((c, idx) => (
+                            <li key={`${taskName}-${idx}`} className="rounded-md border border-[#ddd8b8] bg-white/70 px-2 py-1 text-xs text-[#4b5133]">
+                              <span>{c.text}</span>
+                              {c.createdTime && (
+                                <span className="ml-2 text-[10px] text-[#9a9f74]">
+                                  {new Date(c.createdTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

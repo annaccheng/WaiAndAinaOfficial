@@ -10,6 +10,35 @@ type DailyUpdatePayload = {
   requests: string | null;
 };
 
+type StoredComment = {
+  authorName?: string;
+  text?: string;
+  comment?: string;
+};
+
+async function fetchTaskComments(
+  taskName: string,
+  dateIso: string
+): Promise<{ authorName: string; text: string }[]> {
+  const baseQuery = { select: "comments", name: `ilike.${taskName}`, limit: "1" };
+  let rows = await supabaseRequest<{ comments: StoredComment[] }[]>("tasks", {
+    query: { ...baseQuery, occurrence_date: `eq.${dateIso}` },
+  });
+  if (!rows?.length) {
+    rows = await supabaseRequest<{ comments: StoredComment[] }[]>("tasks", {
+      query: { ...baseQuery, order: "created_at.desc" },
+    });
+  }
+  const raw = rows?.[0]?.comments;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => ({
+      authorName: String(c.authorName || "").trim(),
+      text: String(c.text || c.comment || "").trim(),
+    }))
+    .filter((c) => c.text);
+}
+
 function toIsoDate(label?: string | null) {
   if (!label) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
@@ -42,12 +71,39 @@ async function generateAdminSummary(dateIso: string, updates: DailyUpdatePayload
   const key = process.env.OPENAI_API_KEY;
   if (!key) return fallbackSummary(dateIso, updates);
 
+  const uniqueTaskNames = Array.from(
+    new Set(
+      updates.flatMap((u) =>
+        (u.task_statuses || []).map((t) => t.taskName).filter(Boolean)
+      )
+    )
+  );
+
+  const taskCommentMap = new Map<string, { authorName: string; text: string }[]>();
+  await Promise.all(
+    uniqueTaskNames.map(async (taskName) => {
+      try {
+        const comments = await fetchTaskComments(taskName, dateIso);
+        if (comments.length) taskCommentMap.set(taskName.toLowerCase(), comments);
+      } catch {
+        // skip on error
+      }
+    })
+  );
+
   const compactUpdates = updates.map((update) => ({
     user: update.user_name,
-    statuses: (update.task_statuses || []).map((task) => ({
-      taskName: task.taskName,
-      status: task.status,
-    })),
+    statuses: (update.task_statuses || []).map((task) => {
+      const allComments = taskCommentMap.get(task.taskName.toLowerCase()) || [];
+      const userComments = allComments
+        .filter((c) => c.authorName.toLowerCase() === update.user_name.toLowerCase())
+        .map((c) => c.text);
+      return {
+        taskName: task.taskName,
+        status: task.status,
+        ...(userComments.length ? { comments: userComments } : {}),
+      };
+    }),
     extraNotes: update.extra_notes || "",
     requests: update.requests || "",
   }));
