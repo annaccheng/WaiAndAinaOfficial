@@ -1,161 +1,94 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
-import { sendPushNotifications } from "@/lib/push";
 
-function buildRangeFilter(start?: string, end?: string) {
-  if (!start && !end) return {};
-  const filter: Record<string, string> = {};
-  if (start) filter.occurrence_date = `gte.${start}`;
-  if (end) filter.occurrence_date = `lte.${end}`;
-  return filter;
+const TASK_SELECT =
+  "id,name,description,status,priority,estimated_time,recurring," +
+  "recurrence_interval,recurrence_unit,recurrence_until,recurrence_days,recurrence_end_type,recurrence_count," +
+  "origin_date,occurrence_date,parent_task_id,person_count," +
+  "links,comments,photos,time_slots,extra_notes,created_by_name,task_help_references," +
+  "task_type:task_types(id,name,color)," +
+  "task_capabilities:task_capabilities(capability:capabilities(id,name))";
+
+function normalizePersonCount(input: unknown) {
+  if (input === null || input === undefined || input === "") return 1;
+  const n = Number(input);
+  return Number.isNaN(n) ? 1 : Math.max(1, Math.round(n));
 }
 
 function normalizeCapabilityIds(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
-  return input.map((id) => String(id)).filter(Boolean);
+  return input.map(String).filter(Boolean);
 }
 
-function normalizePersonCount(input: unknown) {
-  if (input === null || input === undefined || input === "") return 1;
-  const value = Number(input);
-  if (Number.isNaN(value)) return 1;
-  return Math.max(1, Math.round(value));
-}
-
-function normalizeLinksInput(input: unknown) {
+function normalizeLinks(input: unknown) {
   if (!Array.isArray(input)) return input;
   return input
-    .map((link) => {
+    .map(link => {
       if (typeof link === "string") return link.trim();
       if (link && typeof link === "object") {
-        const label = String((link as { label?: unknown }).label || "").trim();
-        const url = String((link as { url?: unknown }).url || "").trim();
-        return url || label;
+        const l = link as { label?: unknown; url?: unknown };
+        return String(l.url || l.label || "").trim();
       }
       return "";
     })
     .filter(Boolean);
 }
 
-async function fetchAssignedPeople(taskId: string) {
-  const rows = await supabaseRequest<any[]>("schedule_cells", {
-    query: {
-      select: "person:person_id(name)",
-      tasks: `cs.{${taskId}}`,
-    },
-  });
-  const names = (rows || [])
-    .map((row) => row?.person?.name)
-    .filter(Boolean) as string[];
-  return Array.from(new Set(names));
-}
-
-function resolveIsoDate(raw?: string | null) {
-  if (!raw) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  if (raw.includes("/")) {
-    const [month, day, year] = raw.split("/");
-    if (!month || !day || !year) return "";
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  return "";
-}
-
-function getHawaiiDateLabel() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Pacific/Honolulu",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
-
-async function syncTaskCapabilities(taskIds: string[], capabilityIds: string[]) {
-  if (!taskIds.length) return;
-
-  const uniqueTaskIds = Array.from(new Set(taskIds));
-  const uniqueCapabilityIds = Array.from(new Set(capabilityIds));
-
+async function syncCapabilities(taskId: string, capabilityIds: string[]) {
   await supabaseRequest("task_capabilities", {
     method: "DELETE",
-    query: { task_id: `in.(${uniqueTaskIds.join(",")})` },
+    query: { task_id: `eq.${taskId}` },
   });
-
-  if (!uniqueCapabilityIds.length) return;
-
+  if (!capabilityIds.length) return;
   await supabaseRequest("task_capabilities", {
     method: "POST",
-    body: uniqueCapabilityIds.flatMap((capabilityId) =>
-      uniqueTaskIds.map((taskId) => ({
-        task_id: taskId,
-        capability_id: capabilityId,
-      }))
-    ),
+    body: capabilityIds.map(cid => ({ task_id: taskId, capability_id: cid })),
   });
+}
+
+function shapeTask(raw: Record<string, unknown>) {
+  return {
+    ...raw,
+    capabilities: ((raw.task_capabilities as { capability: unknown }[]) ?? [])
+      .map(e => e.capability)
+      .filter(Boolean),
+  };
 }
 
 export async function GET(req: Request) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json(
-      { tasks: [], error: "Supabase is not configured for tasks yet." },
-      { status: 503 }
-    );
+    return NextResponse.json({ tasks: [] }, { status: 503 });
   }
+
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get("status") || "";
-  const type = searchParams.get("type") || "";
-  const priority = searchParams.get("priority") || "";
-  const recurring = searchParams.get("recurring") || "";
-  const search = searchParams.get("search") || "";
-  const start = searchParams.get("start") || "";
-  const end = searchParams.get("end") || "";
-  const includeOccurrences = searchParams.get("includeOccurrences") !== "false";
+  const search             = searchParams.get("search") || "";
+  const status             = searchParams.get("status") || "";
+  const type               = searchParams.get("type") || "";
+  const priority           = searchParams.get("priority") || "";
+  const recurring          = searchParams.get("recurring") || "";
+  const start              = searchParams.get("start") || "";
+  const end                = searchParams.get("end") || "";
+  // Default: only library root tasks. Pass includeOccurrences=true to get child rows too.
+  const includeOccurrences = searchParams.get("includeOccurrences") === "true";
 
   const query: Record<string, string> = {
-    select:
-      "id,name,description,status,priority,estimated_time,recurring,recurrence_interval,recurrence_unit,recurrence_until,origin_date,occurrence_date,parent_task_id,person_count,links,comments,photos,time_slots,extra_notes,created_by_name,task_help_references,task_type:task_types(id,name,color),task_capabilities:task_capabilities(capability:capabilities(id,name))",
+    select: TASK_SELECT,
     order: "created_at.desc",
-    ...buildRangeFilter(start, end),
   };
 
-  if (status) query.status = `eq.${status}`;
-  if (priority) query.priority = `eq.${priority}`;
-  if (type) query["task_type_id"] = `eq.${type}`;
-  if (recurring) query.recurring = `eq.${recurring === "true" ? "true" : "false"}`;
-  if (search) query.name = `ilike.%${search}%`;
   if (!includeOccurrences) query.parent_task_id = "is.null";
+  if (search)   query.name           = `ilike.%${search}%`;
+  if (status)   query.status         = `eq.${status}`;
+  if (type)     query.task_type_id   = `eq.${type}`;
+  if (priority) query.priority       = `eq.${priority}`;
+  if (recurring) query.recurring     = `eq.${recurring === "true"}`;
+  if (start)    query.occurrence_date = `gte.${start}`;
+  if (end)      query.occurrence_date = end ? `lte.${end}` : query.occurrence_date;
 
   try {
-    const data = await supabaseRequest<any[]>("tasks", { query });
-    const tasks =
-      data?.map((task) => ({
-        ...task,
-        capabilities: (task.task_capabilities || [])
-          .map((entry: any) => entry.capability)
-          .filter(Boolean),
-      })) ?? [];
-    return NextResponse.json({ tasks });
-  } catch (err: any) {
-    const message = String(err?.message || "");
-    if (message.includes("comments")) {
-      const fallbackQuery = { ...query };
-      fallbackQuery.select = fallbackQuery.select.replace(",comments", "");
-      try {
-        const data = await supabaseRequest<any[]>("tasks", { query: fallbackQuery });
-        const tasks =
-          data?.map((task) => ({
-            ...task,
-            capabilities: (task.task_capabilities || [])
-              .map((entry: any) => entry.capability)
-              .filter(Boolean),
-          })) ?? [];
-        return NextResponse.json({ tasks });
-      } catch (fallbackErr) {
-        console.error("Failed to load tasks (fallback):", fallbackErr);
-      }
-    }
+    const data = await supabaseRequest<Record<string, unknown>[]>("tasks", { query });
+    return NextResponse.json({ tasks: (data ?? []).map(shapeTask) });
+  } catch (err) {
     console.error("Failed to load tasks:", err);
     return NextResponse.json({ tasks: [] });
   }
@@ -163,220 +96,55 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json(
-      { error: "Supabase is not configured for tasks yet." },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: "Supabase not configured." }, { status: 503 });
   }
+
   const body = await req.json().catch(() => null);
-  if (!body?.name) {
+  if (!body?.name?.trim()) {
     return NextResponse.json({ error: "Missing name" }, { status: 400 });
   }
 
+  const capabilityIds = normalizeCapabilityIds(body.capabilityIds);
+
+  const payload: Record<string, unknown> = {
+    name:                   body.name.trim(),
+    description:            body.description || null,
+    status:                 body.status || "Not Started",
+    priority:               body.priority || "Medium",
+    task_type_id:           body.task_type_id || null,
+    estimated_time:         body.estimated_time || null,
+    person_count:           normalizePersonCount(body.person_count),
+    time_slots:             body.time_slots ?? [],
+    extra_notes:            body.extra_notes ?? [],
+    links:                  normalizeLinks(body.links) ?? [],
+    photos:                 body.photos ?? [],
+    task_help_references:   body.task_help_references ?? [],
+    created_by_name:        body.created_by_name || null,
+    // recurrence
+    recurring:              Boolean(body.recurring),
+    recurrence_interval:    body.recurring ? Number(body.recurrence_interval || 1) : null,
+    recurrence_unit:        body.recurring ? (body.recurrence_unit || "day") : null,
+    recurrence_days:        body.recurring ? (body.recurrence_days ?? []) : null,
+    recurrence_end_type:    body.recurring ? (body.recurrence_end_type || "never") : null,
+    recurrence_until:       body.recurring && body.recurrence_end_type === "on_date" ? (body.recurrence_until || null) : null,
+    recurrence_count:       body.recurring && body.recurrence_end_type === "after_count" ? (body.recurrence_count || null) : null,
+    // no origin_date / occurrence_date / parent_task_id — library tasks don't have these
+  };
+
   try {
-    const capabilityIds = normalizeCapabilityIds(body?.capabilityIds);
-    const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
-    const isRecurring = Boolean(body.recurring);
-    const fallbackDate = new Date().toISOString().slice(0, 10);
-    const originDate = body.origin_date || body.occurrence_date || fallbackDate;
-    const interval = Number(body.recurrence_interval || 1);
-    const unit = body.recurrence_unit || "day";
-    const until = body.recurrence_until;
-    const sanitizedBody = { ...body };
-    if (Object.prototype.hasOwnProperty.call(sanitizedBody, "links")) {
-      sanitizedBody.links = normalizeLinksInput(sanitizedBody.links);
-    }
-    delete (sanitizedBody as Record<string, unknown>).capabilityIds;
-
-    const buildPayload = (payloadBody: Record<string, unknown>) => {
-      const helpReferences = Array.isArray(payloadBody.task_help_references)
-        ? payloadBody.task_help_references
-            .map((entry: unknown) => String(entry || "").trim())
-            .filter(Boolean)
-        : [];
-      const createdByName = String(payloadBody.created_by_name || "").trim();
-      return {
-        ...payloadBody,
-        origin_date: originDate,
-        occurrence_date: originDate,
-        recurring: isRecurring,
-        person_count: normalizePersonCount(payloadBody.person_count),
-        created_by_name: createdByName || null,
-        task_help_references: helpReferences.length
-          ? helpReferences
-          : createdByName
-            ? [createdByName]
-            : [],
-      };
-    };
-
-    const createOccurrences = async (parentId: string, payloadBody: Record<string, unknown>) => {
-      if (!isRecurring || !originDate || interval <= 0 || !unit) return;
-      const occurrences: Record<string, unknown>[] = [];
-      const startDate = new Date(originDate);
-      const endDate = until
-        ? new Date(until)
-        : new Date(
-            startDate.getFullYear(),
-            startDate.getMonth(),
-            startDate.getDate() + DEFAULT_OCCURRENCE_SPAN_DAYS
-          );
-      const nextDate = new Date(startDate);
-
-      while (true) {
-        if (unit === "day") {
-          nextDate.setDate(nextDate.getDate() + interval);
-        } else if (unit === "month") {
-          nextDate.setMonth(nextDate.getMonth() + interval);
-        } else if (unit === "year") {
-          nextDate.setFullYear(nextDate.getFullYear() + interval);
-        }
-
-        if (nextDate > endDate) break;
-
-        occurrences.push({
-          ...buildPayload(payloadBody),
-          origin_date: originDate,
-          occurrence_date: nextDate.toISOString().slice(0, 10),
-          parent_task_id: parentId,
-          recurring: true,
-          person_count: normalizePersonCount(payloadBody.person_count),
-        });
-      }
-
-      if (occurrences.length) {
-        await supabaseRequest("tasks", {
-          method: "POST",
-          prefer: "return=minimal",
-          body: occurrences,
-        });
-      }
-    };
-
-    const payload = buildPayload(sanitizedBody);
-    const [parent] = await supabaseRequest<any[]>("tasks", {
+    const [task] = await supabaseRequest<Record<string, unknown>[]>("tasks", {
       method: "POST",
       prefer: "return=representation",
-      query: { select: "*" },
+      query: { select: TASK_SELECT },
       body: payload,
     });
 
-    if (parent?.id) {
-      await createOccurrences(parent.id, sanitizedBody);
-      if (capabilityIds.length) {
-        const seriesTasks = await supabaseRequest<any[]>("tasks", {
-          query: {
-            select: "id",
-            or: `id.eq.${parent.id},parent_task_id.eq.${parent.id}`,
-          },
-        });
-        const taskIds = (seriesTasks || []).map((task) => task.id).filter(Boolean);
-        await syncTaskCapabilities(taskIds.length ? taskIds : [parent.id], capabilityIds);
-      }
+    if (task?.id && capabilityIds.length) {
+      await syncCapabilities(String(task.id), capabilityIds);
     }
 
-    return NextResponse.json({ task: parent });
-  } catch (err: any) {
-    const message = String(err?.message || "");
-    if (message.includes("comments")) {
-      try {
-        const fallbackBody = { ...body };
-        if (Object.prototype.hasOwnProperty.call(fallbackBody, "links")) {
-          fallbackBody.links = normalizeLinksInput(fallbackBody.links);
-        }
-        delete (fallbackBody as Record<string, unknown>).capabilityIds;
-        delete fallbackBody.comments;
-        const DEFAULT_OCCURRENCE_SPAN_DAYS = 90;
-        const capabilityIds = normalizeCapabilityIds(body?.capabilityIds);
-        const isRecurring = Boolean(fallbackBody.recurring);
-        const fallbackDate = new Date().toISOString().slice(0, 10);
-        const originDate =
-          (fallbackBody.origin_date as string) ||
-          (fallbackBody.occurrence_date as string) ||
-          fallbackDate;
-        const interval = Number(fallbackBody.recurrence_interval || 1);
-        const unit = (fallbackBody.recurrence_unit as string) || "day";
-        const until = fallbackBody.recurrence_until as string | undefined;
-        const createOccurrences = async (parentId: string) => {
-          if (!isRecurring || !originDate || interval <= 0 || !unit) return;
-          const occurrences: Record<string, unknown>[] = [];
-          const startDate = new Date(originDate);
-          const endDate = until
-            ? new Date(until)
-            : new Date(
-                startDate.getFullYear(),
-                startDate.getMonth(),
-                startDate.getDate() + DEFAULT_OCCURRENCE_SPAN_DAYS
-              );
-          const nextDate = new Date(startDate);
-
-          while (true) {
-            if (unit === "day") {
-              nextDate.setDate(nextDate.getDate() + interval);
-            } else if (unit === "month") {
-              nextDate.setMonth(nextDate.getMonth() + interval);
-            } else if (unit === "year") {
-              nextDate.setFullYear(nextDate.getFullYear() + interval);
-            }
-
-            if (nextDate > endDate) break;
-
-            occurrences.push({
-              ...fallbackBody,
-              origin_date: originDate,
-              occurrence_date: nextDate.toISOString().slice(0, 10),
-              parent_task_id: parentId,
-              recurring: true,
-              person_count: normalizePersonCount(fallbackBody.person_count),
-            });
-          }
-
-          if (occurrences.length) {
-            await supabaseRequest("tasks", {
-              method: "POST",
-              prefer: "return=minimal",
-              body: occurrences,
-            });
-          }
-        };
-        const [parent] = await supabaseRequest<any[]>("tasks", {
-          method: "POST",
-          prefer: "return=representation",
-          query: { select: "*" },
-          body: {
-            ...fallbackBody,
-            origin_date: originDate,
-            occurrence_date: originDate,
-            recurring: isRecurring,
-            person_count: normalizePersonCount(fallbackBody.person_count),
-            created_by_name: String(fallbackBody.created_by_name || "").trim() || null,
-            task_help_references: Array.isArray(fallbackBody.task_help_references)
-              ? (fallbackBody.task_help_references as unknown[])
-                  .map((entry: unknown) => String(entry || "").trim())
-                  .filter(Boolean)
-              : String(fallbackBody.created_by_name || "").trim()
-                ? [String(fallbackBody.created_by_name || "").trim()]
-                : [],
-          },
-        });
-        if (parent?.id) {
-          await createOccurrences(parent.id);
-          if (capabilityIds.length) {
-            const seriesTasks = await supabaseRequest<any[]>("tasks", {
-              query: {
-                select: "id",
-                or: `id.eq.${parent.id},parent_task_id.eq.${parent.id}`,
-              },
-            });
-            const taskIds = (seriesTasks || []).map((task) => task.id).filter(Boolean);
-            await syncTaskCapabilities(taskIds.length ? taskIds : [parent.id], capabilityIds);
-          }
-        }
-        return NextResponse.json({ task: parent });
-      } catch (fallbackErr) {
-        console.error("Failed to create task (fallback):", fallbackErr);
-      }
-    }
+    return NextResponse.json({ task: task ? shapeTask(task) : null });
+  } catch (err) {
     console.error("Failed to create task:", err);
     return NextResponse.json({ error: "Unable to create task" }, { status: 500 });
   }
@@ -384,336 +152,82 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json(
-      { error: "Supabase is not configured for tasks yet." },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: "Supabase not configured." }, { status: 503 });
   }
+
   const body = await req.json().catch(() => null);
-  const { id, applyTo = "single", occurrenceDate, deleteOccurrences, capabilityIds } = body || {};
+  const { id, capabilityIds } = body || {};
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  const updates = { ...body };
-  if (Object.prototype.hasOwnProperty.call(updates, "links")) {
-    updates.links = normalizeLinksInput(updates.links);
+  const updates: Record<string, unknown> = {};
+  const fields = [
+    "name", "description", "status", "priority", "task_type_id",
+    "estimated_time", "person_count", "time_slots", "extra_notes",
+    "links", "photos", "task_help_references", "created_by_name",
+    "recurring", "recurrence_interval", "recurrence_unit",
+    "recurrence_days", "recurrence_end_type", "recurrence_until", "recurrence_count",
+  ];
+  for (const key of fields) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      updates[key] = body[key];
+    }
   }
-  delete updates.id;
-  delete updates.applyTo;
-  delete updates.occurrenceDate;
-  delete updates.deleteOccurrences;
-  delete (updates as Record<string, unknown>).capabilityIds;
-  const hasDateUpdates =
-    Object.prototype.hasOwnProperty.call(updates, "occurrence_date") ||
-    Object.prototype.hasOwnProperty.call(updates, "origin_date");
+  if (Object.prototype.hasOwnProperty.call(updates, "links")) {
+    updates.links = normalizeLinks(updates.links);
+  }
   if (Object.prototype.hasOwnProperty.call(updates, "person_count")) {
     updates.person_count = normalizePersonCount(updates.person_count);
   }
-  if (Object.prototype.hasOwnProperty.call(updates, "task_help_references")) {
-    const references = Array.isArray(updates.task_help_references)
-      ? updates.task_help_references
-          .map((entry: unknown) => String(entry || "").trim())
-          .filter(Boolean)
-      : [];
-    const createdByName = String((updates as Record<string, unknown>).created_by_name || "").trim();
-    updates.task_help_references = references.length
-      ? references
-      : createdByName
-        ? [createdByName]
-        : [];
-  }
-  const normalizedCapabilities = Array.isArray(capabilityIds)
-    ? normalizeCapabilityIds(capabilityIds)
-    : null;
-
-  const stripOptionalFields = (payload: Record<string, unknown>) => {
-    const fallback = { ...payload };
-    delete (fallback as Record<string, unknown>).comments;
-    delete (fallback as Record<string, unknown>).links;
-    delete (fallback as Record<string, unknown>).extra_notes;
-    delete (fallback as Record<string, unknown>).photos;
-    delete (fallback as Record<string, unknown>).time_slots;
-    delete (fallback as Record<string, unknown>).task_type_id;
-    return fallback;
-  };
-
-  const buildMinimalUpdates = (payload: Record<string, unknown>) => {
-    const allowedKeys = new Set([
-      "name",
-      "description",
-      "status",
-      "priority",
-      "person_count",
-      "estimated_time",
-    ]);
-    const minimal: Record<string, unknown> = {};
-    Object.entries(payload).forEach(([key, value]) => {
-      if (allowedKeys.has(key)) {
-        minimal[key] = value;
-      }
+  // Clear recurrence fields when switching to one-off
+  if (updates.recurring === false) {
+    Object.assign(updates, {
+      recurrence_interval: null,
+      recurrence_unit: null,
+      recurrence_days: null,
+      recurrence_end_type: null,
+      recurrence_until: null,
+      recurrence_count: null,
     });
-    return minimal;
-  };
-
-  const applyUpdates = async (query: Record<string, string>) => {
-    try {
-      await supabaseRequest("tasks", {
-        method: "PATCH",
-        query,
-        body: updates,
-      });
-    } catch (err: any) {
-      const message = String(err?.message || "");
-      try {
-        const shouldFallback =
-          message.includes("comments") ||
-          message.includes("links") ||
-          message.includes("extra_notes") ||
-          message.includes("time_slots") ||
-          message.includes("photos") ||
-          message.includes("task_type_id") ||
-          message.includes("column");
-        const fallbackUpdates = shouldFallback ? stripOptionalFields(updates) : updates;
-        await supabaseRequest("tasks", {
-          method: "PATCH",
-          query,
-          body: fallbackUpdates,
-        });
-      } catch (fallbackErr) {
-        const minimalUpdates = buildMinimalUpdates(updates);
-        if (Object.keys(minimalUpdates).length) {
-          await supabaseRequest("tasks", {
-            method: "PATCH",
-            query,
-            body: minimalUpdates,
-          });
-          return;
-        }
-        throw fallbackErr;
-      }
-    }
-  };
+  }
 
   try {
-    if (applyTo === "single") {
-      const shouldNotifyDescription =
-        Object.prototype.hasOwnProperty.call(updates, "description");
-      const resolvedOccurrence = resolveIsoDate(
-        String(occurrenceDate || updates.occurrence_date || "")
-      );
-      let existingTask: { name?: string; description?: string; occurrence_date?: string | null } | null =
-        null;
-      if (shouldNotifyDescription) {
-        const [task] = await supabaseRequest<any[]>("tasks", {
-          query: {
-            select: "id,name,description,occurrence_date",
-            id: `eq.${id}`,
-            limit: 1,
-          },
-        });
-        existingTask = task || null;
-      }
-      if (hasDateUpdates) {
-        const [current] = await supabaseRequest<any[]>("tasks", {
-          query: { select: "recurring,parent_task_id", id: `eq.${id}`, limit: 1 },
-        });
-        if (current?.recurring || current?.parent_task_id) {
-          delete (updates as Record<string, unknown>).occurrence_date;
-          delete (updates as Record<string, unknown>).origin_date;
-        }
-      }
-      await applyUpdates({ id: `eq.${id}` });
-
-      if (updates.recurring === false && deleteOccurrences) {
-        await supabaseRequest("tasks", {
-          method: "DELETE",
-          query: { parent_task_id: `eq.${id}` },
-        });
-      }
-
-      if (normalizedCapabilities) {
-        await syncTaskCapabilities([id], normalizedCapabilities);
-      }
-
-      if (shouldNotifyDescription && existingTask) {
-        const existingDate = resolveIsoDate(existingTask.occurrence_date || "");
-        const hawaiiDate = getHawaiiDateLabel();
-        if (
-          resolvedOccurrence &&
-          existingDate &&
-          resolvedOccurrence === existingDate &&
-          existingDate === hawaiiDate
-        ) {
-          const beforeDescription = String(existingTask.description || "");
-          const afterDescription = String(updates.description ?? "");
-          if (beforeDescription.trim() !== afterDescription.trim()) {
-            const assignedPeople = await fetchAssignedPeople(id);
-            if (assignedPeople.length) {
-              await sendPushNotifications({
-                userNames: assignedPeople,
-                payload: {
-                  title: `Task updated: ${existingTask.name || "Task"}`,
-                  body: "A task description was updated. Login to view details.",
-                  url: "/hub",
-                  tag: "task-description",
-                },
-              });
-            }
-          }
-        }
-      }
-
-      return NextResponse.json({ ok: true });
-    }
-
-    const seriesData = await supabaseRequest<any[]>("tasks", {
-      query: { select: "id,parent_task_id,occurrence_date,origin_date", id: `eq.${id}`, limit: 1 },
+    await supabaseRequest("tasks", {
+      method: "PATCH",
+      query: { id: `eq.${id}` },
+      body: updates,
     });
-    const target = seriesData?.[0];
-    if (!target) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
 
-    const seriesRoot = target.parent_task_id || target.id;
-    const compareDate = occurrenceDate || target.occurrence_date || target.origin_date;
-    if (applyTo === "future" && !compareDate) {
-      return NextResponse.json(
-        { error: "Missing occurrence date for future edits." },
-        { status: 400 }
-      );
-    }
-
-    const occurrenceFilters: Record<string, string> = {
-      parent_task_id: `eq.${seriesRoot}`,
-    };
-    if (applyTo === "future" && compareDate) {
-      occurrenceFilters.occurrence_date = `gte.${compareDate}`;
-    }
-
-    await applyUpdates({ id: `eq.${seriesRoot}` });
-    await applyUpdates(occurrenceFilters);
-
-    if (updates.recurring === false && deleteOccurrences) {
-      const deleteFilters: Record<string, string> = {};
-      if (applyTo === "all") {
-        deleteFilters.or = `id.eq.${seriesRoot},parent_task_id.eq.${seriesRoot}`;
-      } else {
-        deleteFilters.parent_task_id = `eq.${seriesRoot}`;
-        if (applyTo === "future" && compareDate) {
-          deleteFilters.occurrence_date = `gte.${compareDate}`;
-        }
-      }
-
-      await supabaseRequest("tasks", {
-        method: "DELETE",
-        query: deleteFilters,
-      });
-    }
-
-    if (normalizedCapabilities) {
-      const occurrenceQuery: Record<string, string> = {
-        select: "id",
-        parent_task_id: `eq.${seriesRoot}`,
-      };
-      if (applyTo === "future" && compareDate) {
-        occurrenceQuery.occurrence_date = `gte.${compareDate}`;
-      }
-      const occurrences = await supabaseRequest<any[]>("tasks", {
-        query: occurrenceQuery,
-      });
-      const taskIds = Array.from(
-        new Set(
-          [seriesRoot, ...(occurrences || []).map((task) => task.id)].filter(Boolean)
-        )
-      );
-      await syncTaskCapabilities(taskIds, normalizedCapabilities);
+    if (Array.isArray(capabilityIds)) {
+      await syncCapabilities(id, normalizeCapabilityIds(capabilityIds));
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to update task:", err);
-    const message = err instanceof Error ? err.message : "Unable to update task";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to update task" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json(
-      { error: "Supabase is not configured for tasks yet." },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: "Supabase not configured." }, { status: 503 });
   }
+
   const body = await req.json().catch(() => null);
-  const url = new URL(req.url);
-  const id = body?.id || url.searchParams.get("id");
-  const applyTo = body?.applyTo || url.searchParams.get("applyTo") || "single";
-  const occurrenceDate =
-    body?.occurrenceDate || url.searchParams.get("occurrenceDate");
+  const id = body?.id;
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
   try {
-    if (applyTo === "single") {
-      await supabaseRequest("tasks", {
-        method: "DELETE",
-        query: { id: `eq.${id}` },
-      });
-      return NextResponse.json({ ok: true });
-    }
-
-    const seriesData = await supabaseRequest<any[]>("tasks", {
-      query: {
-        select: "id,parent_task_id,occurrence_date,origin_date",
-        id: `eq.${id}`,
-        limit: 1,
-      },
-    });
-    const target = seriesData?.[0];
-    if (!target) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
-
-    const seriesRoot = target.parent_task_id || target.id;
-    const compareDate =
-      occurrenceDate || target.occurrence_date || target.origin_date;
-
-    if (applyTo === "future" && !compareDate) {
-      return NextResponse.json(
-        { error: "Missing occurrence date for future deletes." },
-        { status: 400 }
-      );
-    }
-
-    const occurrenceFilters: Record<string, string> = {
-      parent_task_id: `eq.${seriesRoot}`,
-    };
-    if (applyTo === "future" && compareDate) {
-      occurrenceFilters.occurrence_date = `gte.${compareDate}`;
-    }
-
     await supabaseRequest("tasks", {
       method: "DELETE",
-      query: occurrenceFilters,
+      query: { id: `eq.${id}` },
     });
-
-    if (
-      applyTo === "all" ||
-      (applyTo === "future" &&
-        compareDate &&
-        target.occurrence_date &&
-        compareDate <= target.occurrence_date)
-    ) {
-      await supabaseRequest("tasks", {
-        method: "DELETE",
-        query: { id: `eq.${seriesRoot}` },
-      });
-    }
-
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Failed to delete task:", err);
