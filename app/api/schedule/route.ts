@@ -1,391 +1,279 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
+import { taskMatchesDate } from "@/lib/recurrence";
+import type { RecurringTask } from "@/lib/recurrence";
 
-type SlotRow = {
-  id: string;
-  label: string;
-  time_range: string | null;
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type ScheduleRow = {
-  id: string;
-};
+type ShiftRow = { id: string; label: string; time_range: string | null; order_index: number };
+type UserRow  = { display_name: string; active: boolean; user_role?: { name?: string | null } };
 
-type SchedulePersonRow = {
-  id: string;
+type RecurringTaskRow = RecurringTask & {
   name: string;
-  order_index: number;
+  description: string | null;
+  person_count: number;
 };
 
-type ScheduleCellRow = {
+type ScheduleTaskRow = {
   id: string;
-  person_id: string;
-  shift_id: string;
-  tasks: string[];
-  note: string | null;
-  blocked?: boolean | null;
+  task_id: string;
+  shift_id: string | null;
+  slots_needed: number;
+  override_notes: string | null;
+  task: { name: string; description: string | null; recurring: boolean } | null;
 };
 
-type TaskRow = {
+type AssignmentRow = {
   id: string;
-  name: string;
+  schedule_task_id: string;
+  user_name: string;
+  status: string;
+  completed_at: string | null;
+  completion_notes: string | null;
 };
 
-type UserRow = {
-  display_name: string;
-  active: boolean;
-  user_role?: { name?: string | null };
-};
-
-type Slot = { id: string; label: string; timeRange?: string; isMeal?: boolean };
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function toIsoDate(label?: string | null) {
   if (!label) return null;
-  if (label.includes("-")) return label;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
   const [month, day, year] = label.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function getTodayIsoDate() {
-  const formatter = new Intl.DateTimeFormat("en-US", {
+function getTodayHst(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Pacific/Honolulu",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = formatter.formatToParts(new Date());
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-  if (!year || !month || !day) return new Date().toISOString().slice(0, 10);
-  return `${year}-${month}-${day}`;
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const y = parts.find(p => p.type === "year")?.value;
+  const m = parts.find(p => p.type === "month")?.value;
+  const d = parts.find(p => p.type === "day")?.value;
+  return y && m && d ? `${y}-${m}-${d}` : new Date().toISOString().slice(0, 10);
 }
 
-function toLabel(date: string) {
-  const [year, month, day] = date.split("-");
-  if (!year || !month || !day) return date;
-  return `${month}/${day}/${year}`;
+function toLabel(iso: string) {
+  const [y, m, d] = iso.split("-");
+  return `${m}/${d}/${y}`;
 }
 
 function isMealShift(label: string) {
-  const lower = label.toLowerCase();
-  return ["breakfast", "lunch", "dinner"].some((item) => lower.includes(item));
+  return ["breakfast", "lunch", "dinner"].some(w => label.toLowerCase().includes(w));
 }
 
-async function fetchVolunteers() {
-  const users = await supabaseRequest<UserRow[]>("users", {
-    query: {
-      select: "display_name,active,user_role:user_roles(name)",
-      order: "display_name.asc",
-    },
+// ─── DB helpers ───────────────────────────────────────────────────────────────
+
+async function fetchShifts() {
+  const rows = await supabaseRequest<ShiftRow[]>("shifts", {
+    query: { select: "id,label,time_range,order_index", order: "order_index.asc" },
   });
-
-  return (
-    users
-      ?.filter(
-        (user) =>
-          user.active &&
-          (user.user_role?.name || "")
-            .toLowerCase()
-            .includes("volunteer")
-      )
-      .map((user) => user.display_name) || []
-  );
-}
-
-async function fetchScheduledVolunteerNames(isoDate: string, state: "staging" | "live") {
-  const schedules = await supabaseRequest<ScheduleRow[]>("schedules", {
-    query: {
-      select: "id",
-      schedule_date: `eq.${isoDate}`,
-      state: `eq.${state}`,
-      limit: 1,
-    },
-  });
-  const scheduleId = schedules?.[0]?.id;
-  if (!scheduleId) return [] as string[];
-  const rows = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
-    query: {
-      select: "name",
-      schedule_id: `eq.${scheduleId}`,
-      order: "order_index.asc",
-    },
-  });
-  return (rows || []).map((row) => row.name).filter(Boolean);
-}
-
-async function fetchSlots(): Promise<Slot[]> {
-  const rows = await supabaseRequest<SlotRow[]>("shifts", {
-    query: {
-      select: "id,label,time_range,order_index",
-      order: "order_index.asc",
-    },
-  });
-
-  if (!rows.length) {
-    await supabaseRequest("shifts", {
-      method: "POST",
-      body: [
-        { label: "Breakfast", time_range: "10:30-11:30", order_index: 1 },
-        { label: "Lunch", time_range: "2:30-3:30", order_index: 2 },
-        { label: "Dinner", time_range: null, order_index: 3 },
-        { label: "Morning Shift 1", time_range: "7:30-9:00", order_index: 4 },
-        { label: "Morning Shift 2", time_range: "9:00-10:30", order_index: 5 },
-        { label: "Noon Shift 1", time_range: "11:30-1:00", order_index: 6 },
-        { label: "Noon Shift 2", time_range: "1:00-2:30", order_index: 7 },
-        { label: "Afternoon Shift 1", time_range: "3:30-4:00", order_index: 8 },
-        { label: "Afternoon Shift 2", time_range: "4:00-6:30", order_index: 9 },
-        { label: "Evening Shift", time_range: null, order_index: 10 },
-        { label: "Weekend Saturday Morning", time_range: null, order_index: 11 },
-        { label: "Weekend Saturday Evening", time_range: null, order_index: 12 },
-        { label: "Weekend Sunday Morning", time_range: null, order_index: 13 },
-        { label: "Weekend Sunday Evening", time_range: null, order_index: 14 },
-      ],
-    });
-    const seeded = await supabaseRequest<SlotRow[]>("shifts", {
-      query: {
-        select: "id,label,time_range,order_index",
-        order: "order_index.asc",
-      },
-    });
-    return seeded.map((slot) => ({
-      id: slot.id,
-      label: slot.label,
-      timeRange: slot.time_range || undefined,
-      isMeal: isMealShift(slot.label),
-    }));
-  }
-
-  return rows.map((slot) => ({
-    id: slot.id,
-    label: slot.label,
-    timeRange: slot.time_range || undefined,
-    isMeal: isMealShift(slot.label),
+  return (rows ?? []).map(s => ({
+    id: s.id,
+    label: s.label,
+    timeRange: s.time_range ?? undefined,
+    isMeal: isMealShift(s.label),
   }));
 }
 
-async function syncSchedulePeople(scheduleId: string, volunteers: string[]) {
-  const people = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+async function fetchVolunteers(): Promise<string[]> {
+  const users = await supabaseRequest<UserRow[]>("users", {
+    query: { select: "display_name,active,user_role:user_roles(name)", order: "display_name.asc" },
+  });
+  return (users ?? [])
+    .filter(u => u.active && (u.user_role?.name ?? "").toLowerCase().includes("volunteer"))
+    .map(u => u.display_name);
+}
+
+async function findScheduleId(isoDate: string, state: "staging" | "live"): Promise<string | null> {
+  const rows = await supabaseRequest<{ id: string }[]>("schedules", {
+    query: { select: "id", schedule_date: `eq.${isoDate}`, state: `eq.${state}`, limit: "1" },
+  });
+  return rows?.[0]?.id ?? null;
+}
+
+async function createSchedule(isoDate: string): Promise<string | null> {
+  const rows = await supabaseRequest<{ id: string }[]>("schedules", {
+    method: "POST",
+    prefer: "return=representation",
+    body: { schedule_date: isoDate, state: "staging" },
+  });
+  return rows?.[0]?.id ?? null;
+}
+
+// ─── Auto-populate recurring tasks ───────────────────────────────────────────
+
+async function autoPopulate(scheduleId: string, isoDate: string) {
+  const tasks = await supabaseRequest<RecurringTaskRow[]>("tasks", {
     query: {
-      select: "id,name,order_index",
-      schedule_id: `eq.${scheduleId}`,
-      order: "order_index.asc",
+      select: "id,name,description,person_count,recurring,recurrence_interval,recurrence_unit," +
+              "recurrence_days,recurrence_end_type,recurrence_until,recurrence_count,created_at",
+      recurring: "eq.true",
+      parent_task_id: "is.null",
     },
   });
+  if (!tasks?.length) return;
 
-  const normalizedVolunteers = volunteers.map((name) => name.trim()).filter(Boolean);
-  const existingNames = new Map(
-    people.map((person) => [person.name.trim(), person])
-  );
-  const desiredSet = new Set(normalizedVolunteers);
-  const missing = normalizedVolunteers.filter((name) => !existingNames.has(name));
+  const existing = await supabaseRequest<{ task_id: string }[]>("schedule_tasks", {
+    query: { select: "task_id", schedule_id: `eq.${scheduleId}` },
+  });
+  const existingIds = new Set((existing ?? []).map(r => r.task_id));
 
-  if (missing.length) {
-    await supabaseRequest("schedule_people", {
+  for (const task of tasks) {
+    if (existingIds.has(task.id)) continue;
+    if (!taskMatchesDate(task, isoDate)) continue;
+
+    // after_count guard: count existing occurrences across all schedules
+    if (task.recurrence_end_type === "after_count" && task.recurrence_count != null) {
+      const countRows = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+        query: { select: "id", task_id: `eq.${task.id}` },
+      });
+      if ((countRows?.length ?? 0) >= task.recurrence_count) continue;
+    }
+
+    // Create schedule_tasks row
+    const created = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
       method: "POST",
-      body: missing.map((name) => ({
+      prefer: "return=representation",
+      body: {
         schedule_id: scheduleId,
-        name: name.trim(),
-        order_index: normalizedVolunteers.indexOf(name) + 1,
+        task_id: task.id,
+        slots_needed: task.person_count ?? 1,
+      },
+    });
+    const newStId = created?.[0]?.id;
+    if (!newStId) continue;
+
+    // Find most recent previous occurrence and copy its assignments
+    const prevTasks = await supabaseRequest<{ id: string; schedule: { schedule_date: string } | null }[]>(
+      "schedule_tasks",
+      {
+        query: {
+          select: "id,schedule:schedules(schedule_date)",
+          task_id: `eq.${task.id}`,
+          id: `neq.${newStId}`,
+          order: "created_at.desc",
+          limit: "1",
+        },
+      }
+    );
+    const prevStId = prevTasks?.[0]?.id;
+    if (!prevStId) continue;
+
+    const prevAssignments = await supabaseRequest<{ user_name: string }[]>("schedule_assignments", {
+      query: { select: "user_name", schedule_task_id: `eq.${prevStId}` },
+    });
+    if (!prevAssignments?.length) continue;
+
+    // Only copy active users
+    const activeVolunteers = new Set(await fetchVolunteers());
+    const toAdd = (prevAssignments).filter(a => activeVolunteers.has(a.user_name));
+    if (!toAdd.length) continue;
+
+    await supabaseRequest("schedule_assignments", {
+      method: "POST",
+      body: toAdd.map(a => ({
+        schedule_task_id: newStId,
+        user_name: a.user_name,
+        status: "Not Started",
       })),
     });
   }
-
-  const refreshed = await supabaseRequest<SchedulePersonRow[]>("schedule_people", {
-    query: {
-      select: "id,name,order_index",
-      schedule_id: `eq.${scheduleId}`,
-      order: "order_index.asc",
-    },
-  });
-
-  if (!normalizedVolunteers.length) {
-    return refreshed;
-  }
-
-  const ordered = [
-    ...normalizedVolunteers,
-    ...refreshed
-      .map((person) => person.name.trim())
-      .filter((name) => !desiredSet.has(name)),
-  ];
-
-  await Promise.all(
-    refreshed.map((person) => {
-      const nextIndex = ordered.indexOf(person.name.trim());
-      if (nextIndex < 0) return Promise.resolve(null);
-      if (person.order_index === nextIndex + 1) return Promise.resolve(null);
-      return supabaseRequest("schedule_people", {
-        method: "PATCH",
-        query: { id: `eq.${person.id}` },
-        body: { order_index: nextIndex + 1 },
-      });
-    })
-  );
-
-  return supabaseRequest<SchedulePersonRow[]>("schedule_people", {
-    query: {
-      select: "id,name,order_index",
-      schedule_id: `eq.${scheduleId}`,
-      order: "order_index.asc",
-    },
-  });
 }
 
-async function ensureScheduleCells(scheduleId: string, people: SchedulePersonRow[], slots: Slot[]) {
-  const existing = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
+// ─── Load schedule data ───────────────────────────────────────────────────────
+
+async function fetchScheduleTasks(scheduleId: string) {
+  const tasks = await supabaseRequest<ScheduleTaskRow[]>("schedule_tasks", {
     query: {
-      select: "id,person_id,shift_id",
+      select: "id,task_id,shift_id,slots_needed,override_notes," +
+              "task:tasks(name,description,recurring)",
       schedule_id: `eq.${scheduleId}`,
     },
   });
+  if (!tasks?.length) return [];
 
-  const existingKeys = new Set(
-    existing.map((cell) => `${cell.person_id}-${cell.shift_id}`)
-  );
+  const taskIds = tasks.map(t => t.id);
+  const assignments = taskIds.length
+    ? await supabaseRequest<AssignmentRow[]>("schedule_assignments", {
+        query: {
+          select: "id,schedule_task_id,user_name,status,completed_at,completion_notes",
+          schedule_task_id: `in.(${taskIds.join(",")})`,
+        },
+      })
+    : [];
 
-  const missing: { schedule_id: string; person_id: string; shift_id: string }[] = [];
-  people.forEach((person) => {
-    slots.forEach((slot) => {
-      const key = `${person.id}-${slot.id}`;
-      if (!existingKeys.has(key)) {
-        missing.push({
-          schedule_id: scheduleId,
-          person_id: person.id,
-          shift_id: slot.id,
-        });
-      }
-    });
-  });
-
-  if (missing.length) {
-    await supabaseRequest("schedule_cells", {
-      method: "POST",
-      body: missing.map((cell) => ({ ...cell, tasks: [], note: null, blocked: false })),
-    });
+  const assignMap = new Map<string, AssignmentRow[]>();
+  for (const a of (assignments ?? [])) {
+    if (!assignMap.has(a.schedule_task_id)) assignMap.set(a.schedule_task_id, []);
+    assignMap.get(a.schedule_task_id)!.push(a);
   }
+
+  return tasks.map(st => ({
+    id: st.id,
+    taskId: st.task_id,
+    taskName: st.task?.name ?? "",
+    taskDescription: st.task?.description ?? null,
+    shiftId: st.shift_id,
+    slotsNeeded: st.slots_needed,
+    isRecurring: st.task?.recurring ?? false,
+    overrideNotes: st.override_notes,
+    assignments: (assignMap.get(st.id) ?? []).map(a => ({
+      id: a.id,
+      userName: a.user_name,
+      status: a.status,
+      completedAt: a.completed_at,
+      completionNotes: a.completion_notes,
+    })),
+  }));
 }
+
+// ─── GET ──────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      { shifts: [], people: [], scheduleTasks: [], scheduleDate: toLabel(getTodayHst()) },
+      { status: 503 }
+    );
+  }
+
   try {
-    const url = new URL(req.url);
-    const dateLabel = url.searchParams.get("date") || "";
-    const isStaging = url.searchParams.get("staging") === "1";
-    const isoDate = toIsoDate(dateLabel) || getTodayIsoDate();
-    if (!isSupabaseConfigured()) {
-      return NextResponse.json({
-        people: [],
-        slots: [],
-        cells: [],
-        scheduleDate: toLabel(isoDate),
-        message: "Supabase is not configured for schedules yet.",
-      });
-    }
-
-    const [slots, activeVolunteers] = await Promise.all([
-      fetchSlots(),
-      fetchVolunteers(),
-    ]);
-
+    const { searchParams } = new URL(req.url);
+    const isoDate = toIsoDate(searchParams.get("date")) ?? getTodayHst();
+    const isStaging = searchParams.get("staging") === "1";
     const scheduleState = isStaging ? "staging" : "live";
-    let scheduleRows = await supabaseRequest<ScheduleRow[]>("schedules", {
-      query: {
-        select: "id",
-        schedule_date: `eq.${isoDate}`,
-        state: `eq.${scheduleState}`,
-        limit: 1,
-      },
-    });
 
-    let scheduleId = scheduleRows?.[0]?.id || null;
+    const [shifts, volunteers] = await Promise.all([fetchShifts(), fetchVolunteers()]);
+
+    let scheduleId = await findScheduleId(isoDate, scheduleState);
+
+    if (isStaging && !scheduleId) {
+      scheduleId = await createSchedule(isoDate);
+      if (scheduleId) await autoPopulate(scheduleId, isoDate);
+    }
 
     if (!scheduleId) {
-      const allVolunteers = Array.from(new Set(activeVolunteers));
-      const emptyCells = allVolunteers.map(() =>
-        slots.map(() => (isStaging ? { tasks: [], note: "" } : ""))
-      );
       return NextResponse.json({
-        people: allVolunteers,
-        slots,
-        cells: emptyCells,
+        shifts,
+        people: volunteers,
+        scheduleTasks: [],
         scheduleDate: toLabel(isoDate),
-        ...(isStaging ? {} : { message: "No live schedule published yet." }),
+        ...(!isStaging ? { message: "No live schedule published yet." } : {}),
       });
     }
 
-    const historicalVolunteers = await fetchScheduledVolunteerNames(isoDate, scheduleState);
-    const mergedVolunteers = Array.from(new Set([...activeVolunteers, ...historicalVolunteers]));
-    const schedulePeople = await syncSchedulePeople(scheduleId, mergedVolunteers);
-    await ensureScheduleCells(scheduleId, schedulePeople, slots);
-    const cells = await supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
-      query: {
-        select: "id,person_id,shift_id,tasks,note,blocked",
-        schedule_id: `eq.${scheduleId}`,
-      },
-    });
-
-    const cellMap = new Map<string, ScheduleCellRow>();
-    cells.forEach((cell) => {
-      cellMap.set(`${cell.person_id}-${cell.shift_id}`, cell);
-    });
-
-    const taskIds = Array.from(
-      new Set(cells.flatMap((cell) => cell.tasks || []))
-    );
-    const taskRows = taskIds.length
-      ? await supabaseRequest<TaskRow[]>("tasks", {
-          query: {
-            select: "id,name",
-            id: `in.(${taskIds.join(",")})`,
-          },
-        })
-      : [];
-    const taskMap = new Map(taskRows.map((task) => [task.id, task.name]));
-
-    const detailedMatrix = schedulePeople.map((person) =>
-      slots.map((slot) => {
-        const cell = cellMap.get(`${person.id}-${slot.id}`);
-        if (!cell) return { tasks: [], note: "" };
-        const tasks = (cell.tasks || [])
-          .map((taskId) => {
-            const name = taskMap.get(taskId);
-            if (!name) return null;
-            return { id: taskId, name };
-          })
-          .filter(Boolean) as { id: string; name: string }[];
-        return {
-          tasks,
-          note: (cell.note || "").trim(),
-          blocked: Boolean(cell.blocked),
-        };
-      })
-    );
-    const stringMatrix = detailedMatrix.map((row) =>
-      row.map((cell) => {
-        const names = cell.tasks.map((task) => task.name).filter(Boolean);
-        if (!names.length && !cell.note) return "";
-        if (!cell.note) return names.join(" • ");
-        return `${names.join(" • ")}\n${cell.note}`.trim();
-      })
-    );
-    const existsMatrix = schedulePeople.map((person) =>
-      slots.map((slot) => cellMap.has(`${person.id}-${slot.id}`))
-    );
+    const scheduleTasks = await fetchScheduleTasks(scheduleId);
 
     return NextResponse.json({
-      people: schedulePeople.map((person) => person.name),
-      slots,
-      cells: isStaging ? detailedMatrix : stringMatrix,
-      taskCells: detailedMatrix,
-      cellExists: isStaging ? existsMatrix : undefined,
+      shifts,
+      people: volunteers,
+      scheduleTasks,
+      scheduleId,
       scheduleDate: toLabel(isoDate),
     });
   } catch (err) {
-    console.error("Failed to load schedule", err);
-    return NextResponse.json(
-      { error: "Unable to load schedule" },
-      { status: 500 }
-    );
+    console.error("Failed to load schedule:", err);
+    return NextResponse.json({ error: "Unable to load schedule." }, { status: 500 });
   }
 }

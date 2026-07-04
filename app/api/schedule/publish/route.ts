@@ -2,219 +2,200 @@ import { NextResponse } from "next/server";
 import { supabaseRequest } from "@/lib/supabase";
 import { sendPushNotifications } from "@/lib/push";
 
-type ScheduleRow = { id: string };
-type SchedulePersonRow = { id: string; name: string; order_index: number };
-type ScheduleCellRow = {
-  person_id: string;
-  shift_id: string;
-  tasks: string[];
-  note: string | null;
-};
-
 function toIsoDate(label?: string | null) {
   if (!label) return null;
-  if (label.includes("-")) return label;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
   const [month, day, year] = label.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function buildScheduleSignature(
-  people: SchedulePersonRow[],
-  cells: ScheduleCellRow[]
-) {
-  const personIdToName = new Map(people.map((person) => [person.id, person.name]));
-  const personEntries = new Map<string, string[]>();
+type ScheduleTaskRow = {
+  id: string;
+  task_id: string;
+  shift_id: string | null;
+  slots_needed: number;
+  override_notes: string | null;
+};
 
-  cells.forEach((cell) => {
-    const name = personIdToName.get(cell.person_id);
-    if (!name) return;
-    const tasks = Array.isArray(cell.tasks)
-      ? cell.tasks.map((task) => String(task).trim()).filter(Boolean)
-      : [];
-    const signature = [
-      cell.shift_id,
-      tasks.join(","),
-      String(cell.note || "").trim(),
-    ].join("|");
-    if (!personEntries.has(name)) {
-      personEntries.set(name, []);
-    }
-    personEntries.get(name)?.push(signature);
-  });
+type AssignmentRow = {
+  schedule_task_id: string;
+  user_name: string;
+  status: string;
+  completed_at: string | null;
+  completion_notes: string | null;
+};
 
-  const signatures = new Map<string, string>();
-  people.forEach((person) => {
-    const entries = personEntries.get(person.name) || [];
-    entries.sort();
-    signatures.set(person.name, entries.join("||"));
-  });
+// Build a per-user task signature for detecting schedule changes (for push notifications).
+// signature = sorted list of "taskId|shiftId" strings joined together
+function buildUserSignatures(
+  tasks: ScheduleTaskRow[],
+  assignments: AssignmentRow[]
+): Map<string, string> {
+  const stMap = new Map(tasks.map(st => [st.id, st]));
+  const byUser = new Map<string, string[]>();
 
-  return signatures;
+  for (const a of assignments) {
+    const st = stMap.get(a.schedule_task_id);
+    if (!st) continue;
+    const sig = `${st.task_id}|${st.shift_id ?? ""}`;
+    if (!byUser.has(a.user_name)) byUser.set(a.user_name, []);
+    byUser.get(a.user_name)!.push(sig);
+  }
+
+  const out = new Map<string, string>();
+  for (const [name, sigs] of byUser) {
+    out.set(name, [...sigs].sort().join("||"));
+  }
+  return out;
 }
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
-  const { dateLabel } = body || {};
-  const isoDate = toIsoDate(dateLabel);
-
+  const isoDate = toIsoDate(body?.dateLabel);
   if (!isoDate) {
-    return NextResponse.json(
-      { error: "Missing schedule date." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing schedule date." }, { status: 400 });
   }
 
   try {
-    const stagingRows = await supabaseRequest<ScheduleRow[]>("schedules", {
-      query: {
-        select: "id",
-        schedule_date: `eq.${isoDate}`,
-        state: "eq.staging",
-        limit: 1,
-      },
+    // 1. Find staging schedule
+    const stagingRows = await supabaseRequest<{ id: string }[]>("schedules", {
+      query: { select: "id", schedule_date: `eq.${isoDate}`, state: "eq.staging", limit: "1" },
     });
     const stagingId = stagingRows?.[0]?.id;
-
     if (!stagingId) {
-      return NextResponse.json(
-        { error: "No staging schedule to publish." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No staging schedule to publish." }, { status: 400 });
     }
 
-    const liveRows = await supabaseRequest<ScheduleRow[]>("schedules", {
+    // 2. Read staging tasks, then assignments
+    const stagingTasks = await supabaseRequest<ScheduleTaskRow[]>("schedule_tasks", {
       query: {
-        select: "id",
-        schedule_date: `eq.${isoDate}`,
-        state: "eq.live",
-        limit: 1,
+        select: "id,task_id,shift_id,slots_needed,override_notes",
+        schedule_id: `eq.${stagingId}`,
       },
+    });
+
+    const stagingTaskIds = (stagingTasks ?? []).map(t => t.id);
+    const stagingAssignments = stagingTaskIds.length
+      ? await supabaseRequest<AssignmentRow[]>("schedule_assignments", {
+          query: {
+            select: "schedule_task_id,user_name,status,completed_at,completion_notes",
+            schedule_task_id: `in.(${stagingTaskIds.join(",")})`,
+          },
+        })
+      : [];
+
+    const stagingSigs = buildUserSignatures(stagingTasks ?? [], stagingAssignments ?? []);
+
+    // 3. Read existing live data (for push notification diff)
+    const liveRows = await supabaseRequest<{ id: string }[]>("schedules", {
+      query: { select: "id", schedule_date: `eq.${isoDate}`, state: "eq.live", limit: "1" },
     });
     const existingLiveId = liveRows?.[0]?.id;
 
-    const [livePeople, liveCells] = existingLiveId
-      ? await Promise.all([
-          supabaseRequest<SchedulePersonRow[]>("schedule_people", {
+    let liveSigs = new Map<string, string>();
+    if (existingLiveId) {
+      const liveTaskIds = (
+        await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+          query: { select: "id", schedule_id: `eq.${existingLiveId}` },
+        })
+      ).map(r => r.id);
+
+      if (liveTaskIds.length) {
+        const [liveTasks, liveAssignments] = await Promise.all([
+          supabaseRequest<ScheduleTaskRow[]>("schedule_tasks", {
+            query: { select: "id,task_id,shift_id,slots_needed,override_notes", schedule_id: `eq.${existingLiveId}` },
+          }),
+          supabaseRequest<AssignmentRow[]>("schedule_assignments", {
             query: {
-              select: "id,name,order_index",
-              schedule_id: `eq.${existingLiveId}`,
-              order: "order_index.asc",
+              select: "schedule_task_id,user_name,status,completed_at,completion_notes",
+              schedule_task_id: `in.(${liveTaskIds.join(",")})`,
             },
           }),
-          supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
-            query: {
-              select: "person_id,shift_id,tasks,note",
-              schedule_id: `eq.${existingLiveId}`,
-            },
-          }),
-        ])
-      : [[], []];
-
-    await supabaseRequest("schedules", {
-      method: "DELETE",
-      query: {
-        schedule_date: `eq.${isoDate}`,
-        state: "eq.live",
-      },
-    });
-
-    const [people, cells] = await Promise.all([
-      supabaseRequest<SchedulePersonRow[]>("schedule_people", {
-        query: {
-          select: "id,name,order_index",
-          schedule_id: `eq.${stagingId}`,
-          order: "order_index.asc",
-        },
-      }),
-      supabaseRequest<ScheduleCellRow[]>("schedule_cells", {
-        query: {
-          select: "person_id,shift_id,tasks,note",
-          schedule_id: `eq.${stagingId}`,
-        },
-      }),
-    ]);
-
-    const created = await supabaseRequest<ScheduleRow[]>("schedules", {
-      method: "POST",
-      prefer: "return=representation",
-      body: {
-        schedule_date: isoDate,
-        state: "live",
-      },
-    });
-
-    const createdLiveId = created?.[0]?.id;
-    if (!createdLiveId) {
-      return NextResponse.json(
-        { error: "Unable to publish schedule." },
-        { status: 500 }
-      );
+        ]);
+        liveSigs = buildUserSignatures(liveTasks ?? [], liveAssignments ?? []);
+      }
     }
 
-    const personIdMap = new Map<string, string>();
-    if (people.length) {
-      const inserted = await supabaseRequest<SchedulePersonRow[]>(
-        "schedule_people",
-        {
-          method: "POST",
-          prefer: "return=representation",
-          body: people.map((person) => ({
-            schedule_id: createdLiveId,
-            name: person.name,
-            order_index: person.order_index,
-          })),
-        }
-      );
-
-      inserted.forEach((person) => {
-        personIdMap.set(person.name, person.id);
+    // 4. Delete old live schedule (cascade removes its tasks + assignments)
+    if (existingLiveId) {
+      await supabaseRequest("schedules", {
+        method: "DELETE",
+        query: { schedule_date: `eq.${isoDate}`, state: "eq.live" },
       });
     }
 
-    if (cells.length) {
-      const rows = cells
-        .map((cell) => {
-          const personName =
-            people.find((person) => person.id === cell.person_id)?.name || "";
-          const livePersonId = personIdMap.get(personName);
-          if (!livePersonId) return null;
+    // 5. Create new live schedule row
+    const createdLive = await supabaseRequest<{ id: string }[]>("schedules", {
+      method: "POST",
+      prefer: "return=representation",
+      body: { schedule_date: isoDate, state: "live" },
+    });
+    const liveId = createdLive?.[0]?.id;
+    if (!liveId) {
+      return NextResponse.json({ error: "Unable to create live schedule." }, { status: 500 });
+    }
+
+    // 6. Copy schedule_tasks to live (one at a time to get new IDs for assignment mapping)
+    if ((stagingTasks ?? []).length) {
+      const oldToNew = new Map<string, string>();
+
+      for (const st of stagingTasks!) {
+        const newRows = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+          method: "POST",
+          prefer: "return=representation",
+          body: {
+            schedule_id: liveId,
+            task_id: st.task_id,
+            shift_id: st.shift_id,
+            slots_needed: st.slots_needed,
+            override_notes: st.override_notes,
+          },
+        });
+        if (newRows?.[0]?.id) oldToNew.set(st.id, newRows[0].id);
+      }
+
+      // 7. Copy assignments, re-mapping schedule_task_id to new live IDs
+      const assignRows = (stagingAssignments ?? [])
+        .map(a => {
+          const newStId = oldToNew.get(a.schedule_task_id);
+          if (!newStId) return null;
           return {
-            schedule_id: createdLiveId,
-            person_id: livePersonId,
-            shift_id: cell.shift_id,
-            tasks: cell.tasks,
-            note: cell.note,
+            schedule_task_id: newStId,
+            user_name: a.user_name,
+            status: a.status,
+            completed_at: a.completed_at,
+            completion_notes: a.completion_notes,
           };
         })
         .filter(Boolean);
 
-      if (rows.length) {
-        await supabaseRequest("schedule_cells", {
+      if (assignRows.length) {
+        await supabaseRequest("schedule_assignments", {
           method: "POST",
-          body: rows,
+          body: assignRows,
         });
       }
     }
 
-    const liveSignatures = existingLiveId
-      ? buildScheduleSignature(livePeople, liveCells)
-      : new Map<string, string>();
-    const stagingSignatures = buildScheduleSignature(people, cells);
-    const notifyNames = Array.from(stagingSignatures.entries())
-      .filter(([name, signature]) => {
-        if (!name) return false;
-        if (!existingLiveId) return true;
-        return liveSignatures.get(name) !== signature;
-      })
+    // 8. Send push notifications to people whose schedule changed
+    const notifyNames = Array.from(stagingSigs.entries())
+      .filter(([name, sig]) => name && liveSigs.get(name) !== sig)
       .map(([name]) => name);
+
+    // Also notify anyone who was on the live schedule but was removed
+    for (const [name] of liveSigs) {
+      if (!stagingSigs.has(name) && !notifyNames.includes(name)) {
+        notifyNames.push(name);
+      }
+    }
 
     if (notifyNames.length) {
       await sendPushNotifications({
         userNames: notifyNames,
         payload: {
           title: "Schedule updated",
-          body: "Changes have been made to your schedule, login to view.",
+          body: "Changes have been made to your schedule. Tap to view.",
           url: "/hub",
           tag: "schedule-update",
         },
@@ -223,20 +204,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Failed to publish schedule", err);
-    return NextResponse.json(
-      { error: "Unable to publish schedule." },
-      { status: 500 }
-    );
+    console.error("Failed to publish schedule:", err);
+    return NextResponse.json({ error: "Unable to publish schedule." }, { status: 500 });
   }
 }
 
-
 export async function DELETE(req: Request) {
   const body = await req.json().catch(() => null);
-  const { dateLabel } = body || {};
-  const isoDate = toIsoDate(dateLabel);
-
+  const isoDate = toIsoDate(body?.dateLabel);
   if (!isoDate) {
     return NextResponse.json({ error: "Missing schedule date." }, { status: 400 });
   }
@@ -244,15 +219,11 @@ export async function DELETE(req: Request) {
   try {
     await supabaseRequest("schedules", {
       method: "DELETE",
-      query: {
-        schedule_date: `eq.${isoDate}`,
-        state: "eq.live",
-      },
+      query: { schedule_date: `eq.${isoDate}`, state: "eq.live" },
     });
-
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Failed to remove published schedule", err);
+    console.error("Failed to remove published schedule:", err);
     return NextResponse.json({ error: "Unable to remove published schedule." }, { status: 500 });
   }
 }
