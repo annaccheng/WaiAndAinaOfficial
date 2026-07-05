@@ -1605,6 +1605,30 @@ export default function SchedulePage() {
     setContextMenu(null);
   }
 
+  // Keyboard shortcuts: Ctrl+C/X on open popover chip, Ctrl+V into open cell dropdown
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      if (date < getTodayIso()) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      if (e.key === "c" && popoverTask) {
+        e.preventDefault();
+        setClipboardTaskId(popoverTask.taskId);
+      } else if (e.key === "x" && popoverTask) {
+        e.preventDefault();
+        setClipboardTaskId(popoverTask.taskId);
+        handleRemoveTask(popoverTask.id);
+      } else if (e.key === "v" && clipboardTaskId && activeCell) {
+        e.preventDefault();
+        handlePaste(activeCell.person, activeCell.shiftId);
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [date, popoverTask, clipboardTaskId, activeCell]);
+
   if (accessError) return <div className="p-6 text-sm text-[#7a7f54]">{accessError}</div>;
   if (!authorized) return null;
 
