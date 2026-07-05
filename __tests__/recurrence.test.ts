@@ -49,6 +49,31 @@ describe("taskMatchesDate", () => {
       expect(taskMatchesDate(task, "2026-07-04")).toBe(false); // day 3
       expect(taskMatchesDate(task, "2026-07-05")).toBe(true);  // day 4
     });
+
+    it("handles full ISO timestamp in created_at (as returned by Supabase)", () => {
+      // Supabase returns e.g. "2026-07-01T08:30:00.000000+00:00" — appending
+      // "T12:00:00Z" to that would produce an invalid date string without the slice fix.
+      const task = makeTask({
+        recurrence_unit: "day",
+        recurrence_days: [],
+        recurrence_interval: 2,
+        created_at: "2026-07-01T08:30:00.000000+00:00",
+      });
+      expect(taskMatchesDate(task, "2026-07-01")).toBe(true);
+      expect(taskMatchesDate(task, "2026-07-02")).toBe(false);
+      expect(taskMatchesDate(task, "2026-07-03")).toBe(true);
+    });
+
+    it("handles full timestamp for monthly tasks", () => {
+      const task = makeTask({
+        recurrence_unit: "month",
+        recurrence_days: [],
+        recurrence_interval: 1,
+        created_at: "2026-03-15T10:00:00.000000+00:00",
+      });
+      expect(taskMatchesDate(task, "2026-04-15")).toBe(true);
+      expect(taskMatchesDate(task, "2026-04-14")).toBe(false);
+    });
   });
 
   describe("weekly tasks", () => {

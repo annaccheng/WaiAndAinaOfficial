@@ -30,10 +30,13 @@ export function taskMatchesDate(task: RecurringTask, isoDate: string): boolean {
     if (isoDate > task.recurrence_until) return false;
   }
 
-  const date = new Date(isoDate + "T12:00:00Z");
-  const dow  = date.getUTCDay();
-  const n    = task.recurrence_interval ?? 1;
-  const ref  = new Date((task.created_at ?? isoDate) + "T12:00:00Z");
+  const date       = new Date(isoDate + "T12:00:00Z");
+  const dow        = date.getUTCDay();
+  const n          = task.recurrence_interval ?? 1;
+  // Supabase returns created_at as a full ISO timestamp; slice to date-only before
+  // appending the noon anchor, otherwise new Date() gets an invalid string.
+  const refDateStr = (task.created_at ?? isoDate).slice(0, 10);
+  const ref        = new Date(refDateStr + "T12:00:00Z");
 
   switch (task.recurrence_unit) {
     case "day": {

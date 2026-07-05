@@ -68,7 +68,10 @@ describe("GET /api/schedule", () => {
       .mockResolvedValueOnce(SHIFTS)
       .mockResolvedValueOnce(VOLUNTEERS)
       .mockResolvedValueOnce([{ id: "sched-1" }])   // findScheduleId → existing
-      .mockResolvedValueOnce(scheduleTasks)           // fetchScheduleTasks
+      // autoPopulate now runs on every staging load:
+      .mockResolvedValueOnce([])                     // fetch recurring tasks → no new tasks to add
+      // fetchScheduleTasks:
+      .mockResolvedValueOnce(scheduleTasks)
       .mockResolvedValueOnce(assignments);            // schedule_assignments
 
     const res = await GET(makeReq());
@@ -126,8 +129,10 @@ describe("GET /api/schedule", () => {
       // autoPopulate:
       .mockResolvedValueOnce([recurringTask])          // fetch recurring tasks
       .mockResolvedValueOnce([])                       // existing schedule_tasks (none)
-      .mockResolvedValueOnce([{ id: newStId }])        // create schedule_tasks row
-      .mockResolvedValueOnce([])                       // find previous schedule_task (none)
+      .mockResolvedValueOnce([])                       // fetch live schedule IDs (none — no published yet)
+      // liveSchedIds empty → skip per-task prevRows query; prevRow = null
+      .mockResolvedValueOnce([{ id: newStId }])        // create schedule_tasks row (no prev shift)
+      // prevRow is null → continue (no assignment copy)
       // fetchScheduleTasks:
       .mockResolvedValueOnce([{
         id: newStId,
@@ -170,7 +175,8 @@ describe("GET /api/schedule", () => {
       .mockResolvedValueOnce([{ id: "sched-new" }])
       .mockResolvedValueOnce([expiredTask])   // autoPopulate: one expired recurring task
       .mockResolvedValueOnce([])              // existing schedule_tasks
-      // no schedule_tasks insert — task should be skipped
+      .mockResolvedValueOnce([])              // fetch live schedule IDs (none)
+      // task fails taskMatchesDate → skipped; no schedule_tasks insert
       .mockResolvedValueOnce([])              // fetchScheduleTasks: empty
       .mockResolvedValueOnce([]);             // assignments
 

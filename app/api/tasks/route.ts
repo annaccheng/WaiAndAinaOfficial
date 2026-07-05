@@ -70,13 +70,15 @@ export async function GET(req: Request) {
   const end                = searchParams.get("end") || "";
   // Default: only library root tasks. Pass includeOccurrences=true to get child rows too.
   const includeOccurrences = searchParams.get("includeOccurrences") === "true";
+  const idFilter           = searchParams.get("id") || "";
 
   const query: Record<string, string> = {
     select: TASK_SELECT,
     order: "created_at.desc",
   };
 
-  if (!includeOccurrences) query.parent_task_id = "is.null";
+  if (idFilter) query.id = `eq.${idFilter}`;
+  if (!includeOccurrences && !idFilter) query.parent_task_id = "is.null";
   if (search)   query.name           = `ilike.%${search}%`;
   if (status)   query.status         = `eq.${status}`;
   if (type)     query.task_type_id   = `eq.${type}`;

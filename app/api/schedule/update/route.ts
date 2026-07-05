@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured, supabaseRequest } from "@/lib/supabase";
+import { taskMatchesDate } from "@/lib/recurrence";
+import type { RecurringTask } from "@/lib/recurrence";
 
 function toIsoDate(label?: string | null) {
   if (!label) return null;
@@ -7,6 +9,41 @@ function toIsoDate(label?: string | null) {
   const [month, day, year] = label.split("/");
   if (!month || !day || !year) return null;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+async function fetchActiveVolunteers(): Promise<Set<string>> {
+  type UserRow = { display_name: string; active: boolean; user_role?: { name?: string | null } };
+  const users = await supabaseRequest<UserRow[]>("users", {
+    query: { select: "display_name,active,user_role:user_roles(name)", order: "display_name.asc" },
+  });
+  const names = (users ?? [])
+    .filter(u => u.active && (u.user_role?.name ?? "").toLowerCase().includes("volunteer"))
+    .map(u => u.display_name);
+  return new Set(names);
+}
+
+function getTodayIso(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const y = parts.find(p => p.type === "year")?.value;
+  const m = parts.find(p => p.type === "month")?.value;
+  const d = parts.find(p => p.type === "day")?.value;
+  return y && m && d ? `${y}-${m}-${d}` : new Date().toISOString().slice(0, 10);
+}
+
+// Past dates: prefer the published (live) record. Today/future: prefer staging.
+async function findSourceScheduleId(isoDate: string): Promise<string | null> {
+  const preferred = isoDate < getTodayIso() ? "live" : "staging";
+  const fallback  = preferred === "live" ? "staging" : "live";
+  for (const state of [preferred, fallback]) {
+    const rows = await supabaseRequest<{ id: string }[]>("schedules", {
+      query: { select: "id", schedule_date: `eq.${isoDate}`, state: `eq.${state}`, limit: "1" },
+    });
+    if (rows?.[0]?.id) return rows[0].id;
+  }
+  return null;
 }
 
 async function getOrCreateSchedule(isoDate: string): Promise<string | null> {
@@ -29,15 +66,28 @@ async function getOrCreateScheduleTask(
   shiftId: string | null,
   slotsNeeded: number
 ): Promise<string | null> {
-  const existing = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+  const existing = await supabaseRequest<{ id: string; shift_id: string | null }[]>("schedule_tasks", {
     query: {
-      select: "id",
+      select: "id,shift_id",
       schedule_id: `eq.${scheduleId}`,
       task_id: `eq.${taskId}`,
       limit: "1",
     },
   });
-  if (existing?.[0]?.id) return existing[0].id;
+  if (existing?.[0]) {
+    const row = existing[0];
+    // If the user is explicitly placing the task in a specific shift cell and the
+    // existing row has a different shift (e.g. auto-populated from a prior occurrence),
+    // move the row to the requested shift so the chip appears in the right column.
+    if (shiftId !== null && row.shift_id !== shiftId) {
+      await supabaseRequest("schedule_tasks", {
+        method: "PATCH",
+        query: { id: `eq.${row.id}` },
+        body: { shift_id: shiftId },
+      });
+    }
+    return row.id;
+  }
 
   const created = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
     method: "POST",
@@ -189,6 +239,112 @@ export async function POST(req: Request) {
           query: { id: `eq.${scheduleTaskId}` },
           body: { shift_id: shiftId ?? null },
         });
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Copy all tasks + matched assignments from another day ─────────────
+      case "copy_day": {
+        const { sourceDate, targetDate } = body;
+        if (!sourceDate || !targetDate) {
+          return NextResponse.json({ error: "Missing sourceDate or targetDate." }, { status: 400 });
+        }
+        const sourceIso = toIsoDate(sourceDate);
+        const targetIso = toIsoDate(targetDate);
+        if (!sourceIso || !targetIso) {
+          return NextResponse.json({ error: "Invalid date format." }, { status: 400 });
+        }
+
+        const sourceScheduleId = await findSourceScheduleId(sourceIso);
+        if (!sourceScheduleId) {
+          return NextResponse.json({ error: "No schedule found for the selected source date." }, { status: 404 });
+        }
+
+        const targetScheduleId = await getOrCreateSchedule(targetIso);
+        if (!targetScheduleId) {
+          return NextResponse.json({ error: "Unable to create target schedule." }, { status: 500 });
+        }
+
+        // Wipe everything on the target day — assignments cascade-delete
+        await supabaseRequest("schedule_tasks", {
+          method: "DELETE",
+          query: { schedule_id: `eq.${targetScheduleId}` },
+        });
+
+        type SourceTaskRow = {
+          id: string;
+          task_id: string;
+          shift_id: string | null;
+          slots_needed: number;
+          override_notes: string | null;
+          task: (RecurringTask & { id: string }) | null;
+        };
+        const sourceTasks = await supabaseRequest<SourceTaskRow[]>("schedule_tasks", {
+          query: {
+            select: "id,task_id,shift_id,slots_needed,override_notes," +
+                    "task:tasks(id,recurring,recurrence_interval,recurrence_unit," +
+                    "recurrence_days,recurrence_end_type,recurrence_until,recurrence_count,created_at)",
+            schedule_id: `eq.${sourceScheduleId}`,
+          },
+        });
+        if (!sourceTasks?.length) return NextResponse.json({ ok: true });
+
+        // Skip recurring tasks that don't match the target date — they were placed on
+        // the source day correctly but would be wrong-day noise on the target.
+        // One-off tasks (recurring = false) always copy through.
+        const filteredTasks = sourceTasks.filter(st => {
+          if (!st.task?.recurring) return true;
+          return taskMatchesDate({ ...st.task, id: st.task_id }, targetIso);
+        });
+
+        if (!filteredTasks.length) return NextResponse.json({ ok: true });
+
+        const sourceTaskIds = filteredTasks.map(t => t.id);
+        type AssignRow = { schedule_task_id: string; user_name: string };
+        const sourceAssignments = await supabaseRequest<AssignRow[]>("schedule_assignments", {
+          query: {
+            select: "schedule_task_id,user_name",
+            schedule_task_id: `in.(${sourceTaskIds.join(",")})`,
+          },
+        });
+
+        const assignMap = new Map<string, string[]>();
+        for (const a of (sourceAssignments ?? [])) {
+          if (!assignMap.has(a.schedule_task_id)) assignMap.set(a.schedule_task_id, []);
+          assignMap.get(a.schedule_task_id)!.push(a.user_name);
+        }
+
+        const activeVols = await fetchActiveVolunteers();
+
+        for (const st of filteredTasks) {
+          const created = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+            method: "POST",
+            prefer: "return=representation",
+            body: {
+              schedule_id: targetScheduleId,
+              task_id: st.task_id,
+              shift_id: st.shift_id ?? null,
+              slots_needed: st.slots_needed,
+              override_notes: st.override_notes ?? null,
+            },
+          });
+          const newStId = created?.[0]?.id;
+          if (!newStId) continue;
+
+          // Assign people from the source who are still active on the target day.
+          // Anyone missing just leaves slots_needed > assignments count → unassigned row.
+          const assignees = (assignMap.get(st.id) ?? []).filter(n => activeVols.has(n));
+          if (!assignees.length) continue;
+
+          await supabaseRequest("schedule_assignments", {
+            method: "POST",
+            body: assignees.map(n => ({
+              schedule_task_id: newStId,
+              user_name: n,
+              status: "Not Started",
+            })),
+          });
+        }
+
         return NextResponse.json({ ok: true });
       }
 
