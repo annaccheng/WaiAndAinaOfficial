@@ -1205,8 +1205,9 @@ export default function SchedulePage() {
   const [showCopyModal,     setShowCopyModal]     = useState(false);
 
   // Drag state — ref avoids stale closures in drop handlers
-  const dragTaskRef   = useRef<ScheduleTask | null>(null);
-  const dragPersonRef = useRef<string | null>(null); // null = dragging from unassigned row
+  const dragTaskRef        = useRef<ScheduleTask | null>(null);
+  const dragPersonRef      = useRef<string | null>(null); // null = dragging from unassigned row
+  const stagingSnapshotRef = useRef<ScheduleData | null>(null); // cached staging data for instant live→staging toggle
   const [dragOverCell, setDragOverCell] = useState<ActiveCell | null>(null);
 
   const [publishing,  setPublishing]   = useState(false);
@@ -1285,14 +1286,26 @@ export default function SchedulePage() {
   }, [scheduleData]);
 
   async function handleViewToggle(newMode: "staging" | "live") {
-    setViewMode(newMode);
-    await loadSchedule(date, { viewOverride: newMode });
+    if (newMode === "live") {
+      stagingSnapshotRef.current = scheduleData ?? null;
+      setViewMode("live");
+      await loadSchedule(date, { viewOverride: "live" });
+    } else {
+      setViewMode("staging");
+      if (stagingSnapshotRef.current) {
+        setScheduleData(stagingSnapshotRef.current);
+        stagingSnapshotRef.current = null;
+      } else {
+        await loadSchedule(date, { viewOverride: "staging" });
+      }
+    }
   }
 
   useEffect(() => {
     if (!authorized) return;
     setPublishNote(null);
     setViewMode("staging");
+    stagingSnapshotRef.current = null;
     loadSchedule(date, { viewOverride: "staging" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorized, date]);
@@ -1365,13 +1378,36 @@ export default function SchedulePage() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/schedule/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_task", dateLabel: date, taskId: task.id, shiftId: cell.shiftId, userName: cell.person }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
-      const { scheduleTaskId } = await res.json();
+      // Fast path: task already has a schedule_tasks row for this shift — just assign
+      const existing = scheduleTasks.find(st => st.taskId === task.id && st.shiftId === cell.shiftId);
+      let scheduleTaskId: string;
+      if (existing) {
+        if (!existing.assignments.some(a => a.userName === cell.person)) {
+          const res = await fetch("/api/schedule/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "assign", scheduleTaskId: existing.id, userName: cell.person }),
+          });
+          if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
+        }
+        scheduleTaskId = existing.id;
+      } else {
+        const res = await fetch("/api/schedule/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "add_task",
+            dateLabel: date,
+            taskId: task.id,
+            shiftId: cell.shiftId,
+            userName: cell.person,
+            scheduleId: scheduleData?.scheduleId,
+            slotsNeeded: task.person_count,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
+        scheduleTaskId = (await res.json()).scheduleTaskId;
+      }
       applyPatch(mkAddTask(scheduleTaskId, task, cell.shiftId, cell.person));
     } catch (err) {
       await loadSchedule(date);
@@ -1516,13 +1552,36 @@ export default function SchedulePage() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/schedule/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_task", dateLabel: date, taskId: pastedTaskId, shiftId, userName: person }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
-      const { scheduleTaskId } = await res.json();
+      // Fast path: task already scheduled in this shift — just assign
+      const existing = scheduleTasks.find(st => st.taskId === pastedTaskId && st.shiftId === shiftId);
+      let scheduleTaskId: string;
+      if (existing) {
+        if (!existing.assignments.some(a => a.userName === person)) {
+          const res = await fetch("/api/schedule/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "assign", scheduleTaskId: existing.id, userName: person }),
+          });
+          if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
+        }
+        scheduleTaskId = existing.id;
+      } else {
+        const res = await fetch("/api/schedule/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "add_task",
+            dateLabel: date,
+            taskId: pastedTaskId,
+            shiftId,
+            userName: person,
+            scheduleId: scheduleData?.scheduleId,
+            slotsNeeded: libraryTask?.person_count,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error ?? "Update failed.");
+        scheduleTaskId = (await res.json()).scheduleTaskId;
+      }
       if (libraryTask) {
         applyPatch(mkAddTask(scheduleTaskId, libraryTask, shiftId, person));
       } else {

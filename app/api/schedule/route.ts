@@ -14,6 +14,14 @@ type RecurringTaskRow = RecurringTask & {
   person_count: number;
 };
 
+type AssignmentRow = {
+  id: string;
+  user_name: string;
+  status: string;
+  completed_at: string | null;
+  completion_notes: string | null;
+};
+
 type ScheduleTaskRow = {
   id: string;
   task_id: string;
@@ -21,15 +29,7 @@ type ScheduleTaskRow = {
   slots_needed: number;
   override_notes: string | null;
   task: { name: string; description: string | null; recurring: boolean } | null;
-};
-
-type AssignmentRow = {
-  id: string;
-  schedule_task_id: string;
-  user_name: string;
-  status: string;
-  completed_at: string | null;
-  completion_notes: string | null;
+  assignments: AssignmentRow[];
 };
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -290,27 +290,12 @@ async function fetchScheduleTasks(scheduleId: string) {
   const tasks = await supabaseRequest<ScheduleTaskRow[]>("schedule_tasks", {
     query: {
       select: "id,task_id,shift_id,slots_needed,override_notes," +
-              "task:tasks(name,description,recurring)",
+              "task:tasks(name,description,recurring)," +
+              "assignments:schedule_assignments(id,user_name,status,completed_at,completion_notes)",
       schedule_id: `eq.${scheduleId}`,
     },
   });
   if (!tasks?.length) return [];
-
-  const taskIds = tasks.map(t => t.id);
-  const assignments = taskIds.length
-    ? await supabaseRequest<AssignmentRow[]>("schedule_assignments", {
-        query: {
-          select: "id,schedule_task_id,user_name,status,completed_at,completion_notes",
-          schedule_task_id: `in.(${taskIds.join(",")})`,
-        },
-      })
-    : [];
-
-  const assignMap = new Map<string, AssignmentRow[]>();
-  for (const a of (assignments ?? [])) {
-    if (!assignMap.has(a.schedule_task_id)) assignMap.set(a.schedule_task_id, []);
-    assignMap.get(a.schedule_task_id)!.push(a);
-  }
 
   return tasks.map(st => ({
     id: st.id,
@@ -321,7 +306,7 @@ async function fetchScheduleTasks(scheduleId: string) {
     slotsNeeded: st.slots_needed,
     isRecurring: st.task?.recurring ?? false,
     overrideNotes: st.override_notes,
-    assignments: (assignMap.get(st.id) ?? []).map(a => ({
+    assignments: (st.assignments ?? []).map(a => ({
       id: a.id,
       userName: a.user_name,
       status: a.status,

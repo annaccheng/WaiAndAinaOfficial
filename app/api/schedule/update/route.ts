@@ -156,20 +156,22 @@ export async function POST(req: Request) {
 
       // ── Add a task to this day (and optionally assign one person) ─────────
       case "add_task": {
-        const { taskId, shiftId, userName } = body;
+        const { taskId, shiftId, userName, scheduleId: clientScheduleId, slotsNeeded: clientSlotsNeeded } = body;
         if (!taskId || !dateLabel) {
           return NextResponse.json({ error: "Missing taskId or dateLabel." }, { status: 400 });
         }
         const isoDate = toIsoDate(dateLabel);
         if (!isoDate) return NextResponse.json({ error: "Invalid date." }, { status: 400 });
 
-        // Look up task to get person_count for slots_needed
-        const tasks = await supabaseRequest<{ id: string; person_count: number }[]>("tasks", {
-          query: { select: "id,person_count", id: `eq.${taskId}`, limit: "1" },
-        });
-        const slotsNeeded = tasks?.[0]?.person_count ?? 1;
+        // Use client-provided slotsNeeded when available — saves a round trip
+        const slotsNeeded: number = clientSlotsNeeded != null
+          ? clientSlotsNeeded
+          : (await supabaseRequest<{ person_count: number }[]>("tasks", {
+              query: { select: "person_count", id: `eq.${taskId}`, limit: "1" },
+            }))?.[0]?.person_count ?? 1;
 
-        const scheduleId = await getOrCreateSchedule(isoDate);
+        // Use client-provided scheduleId when available — saves a round trip
+        const scheduleId = clientScheduleId ?? await getOrCreateSchedule(isoDate);
         if (!scheduleId) return NextResponse.json({ error: "Unable to create schedule." }, { status: 500 });
 
         const scheduleTaskId = await getOrCreateScheduleTask(scheduleId, taskId, shiftId ?? null, slotsNeeded);
@@ -310,33 +312,32 @@ export async function POST(req: Request) {
 
         const activeVols = await fetchActiveVolunteers();
 
-        for (const st of filteredTasks) {
-          const created = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
-            method: "POST",
-            prefer: "return=representation",
-            body: {
-              schedule_id: targetScheduleId,
-              task_id: st.task_id,
-              shift_id: st.shift_id ?? null,
-              slots_needed: st.slots_needed,
-              override_notes: st.override_notes ?? null,
-            },
-          });
-          const newStId = created?.[0]?.id;
-          if (!newStId) continue;
+        // Batch-insert all schedule_task rows at once instead of one at a time
+        const newTaskRows = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
+          method: "POST",
+          prefer: "return=representation",
+          body: filteredTasks.map(st => ({
+            schedule_id: targetScheduleId,
+            task_id: st.task_id,
+            shift_id: st.shift_id ?? null,
+            slots_needed: st.slots_needed,
+            override_notes: st.override_notes ?? null,
+          })),
+        });
+        if (!newTaskRows?.length) return NextResponse.json({ ok: true });
 
-          // Assign people from the source who are still active on the target day.
-          // Anyone missing just leaves slots_needed > assignments count → unassigned row.
-          const assignees = (assignMap.get(st.id) ?? []).filter(n => activeVols.has(n));
-          if (!assignees.length) continue;
-
+        // Batch-insert all assignments at once — index aligns with filteredTasks insertion order
+        const allAssignments = filteredTasks.flatMap((st, i) => {
+          const newStId = newTaskRows[i]?.id;
+          if (!newStId) return [];
+          return (assignMap.get(st.id) ?? [])
+            .filter(n => activeVols.has(n))
+            .map(n => ({ schedule_task_id: newStId, user_name: n, status: "Not Started" }));
+        });
+        if (allAssignments.length) {
           await supabaseRequest("schedule_assignments", {
             method: "POST",
-            body: assignees.map(n => ({
-              schedule_task_id: newStId,
-              user_name: n,
-              status: "Not Started",
-            })),
+            body: allAssignments,
           });
         }
 
