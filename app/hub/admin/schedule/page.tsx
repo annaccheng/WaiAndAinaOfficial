@@ -237,7 +237,7 @@ function TaskChip({
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${task.isRecurring ? "bg-sky-400" : "bg-amber-400"}`} />
         <span className="flex-1 truncate font-medium text-[#314123]">{task.taskName}</span>
-        {task.slotsNeeded > 1 && (
+        {(task.slotsNeeded > 1 || slotsFilled > task.slotsNeeded) && (
           <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
             badgeFull ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
           }`}>
@@ -1211,6 +1211,7 @@ export default function SchedulePage() {
 
   const [publishing,  setPublishing]   = useState(false);
   const [publishNote, setPublishNote]  = useState<string | null>(null);
+  const [viewMode,    setViewMode]     = useState<"staging" | "live">("staging");
   const [popoverPos,  setPopoverPos]   = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   function openPopover(task: ScheduleTask, clickX: number, clickY: number) {
@@ -1252,13 +1253,15 @@ export default function SchedulePage() {
       .catch(console.error);
   }, [authorized]);
 
-  async function loadSchedule(iso: string, opts: { skipAutoPopulate?: boolean } = {}) {
+  async function loadSchedule(iso: string, opts: { skipAutoPopulate?: boolean; viewOverride?: "staging" | "live" } = {}) {
     setLoading(true);
     setError(null);
     try {
-      // Past dates show the published live record; today/future show staging.
       const pastDate = iso < getTodayIso();
-      let url = pastDate
+      const mode = opts.viewOverride ?? viewMode;
+      // Past dates always show the published live record.
+      // Today/future: staging by default; switch to live when the toggle says so.
+      let url = (pastDate || mode === "live")
         ? `/api/schedule?date=${iso}`
         : `/api/schedule?date=${iso}&staging=1`;
       if (opts.skipAutoPopulate) url += "&skipAutoPopulate=1";
@@ -1281,10 +1284,16 @@ export default function SchedulePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleData]);
 
+  async function handleViewToggle(newMode: "staging" | "live") {
+    setViewMode(newMode);
+    await loadSchedule(date, { viewOverride: newMode });
+  }
+
   useEffect(() => {
     if (!authorized) return;
     setPublishNote(null);
-    loadSchedule(date);
+    setViewMode("staging");
+    loadSchedule(date, { viewOverride: "staging" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorized, date]);
 
@@ -1605,29 +1614,32 @@ export default function SchedulePage() {
     setContextMenu(null);
   }
 
-  // Keyboard shortcuts: Ctrl+C/X on open popover chip, Ctrl+V into open cell dropdown
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (!e.ctrlKey && !e.metaKey) return;
-      if (date < getTodayIso()) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+  // Stable ref so the listener is registered once but always sees fresh state.
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandlerRef.current = (e: KeyboardEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    if (date < getTodayIso() || viewMode === "live") return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-      if (e.key === "c" && popoverTask) {
-        e.preventDefault();
-        setClipboardTaskId(popoverTask.taskId);
-      } else if (e.key === "x" && popoverTask) {
-        e.preventDefault();
-        setClipboardTaskId(popoverTask.taskId);
-        handleRemoveTask(popoverTask.id);
-      } else if (e.key === "v" && clipboardTaskId && activeCell) {
-        e.preventDefault();
-        handlePaste(activeCell.person, activeCell.shiftId);
-      }
+    if (e.key === "c" && popoverTask) {
+      e.preventDefault();
+      setClipboardTaskId(popoverTask.taskId);
+    } else if (e.key === "x" && popoverTask) {
+      e.preventDefault();
+      setClipboardTaskId(popoverTask.taskId);
+      handleRemoveTask(popoverTask.id);
+    } else if (e.key === "v" && clipboardTaskId && activeCell) {
+      e.preventDefault();
+      handlePaste(activeCell.person, activeCell.shiftId);
     }
+  };
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) { keyHandlerRef.current(e); }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [date, popoverTask, clipboardTaskId, activeCell]);
+  }, []);
 
   if (accessError) return <div className="p-6 text-sm text-[#7a7f54]">{accessError}</div>;
   if (!authorized) return null;
@@ -1640,7 +1652,8 @@ export default function SchedulePage() {
   // Past dates: show only the people who were actually assigned — exactly as saved.
   // Current / future dates: show all active volunteers (plus any deactivated who are
   // still assigned to this staging schedule).
-  const isPast = date < getTodayIso();
+  const isPast     = date < getTodayIso();
+  const isReadOnly = isPast || viewMode === "live";
 
   const assignedOnThisSchedule = new Set(
     scheduleTasks.flatMap(st => st.assignments.map(a => a.userName))
@@ -1653,7 +1666,7 @@ export default function SchedulePage() {
   // for current/future use only active-volunteer assignments so deactivated slots show as open.
   const unassignedTasks = scheduleTasks.filter(st =>
     st.shiftId === null ||
-    (isPast ? st.assignments.length : st.activeAssignments) < st.slotsNeeded
+    (isReadOnly ? st.assignments.length : st.activeAssignments) < st.slotsNeeded
   );
   const existingTaskIds = new Set(scheduleTasks.map(st => st.taskId));
 
@@ -1705,14 +1718,33 @@ export default function SchedulePage() {
               </span>
             ) : (
               <>
-                <button onClick={() => setShowCopyModal(true)}
-                  className="rounded border border-[#d0c9a4] px-2.5 py-1.5 text-xs text-[#4b5133] hover:bg-[#f3f0e4]">
-                  Copy from…
-                </button>
-                <button onClick={handlePublish} disabled={publishing || loading}
-                  className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60 hover:bg-[#7e9c44]">
-                  {publishing ? "Publishing…" : "Publish"}
-                </button>
+                {/* Staging / Live toggle */}
+                <div className="flex rounded border border-[#d0c9a4] overflow-hidden text-xs">
+                  <button
+                    onClick={() => viewMode !== "staging" && handleViewToggle("staging")}
+                    className={`px-2.5 py-1.5 transition-colors ${viewMode === "staging" ? "bg-[#8fae4c] text-white font-semibold" : "text-[#4b5133] hover:bg-[#f3f0e4]"}`}
+                  >
+                    Staging
+                  </button>
+                  <button
+                    onClick={() => viewMode !== "live" && handleViewToggle("live")}
+                    className={`px-2.5 py-1.5 border-l border-[#d0c9a4] transition-colors ${viewMode === "live" ? "bg-[#4b5133] text-white font-semibold" : "text-[#4b5133] hover:bg-[#f3f0e4]"}`}
+                  >
+                    Live
+                  </button>
+                </div>
+                {viewMode === "staging" && (
+                  <>
+                    <button onClick={() => setShowCopyModal(true)}
+                      className="rounded border border-[#d0c9a4] px-2.5 py-1.5 text-xs text-[#4b5133] hover:bg-[#f3f0e4]">
+                      Copy from…
+                    </button>
+                    <button onClick={handlePublish} disabled={publishing || loading}
+                      className="rounded-md bg-[#8fae4c] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60 hover:bg-[#7e9c44]">
+                      {publishing ? "Publishing…" : "Publish"}
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -1725,7 +1757,7 @@ export default function SchedulePage() {
           <div className="flex h-32 items-center justify-center text-sm text-[#7a7f54]">Loading…</div>
         )}
 
-        {!loading && scheduleData?.message && isPast && (
+        {!loading && scheduleData?.message && isReadOnly && (
           <div className="flex h-32 items-center justify-center text-sm text-[#7a7f54]">
             No schedule was published for this date.
           </div>
@@ -1766,12 +1798,12 @@ export default function SchedulePage() {
                         key={task.id}
                         task={task}
                         onClick={e => { e.stopPropagation(); setContextMenu(null); setActiveCell(null); openPopover(task, e.clientX, e.clientY); }}
-                        onContextMenu={isPast ? undefined : e => {
+                        onContextMenu={isReadOnly ? undefined : e => {
                           e.stopPropagation();
                           setPopoverTask(null);
                           setContextMenu({ type: "chip", x: e.clientX, y: e.clientY, task, person: "" });
                         }}
-                        onDragStart={isPast ? undefined : e => {
+                        onDragStart={isReadOnly ? undefined : e => {
                           e.stopPropagation();
                           dragTaskRef.current   = task;
                           dragPersonRef.current = null;
@@ -1810,7 +1842,7 @@ export default function SchedulePage() {
                         <div
                           key={shift.id}
                           style={{ width: SHIFT_COL, minWidth: SHIFT_COL }}
-                          onMouseDown={isPast ? undefined : e => {
+                          onMouseDown={isReadOnly ? undefined : e => {
                             if ((e.target as Element).closest("button,a,select")) return;
                             e.stopPropagation();
                             setPopoverTask(null);
@@ -1823,21 +1855,21 @@ export default function SchedulePage() {
                               setActiveCellRect((e.currentTarget as HTMLElement).getBoundingClientRect());
                             }
                           }}
-                          onContextMenu={isPast ? undefined : e => {
+                          onContextMenu={isReadOnly ? undefined : e => {
                             e.preventDefault();
                             e.stopPropagation();
                             setActiveCell(null);
                             setContextMenu({ type: "cell", x: e.clientX, y: e.clientY, person, shiftId: shift.id });
                           }}
-                          onDragOver={isPast ? undefined : e => {
+                          onDragOver={isReadOnly ? undefined : e => {
                             e.preventDefault();
                             e.dataTransfer.dropEffect = "move";
                             setDragOverCell({ person, shiftId: shift.id });
                           }}
-                          onDragLeave={isPast ? undefined : () => setDragOverCell(null)}
-                          onDrop={isPast ? undefined : e => { e.preventDefault(); handleDrop(person, shift.id); }}
+                          onDragLeave={isReadOnly ? undefined : () => setDragOverCell(null)}
+                          onDrop={isReadOnly ? undefined : e => { e.preventDefault(); handleDrop(person, shift.id); }}
                           className={`relative shrink-0 border-r border-[#d0c9a4] px-2 py-1.5 min-h-[48px] transition-colors ${cellBg} ${
-                            isPast     ? "" :
+                            isReadOnly ? "" :
                             isDragOver ? "ring-2 ring-inset ring-[#8fae4c] bg-[#f0f4e8] cursor-pointer" :
                             isActive   ? "ring-1 ring-inset ring-[#8fae4c] bg-[#f0f4e8] cursor-pointer" :
                             "hover:bg-[#f3f0e4] cursor-pointer"
@@ -1855,19 +1887,19 @@ export default function SchedulePage() {
                                   setContextMenu(null);
                                   openPopover(task, e.clientX, e.clientY);
                                 }}
-                                onContextMenu={isPast ? undefined : e => {
+                                onContextMenu={isReadOnly ? undefined : e => {
                                   e.stopPropagation();
                                   setPopoverTask(null);
                                   setActiveCell(null);
                                   setContextMenu({ type: "chip", x: e.clientX, y: e.clientY, task, person });
                                 }}
-                                onDragStart={isPast ? undefined : e => {
+                                onDragStart={isReadOnly ? undefined : e => {
                                   e.stopPropagation();
                                   dragTaskRef.current   = task;
                                   dragPersonRef.current = person;
                                   e.dataTransfer.effectAllowed = "move";
                                 }}
-                                onUnassign={isPast ? undefined : () => handleUnassign(task.id, person)}
+                                onUnassign={isReadOnly ? undefined : () => handleUnassign(task.id, person)}
                               />
                             ))}
                           </div>
@@ -1892,7 +1924,9 @@ export default function SchedulePage() {
             <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-green-500" />Completed</span>
             {isPast
               ? <span className="text-[#bbb] ml-auto">Published record — read only · Click a chip to view details</span>
-              : <span className="text-[#bbb] ml-auto">Click cell to assign · Right-click chip for options · Drag unassigned chip to assign</span>
+              : isReadOnly
+                ? <span className="text-[#bbb] ml-auto">Live view — read only · Click a chip to view details</span>
+                : <span className="text-[#bbb] ml-auto">Click cell to assign · Right-click chip for options · Drag unassigned chip to assign</span>
             }
           </div>
         )}
@@ -1917,7 +1951,7 @@ export default function SchedulePage() {
           task={popoverTask}
           shifts={shifts}
           activeVols={activeVols}
-          isPast={isPast}
+          isPast={isReadOnly}
           initialPos={popoverPos}
           onClose={() => setPopoverTask(null)}
           onRemoveTask={handleRemoveTask}

@@ -22,8 +22,9 @@ where recurring = true
 
 
 -- ─── schedule_tasks ──────────────────────────────────────────────────────────
--- One row per task per day. Created lazily when a schedule day is opened.
--- References the staging schedule row.
+-- One row per task per shift per day. The same task can appear in multiple shifts
+-- on the same day (each occurrence is its own row). Deduplication is enforced
+-- in application code (getOrCreateScheduleTask matches by schedule_id+task_id+shift_id).
 
 create table if not exists schedule_tasks (
   id            uuid primary key default gen_random_uuid(),
@@ -32,8 +33,7 @@ create table if not exists schedule_tasks (
   shift_id      uuid references shifts(id) on delete set null,
   override_notes text,
   slots_needed  integer not null default 1,
-  created_at    timestamptz not null default now(),
-  unique (schedule_id, task_id)
+  created_at    timestamptz not null default now()
 );
 
 create index if not exists schedule_tasks_schedule_id_idx on schedule_tasks(schedule_id);

@@ -66,28 +66,23 @@ async function getOrCreateScheduleTask(
   shiftId: string | null,
   slotsNeeded: number
 ): Promise<string | null> {
-  const existing = await supabaseRequest<{ id: string; shift_id: string | null }[]>("schedule_tasks", {
-    query: {
-      select: "id,shift_id",
-      schedule_id: `eq.${scheduleId}`,
-      task_id: `eq.${taskId}`,
-      limit: "1",
-    },
-  });
-  if (existing?.[0]) {
-    const row = existing[0];
-    // If the user is explicitly placing the task in a specific shift cell and the
-    // existing row has a different shift (e.g. auto-populated from a prior occurrence),
-    // move the row to the requested shift so the chip appears in the right column.
-    if (shiftId !== null && row.shift_id !== shiftId) {
-      await supabaseRequest("schedule_tasks", {
-        method: "PATCH",
-        query: { id: `eq.${row.id}` },
-        body: { shift_id: shiftId },
-      });
-    }
-    return row.id;
+  // Match by (task_id + shift_id) so each shift gets its own row.
+  // A one-off task in Morning and the same task in Afternoon are two independent
+  // schedule_tasks rows — never collapse them by patching the shift on an existing row.
+  const query: Record<string, string> = {
+    select: "id",
+    schedule_id: `eq.${scheduleId}`,
+    task_id: `eq.${taskId}`,
+    limit: "1",
+  };
+  if (shiftId !== null) {
+    query.shift_id = `eq.${shiftId}`;
+  } else {
+    query.shift_id = "is.null";
   }
+
+  const existing = await supabaseRequest<{ id: string }[]>("schedule_tasks", { query });
+  if (existing?.[0]) return existing[0].id;
 
   const created = await supabaseRequest<{ id: string }[]>("schedule_tasks", {
     method: "POST",

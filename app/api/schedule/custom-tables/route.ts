@@ -108,6 +108,11 @@ export async function GET(req: Request) {
       : [];
     return NextResponse.json({ tables: fallbackRows.map(mapTable) });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Table may not exist yet on this environment — return empty rather than 500
+    if (msg.includes("does not exist") || msg.includes("42P01")) {
+      return NextResponse.json({ tables: [] });
+    }
     console.error("Failed to load custom tables:", err);
     return NextResponse.json({ error: "Unable to load custom tables" }, { status: 500 });
   }

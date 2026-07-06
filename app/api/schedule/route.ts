@@ -219,10 +219,16 @@ async function autoPopulate(scheduleId: string, isoDate: string) {
       const activeVols    = await getActiveVolunteers();
       const toAdd         = liveAssignees.filter(n => activeVols.has(n));
 
-      // Skip if the assignment set is already identical
+      // Skip if the live assignment set hasn't changed — compare raw live assignees
+      // (not filtered by active) so that deactivating a user doesn't count as a change
+      // and doesn't cause us to wipe the deactivated user from today's staging schedule.
       const currentNamesSet = new Set(currentAssigns.map(a => a.user_name));
-      const alreadySame     = toAdd.length === currentAssigns.length && toAdd.every(n => currentNamesSet.has(n));
-      if (alreadySame) continue;
+      const liveNamesSet    = new Set(liveAssignees);
+      const liveUnchanged   =
+        liveAssignees.length === currentAssigns.length &&
+        liveAssignees.every(n => currentNamesSet.has(n)) &&
+        currentAssigns.every(a => liveNamesSet.has(a.user_name));
+      if (liveUnchanged) continue;
 
       try {
         if (currentAssigns.length > 0) {
@@ -363,11 +369,17 @@ export async function GET(req: Request) {
     }
 
     if (!scheduleId) {
+      const emptySlots = shifts.map(s => ({ ...s }));
+      const emptyCells = volunteers.map(() => shifts.map(() => ""));
+      const emptyTaskCells = volunteers.map(() => shifts.map(() => ({ tasks: [] })));
       return NextResponse.json({
         shifts,
         people: volunteers,
         scheduleTasks: [],
         scheduleDate: toLabel(isoDate),
+        slots: emptySlots,
+        cells: emptyCells,
+        taskCells: emptyTaskCells,
         ...(!isStaging ? { message: "No live schedule published yet." } : {}),
       });
     }
@@ -404,7 +416,15 @@ export async function GET(req: Request) {
       shifts.map(shift => ({
         tasks: enrichedTasks
           .filter(st => st.shiftId === shift.id && st.assignments.some(a => a.userName === person))
-          .map(st => ({ id: st.taskId, name: st.taskName })),
+          .map(st => {
+            const assignment = st.assignments.find(a => a.userName === person);
+            return {
+              id: st.taskId,
+              name: st.taskName,
+              scheduleTaskId: st.id,
+              status: assignment?.status ?? "Not Started",
+            };
+          }),
       }))
     );
 

@@ -12,7 +12,7 @@ type Slot = {
   isMeal: boolean;
 };
 
-type ScheduleTaskRef = { id: string; name: string };
+type ScheduleTaskRef = { id: string; name: string; scheduleTaskId?: string; status?: string };
 type ScheduleCellDetails = { tasks: ScheduleTaskRef[]; note?: string; blocked?: boolean };
 
 type ScheduleResponse = {
@@ -969,14 +969,36 @@ export default function HubSchedulePage() {
         const status = reportStatus[row.key] || "";
 
         if (status) {
-          const statusResponse = await fetch("/api/task", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
-          });
-          if (!statusResponse.ok) {
-            throw new Error(`Failed to update status for ${base}`);
+          const scheduleTaskId = scheduleTaskIdByName[taskBaseName(base)];
+
+          const rowUpdates: Promise<unknown>[] = [];
+
+          if (scheduleTaskId && currentUserName) {
+            rowUpdates.push(
+              fetch("/api/schedule/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "status",
+                  scheduleTaskId,
+                  userName: currentUserName,
+                  status,
+                }),
+              })
+            );
           }
+
+          rowUpdates.push(
+            fetch("/api/task", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: base, status, occurrenceDate: scheduleDateLabel }),
+            }).then(async (r) => {
+              if (!r.ok) throw new Error(`Failed to update status for ${base}`);
+            })
+          );
+
+          await Promise.all(rowUpdates);
         }
       });
 
@@ -1294,6 +1316,45 @@ export default function HubSchedulePage() {
     };
   }, [loadSchedule, scheduleAutoRefreshEnabled]);
 
+  // Map from task base name → scheduleTaskId for the current user's assignments.
+  // Used to route status updates to schedule_assignments via /api/schedule/update.
+  const scheduleTaskIdByName = useMemo<Record<string, string>>(() => {
+    if (!data?.taskCells || !currentUserName) return {};
+    const personIdx = data.people.findIndex(
+      (p) => p.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (personIdx < 0) return {};
+    const map: Record<string, string> = {};
+    data.taskCells[personIdx]?.forEach((cell) => {
+      cell.tasks?.forEach((taskRef) => {
+        const key = taskBaseName(taskRef.name || "");
+        if (key && taskRef.scheduleTaskId) map[key] = taskRef.scheduleTaskId;
+      });
+    });
+    return map;
+  }, [data, currentUserName]);
+
+  // Seed per-user assignment statuses from the schedule response into taskMetaMap
+  // so the correct status shows immediately (schedule_assignments is the source of truth).
+  useEffect(() => {
+    if (!data?.taskCells || !currentUserName) return;
+    const personIdx = data.people.findIndex(
+      (p) => p.toLowerCase() === currentUserName.toLowerCase()
+    );
+    if (personIdx < 0) return;
+    setTaskMetaMap((prev) => {
+      const next = { ...prev };
+      data.taskCells![personIdx]?.forEach((cell) => {
+        cell.tasks?.forEach((taskRef) => {
+          const key = taskBaseName(taskRef.name || "");
+          if (!key || taskRef.status === undefined) return;
+          next[key] = { ...next[key], status: taskRef.status, description: next[key]?.description || "" };
+        });
+      });
+      return next;
+    });
+  }, [data, currentUserName]);
+
   // Preload task status/description for tagging
   useEffect(() => {
     if (!data) return;
@@ -1388,15 +1449,18 @@ export default function HubSchedulePage() {
         const next = { ...prev } as Record<string, TaskMeta>;
         results.forEach((item) => {
           if (item) {
+            // Preserve existing status (seeded from schedule_assignments) over the
+            // stale tasks.status value returned by /api/task, since status now lives
+            // in schedule_assignments and tasks.status is no longer the source of truth.
             next[item.key] = {
-              status: item.status,
+              status: prev[item.key]?.status || item.status,
               description: item.description,
               extraNotes: item.extraNotes,
               typeName: item.typeName,
               typeColor: item.typeColor,
             };
             next[item.original] = {
-              status: item.status,
+              status: prev[item.original]?.status || item.status,
               description: item.description,
               extraNotes: item.extraNotes,
               typeName: item.typeName,
@@ -2202,21 +2266,36 @@ export default function HubSchedulePage() {
       },
     }));
 
-    try {
-      await fetch("/api/task", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: taskName,
-          status: newStatus,
-          occurrenceDate: occurrenceParam,
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to update task status:", e);
+    const scheduleTaskId = scheduleTaskIdByName[taskBaseName(taskName)];
+
+    const updates: Promise<unknown>[] = [];
+
+    // Primary: update per-user status in schedule_assignments (new schema)
+    if (scheduleTaskId && currentUserName) {
+      updates.push(
+        fetch("/api/schedule/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "status",
+            scheduleTaskId,
+            userName: currentUserName,
+            status: newStatus,
+          }),
+        }).catch((e) => console.error("Failed to update assignment status:", e))
+      );
     }
+
+    // Legacy: also update tasks.status so push notifications still fire
+    updates.push(
+      fetch("/api/task", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: taskName, status: newStatus, occurrenceDate: occurrenceParam }),
+      }).catch((e) => console.error("Failed to update task status:", e))
+    );
+
+    await Promise.all(updates);
   }
 
   async function submitTaskComment(taskName: string) {
