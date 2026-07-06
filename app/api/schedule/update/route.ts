@@ -117,10 +117,15 @@ export async function POST(req: Request) {
         if (!scheduleTaskId || !userName) {
           return NextResponse.json({ error: "Missing scheduleTaskId or userName." }, { status: 400 });
         }
-        await supabaseRequest("schedule_assignments", {
-          method: "POST",
-          body: { schedule_task_id: scheduleTaskId, user_name: userName, status: "Not Started" },
-        });
+        try {
+          await supabaseRequest("schedule_assignments", {
+            method: "POST",
+            body: { schedule_task_id: scheduleTaskId, user_name: userName, status: "Not Started" },
+          });
+        } catch (err) {
+          // 23505 = unique_violation: person is already assigned — end state is correct, not an error
+          if (!(err instanceof Error && err.message.includes("23505"))) throw err;
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -337,6 +342,8 @@ export async function POST(req: Request) {
         if (allAssignments.length) {
           await supabaseRequest("schedule_assignments", {
             method: "POST",
+            prefer: "resolution=ignore-duplicates",
+            query: { on_conflict: "schedule_task_id,user_name" },
             body: allAssignments,
           });
         }
