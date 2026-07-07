@@ -3,7 +3,7 @@
 -- Old tables are NOT dropped here — drop them separately after verifying the new data looks correct.
 --
 -- Run AFTER schedule_redesign_schema.sql.
--- Safe to run multiple times — all inserts use ON CONFLICT DO NOTHING.
+-- Designed to run once. SELECT DISTINCT prevents duplicates within a single run.
 --
 -- ⚠️  On dev: only run this if you have existing schedule_cells data to migrate.
 --     If you seeded fresh dev data there's nothing to migrate — skip this file.
@@ -28,8 +28,7 @@ select distinct
 from schedule_cells sc
 cross join lateral unnest(sc.tasks) as cell_task(id_text)
 join tasks t on t.id = cell_task.id_text::uuid
-where cardinality(sc.tasks) > 0
-on conflict (schedule_id, task_id) do nothing;
+where cardinality(sc.tasks) > 0;
 
 
 -- ─── Step 2: schedule_assignments ────────────────────────────────────────────
@@ -49,8 +48,7 @@ join tasks t on t.id = cell_task.id_text::uuid
 join schedule_tasks st
   on st.schedule_id = sc.schedule_id
   and st.task_id = coalesce(t.parent_task_id, t.id)
-where cardinality(sc.tasks) > 0
-on conflict (schedule_task_id, user_name) do nothing;
+where cardinality(sc.tasks) > 0;
 
 
 -- ─── Verification queries ─────────────────────────────────────────────────────
